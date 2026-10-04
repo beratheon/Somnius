@@ -22,54 +22,97 @@ class WatchlistManager: ObservableObject {
     @Published private(set) var watchlist: [MediaItem] = []
     @Published private(set) var favorites: [MediaItem] = []
     @Published private(set) var history: [WatchHistoryItem] = []
-
-    private let watchlistKey = "User_Watchlist_Items_V2"
-    private let favoritesKey = "User_Favorites_Items_V2"
-    private let historyKey = "User_WatchHistory_Items_V2"
-    private let episodeProgressKey = "User_EpisodeProgress_Map_V1"
-    private let watchedEpisodesKey = "User_Watched_Episodes_V1"
-
     @Published private(set) var watchedEpisodes: Set<String> = []
     private var episodeProgressMap: [String: Double] = [:]
 
+    private var profileScopeId: String {
+        if let id = UserDefaults.standard.string(forKey: "Somnius_Active_Account_ID_v2"), !id.isEmpty {
+            return id
+        }
+        return "default"
+    }
+
+    private var watchlistKey: String { "User_Watchlist_Items_\(profileScopeId)" }
+    private var favoritesKey: String { "User_Favorites_Items_\(profileScopeId)" }
+    private var historyKey: String { "User_WatchHistory_Items_\(profileScopeId)" }
+    private var episodeProgressKey: String { "User_EpisodeProgress_Map_\(profileScopeId)" }
+    private var watchedEpisodesKey: String { "User_Watched_Episodes_\(profileScopeId)" }
+
     init() {
+        loadData()
+    }
+
+    func reloadForCurrentProfile() {
+        self.watchlist = []
+        self.favorites = []
+        self.history = []
+        self.watchedEpisodes = []
+        self.episodeProgressMap = [:]
         loadData()
     }
 
     private func loadData() {
         if let map = UserDefaults.standard.dictionary(forKey: episodeProgressKey) as? [String: Double] {
             self.episodeProgressMap = map
+        } else {
+            self.episodeProgressMap = [:]
         }
+
         if let saved = UserDefaults.standard.stringArray(forKey: watchedEpisodesKey) {
             self.watchedEpisodes = Set(saved)
+        } else {
+            self.watchedEpisodes = []
         }
 
         let decoder = JSONDecoder()
         if let data = UserDefaults.standard.data(forKey: watchlistKey),
            let items = try? decoder.decode([MediaItem].self, from: data) {
             self.watchlist = items
+        } else if profileScopeId == "default",
+                  let legacyData = UserDefaults.standard.data(forKey: "User_Watchlist_Items_V2"),
+                  let items = try? decoder.decode([MediaItem].self, from: legacyData) {
+            // Seamless migration from legacy un-scoped key
+            self.watchlist = items
+        } else {
+            self.watchlist = []
         }
 
         if let data = UserDefaults.standard.data(forKey: favoritesKey),
            let items = try? decoder.decode([MediaItem].self, from: data) {
             self.favorites = items
+        } else if profileScopeId == "default",
+                  let legacyData = UserDefaults.standard.data(forKey: "User_Favorites_Items_V2"),
+                  let items = try? decoder.decode([MediaItem].self, from: legacyData) {
+            self.favorites = items
+        } else {
+            self.favorites = []
         }
 
         if let data = UserDefaults.standard.data(forKey: historyKey),
            let items = try? decoder.decode([WatchHistoryItem].self, from: data) {
-            self.history = items.map { item in
-                if item.mediaItem.type == .movie {
-                    return WatchHistoryItem(
-                        mediaItem: item.mediaItem,
-                        seasonNumber: nil,
-                        episodeNumber: nil,
-                        timestamp: item.timestamp,
-                        progressSeconds: item.progressSeconds,
-                        totalDurationSeconds: item.totalDurationSeconds
-                    )
-                }
-                return item
+            self.history = sanitizeHistory(items)
+        } else if profileScopeId == "default",
+                  let legacyData = UserDefaults.standard.data(forKey: "User_WatchHistory_Items_V2"),
+                  let items = try? decoder.decode([WatchHistoryItem].self, from: legacyData) {
+            self.history = sanitizeHistory(items)
+        } else {
+            self.history = []
+        }
+    }
+
+    private func sanitizeHistory(_ items: [WatchHistoryItem]) -> [WatchHistoryItem] {
+        return items.map { item in
+            if item.mediaItem.type == .movie {
+                return WatchHistoryItem(
+                    mediaItem: item.mediaItem,
+                    seasonNumber: nil,
+                    episodeNumber: nil,
+                    timestamp: item.timestamp,
+                    progressSeconds: item.progressSeconds,
+                    totalDurationSeconds: item.totalDurationSeconds
+                )
             }
+            return item
         }
     }
 

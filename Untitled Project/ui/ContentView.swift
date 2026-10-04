@@ -235,6 +235,62 @@ struct ContentView: View {
                 .transition(.opacity)
                 .zIndex(200)
             }
+
+            // 1-Second Profile Switch Loading Screen (Takes over entire screen)
+            if accountManager.isSwitchingProfile {
+                let target = accountManager.switchingProfileTarget ?? accountManager.activeAccount
+                ZStack {
+                    Color.black.opacity(0.96)
+                        .ignoresSafeArea()
+
+                    // Ambient glow of profile color
+                    RadialGradient(
+                        colors: [
+                            AccountManager.colorForName(target?.avatarColor ?? "purple").opacity(0.25),
+                            Color.clear
+                        ],
+                        center: .center,
+                        startRadius: 20,
+                        endRadius: 360
+                    )
+                    .ignoresSafeArea()
+
+                    VStack(spacing: 24) {
+                        ZStack {
+                            Circle()
+                                .fill(AccountManager.colorForName(target?.avatarColor ?? "purple").opacity(0.2))
+                                .frame(width: 110, height: 110)
+                                .overlay(
+                                    Circle()
+                                        .stroke(AccountManager.colorForName(target?.avatarColor ?? "purple").opacity(0.8), lineWidth: 3)
+                                )
+                                .shadow(color: AccountManager.colorForName(target?.avatarColor ?? "purple").opacity(0.5), radius: 20, x: 0, y: 8)
+
+                            Image(systemName: target?.avatarIcon ?? "person.fill")
+                                .font(.system(size: 48, weight: .semibold))
+                                .foregroundColor(AccountManager.colorForName(target?.avatarColor ?? "purple"))
+                        }
+
+                        VStack(spacing: 8) {
+                            Text("Switching to \(target?.username ?? "Profile")...")
+                                .font(.custom("Baskerville", size: 26))
+                                .foregroundColor(.white)
+
+                            Text("Loading personal watchlist, history & settings")
+                                .font(.subheadline)
+                                .foregroundColor(.white.opacity(0.6))
+                        }
+
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(1.2)
+                            .padding(.top, 10)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity)
+                .zIndex(500)
+            }
         }
         .preferredColorScheme(.dark)
         .ignoresSafeArea()

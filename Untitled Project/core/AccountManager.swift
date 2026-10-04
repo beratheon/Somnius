@@ -54,6 +54,8 @@ public class AccountManager: ObservableObject {
     @Published public private(set) var accounts: [UserAccount] = []
     @Published public private(set) var activeAccount: UserAccount?
     @Published public var showAccountModal: Bool = false
+    @Published public var isSwitchingProfile: Bool = false
+    @Published public var switchingProfileTarget: UserAccount? = nil
 
     public static let availableAvatarIcons = [
         "person.fill",
@@ -167,6 +169,23 @@ public class AccountManager: ObservableObject {
         UserDefaults.standard.set(account.id.uuidString, forKey: activeAccountIdKey)
         applyAccountSettings(account)
         Config.hasCompletedOnboarding = true
+        WatchlistManager.shared.reloadForCurrentProfile()
+    }
+
+    public func switchAccountWithTransition(_ account: UserAccount) {
+        self.switchingProfileTarget = account
+        self.isSwitchingProfile = true
+        self.showAccountModal = false
+
+        Task { @MainActor in
+            // Exactly 1 second elegant transition so user clearly notices profile switch
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            self.selectAccount(account)
+            withAnimation(.easeInOut(duration: 0.3)) {
+                self.isSwitchingProfile = false
+                self.switchingProfileTarget = nil
+            }
+        }
     }
 
     public func updateAccount(_ updated: UserAccount) {

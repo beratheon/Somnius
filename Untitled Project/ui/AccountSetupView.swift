@@ -5,8 +5,9 @@ struct AccountSetupView: View {
     var onComplete: () -> Void
 
     @ObservedObject private var accountManager = AccountManager.shared
+    @ObservedObject private var addonManager = StremioAddonManager.shared
     @State private var isCreatingNewProfile: Bool = false
-    @State private var step: Int = 1 // 1: Identity, 2: Streaming Engine Decision, 3: Playback Preferences
+    @State private var step: Int = 1 // 1: Identity, 2: Streaming Engine Decision, 3: Playback Preferences, 4: Add-ons (Optional)
 
     // Profile form state
     @State private var profileName: String = ""
@@ -16,6 +17,10 @@ struct AccountSetupView: View {
     @State private var debridApiKeyInput: String = ""
     @State private var preferredQuality: String = "4k"
     @State private var preferredLanguage: String = "en"
+
+    // Addon install state in onboarding
+    @State private var customAddonUrlInput: String = ""
+    @State private var addonInstallError: String? = nil
 
     // Verification state
     @State private var isTestingKey: Bool = false
@@ -47,7 +52,7 @@ struct AccountSetupView: View {
                 profileCreationFlow
             }
         }
-        .frame(minWidth: 950, minHeight: 650)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .preferredColorScheme(.dark)
     }
 
@@ -84,8 +89,8 @@ struct AccountSetupView: View {
                 HStack(spacing: 28) {
                     ForEach(accountManager.accounts) { account in
                         Button(action: {
-                            accountManager.selectAccount(account)
                             onComplete()
+                            accountManager.switchAccountWithTransition(account)
                         }) {
                             VStack(spacing: 16) {
                                 ZStack {
@@ -154,8 +159,8 @@ struct AccountSetupView: View {
                     debridApiKey: nil,
                     isGuest: true
                 )
-                accountManager.selectAccount(guest)
                 onComplete()
+                accountManager.switchAccountWithTransition(guest)
             }) {
                 HStack(spacing: 8) {
                     Image(systemName: "person.fill.badge.plus")
@@ -194,10 +199,12 @@ struct AccountSetupView: View {
                 // Step Indicator
                 HStack(spacing: 8) {
                     stepCircle(num: 1, title: "Profile")
-                    Divider().frame(width: 24, height: 1).background(Color.white.opacity(0.2))
+                    Divider().frame(width: 20, height: 1).background(Color.white.opacity(0.2))
                     stepCircle(num: 2, title: "Streaming Engine")
-                    Divider().frame(width: 24, height: 1).background(Color.white.opacity(0.2))
+                    Divider().frame(width: 20, height: 1).background(Color.white.opacity(0.2))
                     stepCircle(num: 3, title: "Preferences")
+                    Divider().frame(width: 20, height: 1).background(Color.white.opacity(0.2))
+                    stepCircle(num: 4, title: "Add-ons")
                 }
                 Spacer()
                 // Placeholder to balance HStack
@@ -212,11 +219,13 @@ struct AccountSetupView: View {
                     step1IdentityView
                 } else if step == 2 {
                     step2EngineDecisionView
-                } else {
+                } else if step == 3 {
                     step3PreferencesView
+                } else {
+                    step4AddonsView
                 }
             }
-            .frame(maxWidth: 720)
+            .frame(maxWidth: 760)
 
             // Navigation Controls
             HStack(spacing: 16) {
@@ -235,7 +244,7 @@ struct AccountSetupView: View {
 
                 Spacer()
 
-                if step < 3 {
+                if step < 4 {
                     Button("Continue") {
                         withAnimation { step += 1 }
                     }
@@ -248,13 +257,23 @@ struct AccountSetupView: View {
                     .buttonStyle(PlainButtonStyle())
                     .disabled(profileName.isEmpty)
                 } else {
+                    // Optional Add-ons step - Clear choices
+                    Button(action: finalizeAccountCreation) {
+                        Text("Skip / Setup Later")
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.6))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+
                     Button(action: finalizeAccountCreation) {
                         HStack(spacing: 8) {
                             Image(systemName: "sparkles")
-                            Text("Launch Somnius")
+                            Text("Complete & Launch Somnius")
                         }
                         .font(.headline.bold())
-                        .padding(.horizontal, 32)
+                        .padding(.horizontal, 28)
                         .padding(.vertical, 12)
                         .background(
                             LinearGradient(colors: [Color.blue, Color.purple], startPoint: .leading, endPoint: .trailing)
@@ -266,7 +285,7 @@ struct AccountSetupView: View {
                     .buttonStyle(PlainButtonStyle())
                 }
             }
-            .frame(maxWidth: 720)
+            .frame(maxWidth: 760)
             .padding(.bottom, 24)
         }
     }
@@ -584,6 +603,161 @@ struct AccountSetupView: View {
             .padding(20)
             .background(Color.white.opacity(0.04))
             .cornerRadius(14)
+        }
+    }
+
+    // MARK: - Step 4: Community Add-ons (Optional)
+    private var step4AddonsView: some View {
+        VStack(spacing: 20) {
+            VStack(spacing: 6) {
+                HStack(spacing: 8) {
+                    Text("Community Add-ons")
+                        .font(.title2.bold())
+                        .foregroundColor(.white)
+                    Text("Optional")
+                        .font(.caption.bold())
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.cyan.opacity(0.2))
+                        .foregroundColor(.cyan)
+                        .cornerRadius(6)
+                }
+
+                Text("Somnius is an agnostic player shell. Add-ons enable community scraping manifests.")
+                    .font(.subheadline)
+                    .foregroundColor(.white.opacity(0.6))
+            }
+
+            // Legal & Agnostic notice
+            HStack(spacing: 12) {
+                Image(systemName: "shield.lefthalf.filled")
+                    .foregroundColor(.cyan)
+                    .font(.title3)
+
+                Text("Zero tracking code is bundled inside Somnius. You can stream local files, install community add-ons now, or configure them later in Settings.")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.75))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer()
+
+                Link(destination: URL(string: "https://github.com/beratheon/Somnius")!) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.up.right.square")
+                        Text("Add-on Guide")
+                    }
+                    .font(.caption.bold())
+                    .foregroundColor(.cyan)
+                }
+            }
+            .padding(14)
+            .background(Color.cyan.opacity(0.08))
+            .cornerRadius(12)
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cyan.opacity(0.2), lineWidth: 1))
+
+            // Popular 1-Click Community Add-ons
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Popular Community Manifests")
+                    .font(.caption.bold())
+                    .foregroundColor(.white.opacity(0.8))
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    ForEach(addonManager.communityTemplates.prefix(4)) { template in
+                        let isInstalled = addonManager.installedAddons.contains(where: { $0.id == template.id || $0.manifestUrl == template.manifestUrl })
+                        HStack(spacing: 12) {
+                            Image(systemName: template.icon)
+                                .font(.title3)
+                                .foregroundColor(.purple)
+                                .frame(width: 28)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(template.name)
+                                    .font(.subheadline.bold())
+                                    .foregroundColor(.white)
+                                Text(template.description)
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                                    .lineLimit(2)
+                            }
+
+                            Spacer()
+
+                            Button(action: {
+                                Task {
+                                    try? await addonManager.installAddon(rawUrl: template.manifestUrl)
+                                }
+                            }) {
+                                Text(isInstalled ? "Installed" : "Add")
+                                    .font(.caption.bold())
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(isInstalled ? Color.white.opacity(0.08) : Color.blue.opacity(0.25))
+                                    .foregroundColor(isInstalled ? .gray : .cyan)
+                                    .cornerRadius(6)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .disabled(isInstalled)
+                        }
+                        .padding(12)
+                        .background(Color.white.opacity(0.04))
+                        .cornerRadius(10)
+                    }
+                }
+            }
+
+            // Custom Manifest URL Input
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Or Paste Custom Add-on URL")
+                    .font(.caption.bold())
+                    .foregroundColor(.white.opacity(0.8))
+
+                HStack(spacing: 10) {
+                    TextField("https://.../manifest.json", text: $customAddonUrlInput)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .font(.system(size: 13, design: .monospaced))
+                        .padding(9)
+                        .background(Color.white.opacity(0.06))
+                        .cornerRadius(8)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
+
+                    Button(action: {
+                        guard !customAddonUrlInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                        addonInstallError = nil
+                        Task {
+                            do {
+                                _ = try await addonManager.installAddon(rawUrl: customAddonUrlInput)
+                                customAddonUrlInput = ""
+                            } catch {
+                                addonInstallError = error.localizedDescription
+                            }
+                        }
+                    }) {
+                        HStack(spacing: 5) {
+                            if addonManager.isInstalling {
+                                ProgressView().scaleEffect(0.6)
+                            }
+                            Text("Install")
+                        }
+                        .font(.caption.bold())
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(addonManager.isInstalling || customAddonUrlInput.isEmpty)
+                }
+
+                if let err = addonInstallError {
+                    Text(err)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+            }
+            .padding(14)
+            .background(Color.white.opacity(0.03))
+            .cornerRadius(12)
         }
     }
 
