@@ -130,13 +130,13 @@ class AggregatorService {
             }
         }
 
-        // 2. All remaining candidates are torrents (magnet / infoHash). Real-Debrid is required to convert them to HTTP streams.
+        // 2. Direct HTTP link or add-on resolver required
         guard !key.isEmpty else {
             throw NSError(
                 domain: "AggregatorService",
                 code: 401,
                 userInfo: [
-                    NSLocalizedDescriptionKey: "Real-Debrid API Key is required to resolve torrent streams into video. Please enter your Real-Debrid API Key in Profile > Settings to stream 4K/HDR content."
+                    NSLocalizedDescriptionKey: "No direct playable HTTPS stream found from installed add-ons. To resolve external streams, configure your debrid provider in Settings > Add-ons."
                 ]
             )
         }
@@ -162,7 +162,7 @@ class AggregatorService {
             domain: "AggregatorService",
             code: 404,
             userInfo: [
-                NSLocalizedDescriptionKey: "Failed to resolve stream: All available stream candidates are offline or blocked on Real-Debrid."
+                NSLocalizedDescriptionKey: "Failed to resolve stream: All available stream candidates are currently unavailable or expired."
             ]
         )
     }

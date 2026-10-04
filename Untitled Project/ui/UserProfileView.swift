@@ -7,7 +7,7 @@ struct UserProfileView: View {
     @ObservedObject private var liveCatalogService = LiveCatalogService.shared
     @Environment(\.dismiss) private var dismiss
 
-    @State private var selectedCategory: SettingsCategory = .setupMode
+    @State private var selectedCategory: SettingsCategory = .player
     @State private var inputKey: String = Config.realDebridApiKey
     @State private var tvdbInputKey: String = Config.tvdbApiKey
     @State private var tvdbStatusMessage: String?
@@ -38,6 +38,7 @@ struct UserProfileView: View {
     @State private var showExportAlert: Bool = false
     @State private var showResetConfirm: Bool = false
     @State private var showAddCatalogSheet: Bool = false
+    @State private var configuredAddonForSheet: InstalledAddon? = nil
 
     var onSelectMediaItem: (MediaItem) -> Void
     var onSelectTorrentLink: (String) -> Void
@@ -98,7 +99,7 @@ struct UserProfileView: View {
                         Text("Settings")
                             .font(.custom("Baskerville", size: 21))
                             .foregroundColor(.white)
-                        Text(viewModel.realDebridUser != nil ? viewModel.realDebridUser!.username : (Config.isDebridMode ? "Debrid Mode" : "Classic Mode"))
+                        Text("Preferences & Add-ons")
                             .font(.caption2)
                             .foregroundColor(.white.opacity(0.5))
                     }
@@ -111,7 +112,14 @@ struct UserProfileView: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 4) {
-                        ForEach(SettingsCategory.allCases) { cat in
+                        ForEach(SettingsCategory.allCases.filter { cat in
+                            if cat == .setupMode { return false } // Replaced by clean player defaults
+                            if cat == .debridAccount || cat == .cloud {
+                                // Only show if user has an active configured token from their add-on
+                                return !Config.realDebridApiKey.isEmpty
+                            }
+                            return true
+                        }) { cat in
                             Button(action: {
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     selectedCategory = cat
@@ -231,6 +239,12 @@ struct UserProfileView: View {
         }
         .sheet(isPresented: $showAddCatalogSheet) {
             addCatalogSheet
+        }
+        .sheet(item: $configuredAddonForSheet) { addon in
+            AddonSettingsModalView(addon: addon) {
+                configuredAddonForSheet = nil
+                viewModel.fetchContent()
+            }
         }
         .alert("Catalogs Exported", isPresented: $showExportAlert) {
             Button("OK", role: .cancel) {}
@@ -757,7 +771,7 @@ struct UserProfileView: View {
                     Text("Decoupled Add-on Architecture")
                         .font(.subheadline.bold())
                         .foregroundColor(.white)
-                    Text("Somnius is an agnostic media player shell. Streaming scrapers run externally via the open Stremio Add-on Protocol (v3). You can install custom community manifests or configure Real-Debrid tokens securely on your local device.")
+                    Text("Somnius is an agnostic media player shell. Scrapers and stream indexers run externally via the open Stremio Add-on Protocol (v3). You can install custom community manifests or configure provider credentials directly inside each add-on.")
                         .font(.caption)
                         .foregroundColor(.gray)
                         .fixedSize(horizontal: false, vertical: true)
@@ -881,6 +895,19 @@ struct UserProfileView: View {
                                 ))
                                 .toggleStyle(.switch)
                                 .scaleEffect(0.85)
+
+                                Button(action: {
+                                    configuredAddonForSheet = addon
+                                }) {
+                                    Image(systemName: "gearshape.fill")
+                                        .font(.caption)
+                                        .foregroundColor(.white.opacity(0.8))
+                                        .padding(8)
+                                        .background(Color.white.opacity(0.1))
+                                        .clipShape(Circle())
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .help("Configure Add-on Settings & Provider Keys")
 
                                 Button(action: {
                                     addonManager.removeAddon(id: addon.id)
@@ -1799,5 +1826,126 @@ struct AddCatalogModalView: View {
             .buttonStyle(PlainButtonStyle())
             .disabled(customName.isEmpty || customEndpoint.isEmpty)
         }
+    }
+}
+
+// MARK: - Add-on Specific Settings Modal View
+struct AddonSettingsModalView: View {
+    let addon: InstalledAddon
+    var onDismiss: () -> Void
+
+    @State private var inputProviderKey: String = Config.realDebridApiKey
+    @State private var statusNote: String? = nil
+
+    var body: some View {
+        VStack(spacing: 20) {
+            // Header
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(Color.purple.opacity(0.2))
+                        .frame(width: 44, height: 44)
+                    Image(systemName: "gearshape.2.fill")
+                        .foregroundColor(.purple)
+                        .font(.title3)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(addon.name) Settings")
+                        .font(.custom("Baskerville", size: 22))
+                        .foregroundColor(.white)
+                    Text("v\(addon.version) • Configure external resolver credentials for this add-on")
+                        .font(.custom("Helvetica", size: 12))
+                        .foregroundColor(.gray)
+                }
+
+                Spacer()
+
+                Button("Done") {
+                    onDismiss()
+                }
+                .font(.custom("Helvetica", size: 13).weight(.bold))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 7)
+                .background(Color.white.opacity(0.12))
+                .foregroundColor(.white)
+                .cornerRadius(8)
+                .buttonStyle(PlainButtonStyle())
+            }
+
+            Divider().background(Color.white.opacity(0.1))
+
+            // Add-on info
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Manifest Source URL")
+                    .font(.custom("Helvetica", size: 11).weight(.bold))
+                    .foregroundColor(.white.opacity(0.6))
+                Text(addon.manifestUrl)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.8))
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white.opacity(0.04))
+                    .cornerRadius(6)
+            }
+
+            // External Debrid / Resolver Provider Token
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Debrid / Resolver API Key (Optional)")
+                        .font(.custom("Helvetica", size: 12).weight(.bold))
+                        .foregroundColor(.white)
+                    Spacer()
+                    Link("Get API Token ↗", destination: URL(string: "https://real-debrid.com/apitoken")!)
+                        .font(.custom("Helvetica", size: 11))
+                        .foregroundColor(.cyan)
+                }
+
+                Text("If this add-on indexes torrent or restricted streams, entering your debrid token allows the add-on to convert them into instant encrypted HTTPS streams.")
+                    .font(.custom("Helvetica", size: 12))
+                    .foregroundColor(.gray)
+
+                HStack(spacing: 10) {
+                    SecureField("Paste API Token here...", text: $inputProviderKey)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .font(.system(size: 13, design: .monospaced))
+                        .padding(10)
+                        .background(Color.white.opacity(0.06))
+                        .cornerRadius(8)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
+
+                    Button(action: {
+                        let clean = inputProviderKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                        Config.realDebridApiKey = clean
+                        Config.streamingSetupMode = clean.isEmpty ? "classic" : "debrid"
+                        statusNote = clean.isEmpty ? "✓ Provider key removed." : "✓ Provider key saved and activated for this add-on."
+                    }) {
+                        Text("Save Token")
+                            .font(.custom("Helvetica", size: 13).weight(.bold))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 9)
+                            .background(Color.purple)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+
+                if let note = statusNote {
+                    Text(note)
+                        .font(.custom("Helvetica", size: 12))
+                        .foregroundColor(.green)
+                }
+            }
+            .padding(16)
+            .background(Color.white.opacity(0.04))
+            .cornerRadius(12)
+
+            Spacer()
+        }
+        .padding(24)
+        .frame(width: 580, height: 420)
+        .background(Color(red: 0.08, green: 0.08, blue: 0.09))
+        .preferredColorScheme(.dark)
     }
 }

@@ -341,12 +341,6 @@ struct ContentView: View {
             set: { if !$0 { errorMessage = nil } }
         )) {
             Button("OK") { errorMessage = nil }
-            if Config.realDebridApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Button("Configure Real-Debrid Key") {
-                    errorMessage = nil
-                    showProfileModal = true
-                }
-            }
             Button("Choose Alternative Source") {
                 errorMessage = nil
                 showStreamPicker = true
@@ -543,27 +537,29 @@ struct StreamSelectionSheet: View {
                 } else if links.isEmpty {
                     VStack(spacing: 12) {
                         Spacer()
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 48))
-                            .foregroundColor(.yellow)
-                        Text("No Streams Found")
-                            .font(.title2.bold())
+                        Image(systemName: "square.stack.3d.up.slash")
+                            .font(.system(size: 46))
+                            .foregroundColor(.white.opacity(0.4))
+                        Text("No Streams Available")
+                            .font(.custom("Baskerville", size: 24))
                             .foregroundColor(.white)
-                        Text("Verify your RealDebrid API key in settings or try another item.")
-                            .font(.caption)
+                        Text(StremioAddonManager.shared.installedAddons.isEmpty ? "No active stream add-ons installed. Install a community add-on in Settings > Add-ons to resolve streams." : "None of your installed add-ons returned playable streams for this title.")
+                            .font(.custom("Helvetica", size: 13))
                             .foregroundColor(.gray)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
 
-                        if Config.realDebridApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Button("Enter Real-Debrid Key") {
+                        if StremioAddonManager.shared.installedAddons.isEmpty {
+                            Button("Manage Add-ons in Settings") {
                                 dismiss()
                                 NotificationCenter.default.post(name: NSNotification.Name("OpenProfileSettings"), object: nil)
                             }
-                            .font(.subheadline.bold())
-                            .padding(.horizontal, 16)
+                            .font(.custom("Helvetica", size: 13).weight(.bold))
+                            .padding(.horizontal, 18)
                             .padding(.vertical, 8)
-                            .background(Color.orange)
-                            .foregroundColor(.black)
-                            .cornerRadius(14)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
                             .buttonStyle(.plain)
                             .padding(.top, 6)
                         }
@@ -571,38 +567,6 @@ struct StreamSelectionSheet: View {
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 12) {
-                        if Config.realDebridApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            HStack(spacing: 12) {
-                                Image(systemName: "key.fill")
-                                    .foregroundColor(SoftTone.sand.color)
-                                    .font(.title3)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Real-Debrid API Key Required")
-                                        .font(.subheadline.bold())
-                                        .foregroundColor(.white)
-                                    Text("Torrent streams require a Real-Debrid API key to resolve into fast HTTPS video streams.")
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
-                                }
-                                Spacer()
-                                Button("Enter Key") {
-                                    dismiss()
-                                    NotificationCenter.default.post(name: NSNotification.Name("OpenProfileSettings"), object: nil)
-                                }
-                                .font(.caption.bold())
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 7)
-                                .background(SoftTone.sand.color)
-                                .foregroundColor(.black)
-                                .cornerRadius(12)
-                                .buttonStyle(.plain)
-                            }
-                            .padding(12)
-                            .background(SoftTone.sand.color.opacity(0.10))
-                            .cornerRadius(10)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 8)
-                        }
 
                         // Quick Action Header Bar
                         HStack {

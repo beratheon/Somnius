@@ -572,46 +572,24 @@ struct PlayerView: View {
                         }
 
                         VStack(spacing: 12) {
-                            if Config.realDebridApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                // Priority Action: Prompt user to enter Real-Debrid API Key
-                                Button(action: {
-                                    showPlaybackErrorSheet = false
-                                    onDismiss()
-                                    NotificationCenter.default.post(name: NSNotification.Name("OpenProfileSettings"), object: nil)
-                                }) {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "key.fill")
-                                        Text("Enter Real-Debrid API Key in Settings")
-                                    }
-                                    .font(.headline)
-                                    .frame(maxWidth: 380)
-                                    .padding(.vertical, 12)
-                                    .background(Color.white)
-                                    .foregroundColor(.black)
-                                    .cornerRadius(12)
+                            Button(action: {
+                                showPlaybackErrorSheet = false
+                                if let url = activeStreamURL ?? streamURL {
+                                    ksEngine.loadStream(url: url, startTime: currentTime)
                                 }
-                                .buttonStyle(.plain)
-                            } else {
-                                // Option 1: Reconnect stream with KSPlayer
-                                Button(action: {
-                                    showPlaybackErrorSheet = false
-                                    if let url = activeStreamURL ?? streamURL {
-                                        ksEngine.loadStream(url: url, startTime: currentTime)
-                                    }
-                                }) {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "arrow.clockwise.circle.fill")
-                                        Text("Try Again")
-                                    }
-                                    .font(.headline)
-                                    .frame(maxWidth: 380)
-                                    .padding(.vertical, 12)
-                                    .background(LinearGradient(colors: [.blue, .purple], startPoint: .leading, endPoint: .trailing))
-                                    .foregroundColor(.white)
-                                    .cornerRadius(12)
+                            }) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "arrow.clockwise")
+                                    Text("Retry Playback")
                                 }
-                                .buttonStyle(.plain)
+                                .font(.headline)
+                                .frame(maxWidth: 380)
+                                .padding(.vertical, 12)
+                                .background(Color.white)
+                                .foregroundColor(.black)
+                                .cornerRadius(12)
                             }
+                            .buttonStyle(.plain)
 
                             // Option 2: Alternative Sources Drawer
                             Button(action: {
@@ -1116,7 +1094,7 @@ struct PlayerView: View {
 
         // Validate that url is a playable stream scheme (http, https, file)
         guard let scheme = url.scheme?.lowercased(), (scheme == "http" || scheme == "https" || scheme == "file") else {
-            playbackError = "Direct stream URL not available. A Real-Debrid API Key is required to resolve torrent streams into video. Please enter your Real-Debrid API key in Profile > Settings."
+            playbackError = "Direct stream URL not available or incompatible format. Please select an alternative source."
             showPlaybackErrorSheet = true
             return
         }

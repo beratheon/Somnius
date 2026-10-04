@@ -7,25 +7,18 @@ struct AccountSetupView: View {
     @ObservedObject private var accountManager = AccountManager.shared
     @ObservedObject private var addonManager = StremioAddonManager.shared
     @State private var isCreatingNewProfile: Bool = false
-    @State private var step: Int = 1 // 1: Identity, 2: Streaming Engine Decision, 3: Playback Preferences, 4: Add-ons (Optional)
+    @State private var step: Int = 1 // 1: Profile, 2: Preferences, 3: Add-ons (Optional)
 
     // Profile form state
     @State private var profileName: String = ""
     @State private var selectedIcon: String = "person.fill"
     @State private var selectedColor: String = "purple"
-    @State private var selectedMode: String = "debrid" // "debrid" vs "classic"
-    @State private var debridApiKeyInput: String = ""
     @State private var preferredQuality: String = "4k"
     @State private var preferredLanguage: String = "en"
 
     // Addon install state in onboarding
     @State private var customAddonUrlInput: String = ""
     @State private var addonInstallError: String? = nil
-
-    // Verification state
-    @State private var isTestingKey: Bool = false
-    @State private var keyTestSuccessMessage: String?
-    @State private var keyTestErrorMessage: String?
 
     var body: some View {
         ZStack {
@@ -113,7 +106,7 @@ struct AccountSetupView: View {
                                         .font(.custom("Helvetica", size: 15).weight(.semibold))
                                         .foregroundColor(.white)
 
-                                    Text(account.setupMode == "debrid" ? "Real-Debrid" : "Classic P2P")
+                                    Text("Personal Profile")
                                         .font(.custom("Helvetica", size: 11))
                                         .foregroundColor(.white.opacity(0.5))
                                 }
@@ -199,12 +192,10 @@ struct AccountSetupView: View {
                 // Step Indicator
                 HStack(spacing: 8) {
                     stepCircle(num: 1, title: "Profile")
-                    Divider().frame(width: 20, height: 1).background(Color.white.opacity(0.2))
-                    stepCircle(num: 2, title: "Streaming Engine")
-                    Divider().frame(width: 20, height: 1).background(Color.white.opacity(0.2))
-                    stepCircle(num: 3, title: "Preferences")
-                    Divider().frame(width: 20, height: 1).background(Color.white.opacity(0.2))
-                    stepCircle(num: 4, title: "Add-ons")
+                    Divider().frame(width: 24, height: 1).background(Color.white.opacity(0.2))
+                    stepCircle(num: 2, title: "Preferences")
+                    Divider().frame(width: 24, height: 1).background(Color.white.opacity(0.2))
+                    stepCircle(num: 3, title: "Add-ons")
                 }
                 Spacer()
                 // Placeholder to balance HStack
@@ -218,11 +209,9 @@ struct AccountSetupView: View {
                 if step == 1 {
                     step1IdentityView
                 } else if step == 2 {
-                    step2EngineDecisionView
-                } else if step == 3 {
-                    step3PreferencesView
+                    step2PreferencesView
                 } else {
-                    step4AddonsView
+                    step3AddonsView
                 }
             }
             .frame(maxWidth: 760)
@@ -244,7 +233,7 @@ struct AccountSetupView: View {
 
                 Spacer()
 
-                if step < 4 {
+                if step < 3 {
                     Button("Continue") {
                         withAnimation { step += 1 }
                     }
@@ -389,176 +378,8 @@ struct AccountSetupView: View {
         }
     }
 
-    // MARK: - Step 2: Streaming Engine Decision
-    private var step2EngineDecisionView: some View {
-        VStack(spacing: 20) {
-            VStack(spacing: 6) {
-                Text("Choose How You Want to Stream")
-                    .font(.custom("Baskerville", size: 28))
-                    .foregroundColor(.white)
-                Text("Select your streaming engine. Somnius is an agnostic player shell.")
-                    .font(.custom("Helvetica", size: 14))
-                    .foregroundColor(.white.opacity(0.6))
-            }
-
-            HStack(spacing: 20) {
-                // Option 1: Debrid Cloud CDN
-                Button(action: { selectedMode = "debrid" }) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.purple.opacity(0.2))
-                                    .frame(width: 40, height: 40)
-                                Image(systemName: "bolt.shield.fill")
-                                    .foregroundColor(.purple)
-                                    .font(.title3)
-                            }
-                            Spacer()
-                            if selectedMode == "debrid" {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.purple)
-                                    .font(.title3)
-                            }
-                        }
-
-                        Text("Real-Debrid Cloud CDN")
-                            .font(.custom("Helvetica", size: 16).weight(.bold))
-                            .foregroundColor(.white)
-
-                        Text("Encrypted multi-gigabit streaming for massive 4K Remuxes & Dolby Atmos. Zero peer seeding or IP exposure.")
-                            .font(.custom("Helvetica", size: 12))
-                            .foregroundColor(.gray)
-                            .lineLimit(3)
-
-                        Text("Recommended for 4K UHD")
-                            .font(.custom("Helvetica", size: 10).weight(.bold))
-                            .foregroundColor(.purple)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Color.purple.opacity(0.15))
-                            .cornerRadius(6)
-                    }
-                    .padding(18)
-                    .frame(height: 190)
-                    .background(Color.white.opacity(selectedMode == "debrid" ? 0.08 : 0.03))
-                    .cornerRadius(16)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(selectedMode == "debrid" ? Color.purple : Color.white.opacity(0.08), lineWidth: 2)
-                    )
-                }
-                .buttonStyle(PlainButtonStyle())
-
-                // Option 2: Classic Free P2P
-                Button(action: { selectedMode = "classic" }) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.blue.opacity(0.2))
-                                    .frame(width: 40, height: 40)
-                                Image(systemName: "play.circle.fill")
-                                    .foregroundColor(.blue)
-                                    .font(.title3)
-                            }
-                            Spacer()
-                            if selectedMode == "classic" {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.blue)
-                                    .font(.title3)
-                            }
-                        }
-
-                        Text("Classic Free Streaming")
-                            .font(.custom("Helvetica", size: 16).weight(.bold))
-                            .foregroundColor(.white)
-
-                        Text("Direct fast streaming from verified peers. Completely free with zero accounts or subscriptions required.")
-                            .font(.custom("Helvetica", size: 12))
-                            .foregroundColor(.gray)
-                            .lineLimit(3)
-
-                        Text("No Account Needed")
-                            .font(.custom("Helvetica", size: 10).weight(.bold))
-                            .foregroundColor(.blue)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Color.blue.opacity(0.15))
-                            .cornerRadius(6)
-                    }
-                    .padding(18)
-                    .frame(height: 190)
-                    .background(Color.white.opacity(selectedMode == "classic" ? 0.08 : 0.03))
-                    .cornerRadius(16)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(selectedMode == "classic" ? Color.blue : Color.white.opacity(0.08), lineWidth: 2)
-                    )
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-
-            // Real-Debrid API Key Input if Debrid Selected
-            if selectedMode == "debrid" {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("Enter Real-Debrid API Key")
-                            .font(.custom("Helvetica", size: 12).weight(.bold))
-                            .foregroundColor(.white.opacity(0.8))
-                        Spacer()
-                        Link("Get Key from Real-Debrid ↗", destination: URL(string: "https://real-debrid.com/apitoken")!)
-                            .font(.custom("Helvetica", size: 12))
-                            .foregroundColor(.cyan)
-                    }
-
-                    HStack(spacing: 10) {
-                        SecureField("Paste API Token here", text: $debridApiKeyInput)
-                            .textFieldStyle(PlainTextFieldStyle())
-                            .font(.system(size: 13, design: .monospaced))
-                            .padding(10)
-                            .background(Color.white.opacity(0.06))
-                            .cornerRadius(8)
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
-
-                        Button(action: verifyRealDebridKey) {
-                            HStack(spacing: 5) {
-                                if isTestingKey {
-                                    ProgressView().scaleEffect(0.6)
-                                }
-                                Text("Test Key")
-                            }
-                            .font(.custom("Helvetica", size: 12).weight(.bold))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
-                            .background(Color.purple)
-                            .foregroundColor(.white)
-                            .cornerRadius(8)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .disabled(debridApiKeyInput.isEmpty || isTestingKey)
-                    }
-
-                    if let succ = keyTestSuccessMessage {
-                        Text(succ)
-                            .font(.custom("Helvetica", size: 12))
-                            .foregroundColor(.green)
-                    }
-                    if let err = keyTestErrorMessage {
-                        Text(err)
-                            .font(.custom("Helvetica", size: 12))
-                            .foregroundColor(.red)
-                    }
-                }
-                .padding(14)
-                .background(Color.white.opacity(0.04))
-                .cornerRadius(12)
-            }
-        }
-    }
-
-    // MARK: - Step 3: Preferences View
-    private var step3PreferencesView: some View {
+    // MARK: - Step 2: Preferences View
+    private var step2PreferencesView: some View {
         VStack(spacing: 22) {
             VStack(spacing: 6) {
                 Text("Set Playback Preferences")
@@ -606,9 +427,8 @@ struct AccountSetupView: View {
         }
     }
 
-    // MARK: - Step 4: Community Add-ons (Optional)
-    // MARK: - Step 4: Add-ons (Optional)
-    private var step4AddonsView: some View {
+    // MARK: - Step 3: Add-ons (Optional)
+    private var step3AddonsView: some View {
         VStack(spacing: 24) {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
@@ -794,55 +614,13 @@ struct AccountSetupView: View {
         }
     }
 
-    private func verifyRealDebridKey() {
-        let key = debridApiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { return }
-
-        isTestingKey = true
-        keyTestSuccessMessage = nil
-        keyTestErrorMessage = nil
-
-        Task {
-            guard let url = URL(string: "https://api.real-debrid.com/rest/1.0/user") else { return }
-            var req = URLRequest(url: url)
-            req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-            req.timeoutInterval = 5.0
-
-            do {
-                let (data, resp) = try await URLSession.shared.data(for: req)
-                if let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) {
-                    struct RDUser: Decodable {
-                        let username: String
-                        let type: String
-                    }
-                    if let user = try? JSONDecoder().decode(RDUser.self, from: data) {
-                        await MainActor.run {
-                            keyTestSuccessMessage = "✓ Verified: Welcome \(user.username) (\(user.type.capitalized))"
-                            isTestingKey = false
-                        }
-                        return
-                    }
-                }
-                await MainActor.run {
-                    keyTestErrorMessage = "Invalid Real-Debrid API Key."
-                    isTestingKey = false
-                }
-            } catch {
-                await MainActor.run {
-                    keyTestErrorMessage = "Connection error: \(error.localizedDescription)"
-                    isTestingKey = false
-                }
-            }
-        }
-    }
-
     private func finalizeAccountCreation() {
         let account = accountManager.createAccount(
             username: profileName,
             avatarIcon: selectedIcon,
             avatarColor: selectedColor,
-            setupMode: selectedMode,
-            debridApiKey: selectedMode == "debrid" ? debridApiKeyInput : nil,
+            setupMode: "classic",
+            debridApiKey: nil,
             preferredQuality: preferredQuality,
             preferredLanguage: preferredLanguage,
             isGuest: false
@@ -856,9 +634,5 @@ struct AccountSetupView: View {
         profileName = ""
         selectedIcon = "person.fill"
         selectedColor = "purple"
-        selectedMode = "debrid"
-        debridApiKeyInput = ""
-        keyTestSuccessMessage = nil
-        keyTestErrorMessage = nil
     }
 }
