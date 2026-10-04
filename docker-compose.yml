@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # Zilean - DMM / Local DHT Cache & Indexer
+  zilean:
+    image: ngosang/zilean:latest
+    container_name: zilean
+    ports:
+      - "8181:8181"
+    environment:
+      - ZILEAN_PORT=8181
+    volumes:
+      - ./data/zilean:/app/data
+    restart: unless-stopped
+
+  # Bitmagnet - Self-hosted DHT Crawler & Classifier
+  bitmagnet:
+    image: ghcr.io/bitmagnet-io/bitmagnet:latest
+    container_name: bitmagnet
+    ports:
+      - "3333:3333"
+      - "7070:7070"
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=bitmagnet
+      - POSTGRES_USER=bitmagnet
+      - POSTGRES_PASSWORD=bitmagnet
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: bitmagnet-postgres
+    environment:
+      - POSTGRES_DB=bitmagnet
+      - POSTGRES_USER=bitmagnet
+      - POSTGRES_PASSWORD=bitmagnet
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # Prowlarr - Multi-Indexer Manager
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    ports:
+      - "9696:9696"
+    volumes:
+      - ./data/prowlarr:/config
+    restart: unless-stopped
+
+  # Comet - Stremio Multi-Indexer Aggregator
+  comet:
+    image: ghcr.io/gantt/comet:latest
+    container_name: comet
+    ports:
+      - "8000:8000"
+    environment:
+      - ZILEAN_URL=http://zilean:8181
+      - PROWLARR_URL=http://prowlarr:9696
+    depends_on:
+      - zilean
+      - prowlarr
+    restart: unless-stopped
+
+  # StremThru - Stremio RealDebrid Proxy Engine
+  stremthru:
+    image: ghcr.io/stremthru/stremthru:latest
+    container_name: stremthru
+    ports:
+      - "8080:8080"
+    environment:
+      - STREMTHRU_PORT=8080
+    restart: unless-stopped
