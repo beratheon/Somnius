@@ -122,9 +122,17 @@ class StremioAddonManager: ObservableObject {
     // Popular community templates available for 1-click user installation
     let communityTemplates: [CommunityAddonTemplate] = [
         CommunityAddonTemplate(
+            id: "community.somnius.official",
+            name: "Somnius Official Add-on",
+            description: "Curated community scraper engine designed specifically for Somnius.",
+            manifestUrl: "https://raw.githubusercontent.com/beratheon/Somnius/main/addon/manifest.json",
+            icon: "sparkles.tv",
+            isDebridConfigurable: true
+        ),
+        CommunityAddonTemplate(
             id: "community.torrentio",
             name: "Torrentio",
-            description: "High-speed torrent stream provider with RealDebrid multi-hoster support.",
+            description: "High-speed stream provider with RealDebrid multi-hoster support.",
             manifestUrl: "https://torrentio.strem.fun/manifest.json",
             icon: "bolt.horizontal.fill",
             isDebridConfigurable: true

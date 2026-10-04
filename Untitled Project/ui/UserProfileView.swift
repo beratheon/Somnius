@@ -37,6 +37,7 @@ struct UserProfileView: View {
     @State private var importJsonText: String = ""
     @State private var showExportAlert: Bool = false
     @State private var showResetConfirm: Bool = false
+    @State private var showAddCatalogSheet: Bool = false
 
     var onSelectMediaItem: (MediaItem) -> Void
     var onSelectTorrentLink: (String) -> Void
@@ -227,6 +228,9 @@ struct UserProfileView: View {
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showImportSheet) {
             importCatalogsSheet
+        }
+        .sheet(isPresented: $showAddCatalogSheet) {
+            addCatalogSheet
         }
         .alert("Catalogs Exported", isPresented: $showExportAlert) {
             Button("OK", role: .cancel) {}
@@ -433,42 +437,15 @@ struct UserProfileView: View {
                         Circle()
                             .fill(Color.green)
                             .frame(width: 8, height: 8)
-                        Text("Connected (v4)")
+                        Text("Active & Verified (v4)")
                             .font(.caption.bold())
                             .foregroundColor(.green)
                     }
                 }
 
-                Text("Powers enriched TV show metadata, missing episode backfilling, high-resolution 16:9 episode stills, clear logos, and cast.")
+                Text("Powers enriched TV show metadata, missing episode backfilling, high-resolution 16:9 episode stills, clear logos, and cast automatically for all profiles.")
                     .font(.caption)
                     .foregroundColor(.gray)
-
-                HStack(spacing: 10) {
-                    SecureField("TheTVDB API key...", text: $tvdbInputKey)
-                        .textFieldStyle(.roundedBorder)
-
-                    Button("Save Key") {
-                        let clean = tvdbInputKey.trimmingCharacters(in: .whitespacesAndNewlines)
-                        Config.tvdbApiKey = clean.isEmpty ? Config.defaultTVDBApiKey : clean
-                        tvdbInputKey = Config.tvdbApiKey
-                        tvdbStatusMessage = "TheTVDB API Key updated."
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.blue)
-
-                    Button("Reset Default") {
-                        Config.tvdbApiKey = Config.defaultTVDBApiKey
-                        tvdbInputKey = Config.defaultTVDBApiKey
-                        tvdbStatusMessage = "Reset to default verified TheTVDB key."
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                if let tvdbMsg = tvdbStatusMessage {
-                    Text(tvdbMsg)
-                        .font(.caption.bold())
-                        .foregroundColor(.cyan)
-                }
             }
             .padding(16)
             .background(Color.white.opacity(0.04))
@@ -980,8 +957,24 @@ struct UserProfileView: View {
     // MARK: - 6. Catalogs Management View (Add, Remove, Toggle, Import, Export)
     private var catalogsManagementView: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Top Toolbar: Import, Export, Reset Defaults
+            // Top Toolbar: Add Catalog, Import, Export, Reset Defaults
             HStack(spacing: 10) {
+                Button(action: {
+                    showAddCatalogSheet = true
+                }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "plus.circle.fill")
+                        Text("Add New Catalog")
+                    }
+                    .font(.caption.bold())
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                }
+                .buttonStyle(PlainButtonStyle())
+
                 Button(action: {
                     showImportSheet = true
                 }) {
@@ -1541,5 +1534,270 @@ struct UserProfileView: View {
         .padding(20)
         .frame(width: 500, height: 380)
         .background(Color(red: 0.1, green: 0.1, blue: 0.12))
+    }
+
+    // MARK: - Add New Catalog Sheet (TMDB, TVDB & Custom Stremio Catalogs)
+    private var addCatalogSheet: some View {
+        AddCatalogModalView(isPresented: $showAddCatalogSheet)
+    }
+}
+
+struct AddCatalogModalView: View {
+    @Binding var isPresented: Bool
+    @ObservedObject private var catalogService = LiveCatalogService.shared
+
+    @State private var selectedTab: Int = 0 // 0: TMDB Presets, 1: TVDB / Series Presets, 2: Custom Stremio / URL
+    @State private var customName: String = ""
+    @State private var customType: String = "movie"
+    @State private var customCategory: String = "Custom Discovery"
+    @State private var customEndpoint: String = ""
+    @State private var addedNotice: String? = nil
+
+    struct CatalogPresetItem: Identifiable {
+        let id: String
+        let name: String
+        let type: String
+        let category: String
+        let endpointPath: String
+        let icon: String
+        let source: String
+    }
+
+    private let tmdbPresets: [CatalogPresetItem] = [
+        CatalogPresetItem(id: "tmdb.movie.now_playing", name: "In Theaters Now", type: "movie", category: "TMDB Live", endpointPath: "catalog/movie/tmdb-today.json", icon: "film.fill", source: "TMDB"),
+        CatalogPresetItem(id: "tmdb.movie.trending_daily", name: "Trending Daily", type: "movie", category: "TMDB Live", endpointPath: "catalog/movie/tmdb-latest.json", icon: "flame.fill", source: "TMDB"),
+        CatalogPresetItem(id: "tmdb.movie.top_rated", name: "All-Time Top Rated", type: "movie", category: "TMDB Live", endpointPath: "catalog/movie/mdblist-pub%3A2236.json", icon: "star.fill", source: "TMDB"),
+        CatalogPresetItem(id: "tmdb.movie.scifi_space", name: "Sci-Fi & Cosmic Movies", type: "movie", category: "TMDB Genres", endpointPath: "catalog/movie/mdblist-pub%3A1001.json", icon: "sparkles", source: "TMDB"),
+        CatalogPresetItem(id: "tmdb.movie.action_thriller", name: "Action & Adrenaline", type: "movie", category: "TMDB Genres", endpointPath: "catalog/movie/mdblist-pub%3A1002.json", icon: "bolt.fill", source: "TMDB"),
+        CatalogPresetItem(id: "tmdb.movie.animation_pixar", name: "Animated Masterpieces", type: "movie", category: "TMDB Genres", endpointPath: "catalog/movie/mdblist-pub%3A1003.json", icon: "wand.and.stars", source: "TMDB")
+    ]
+
+    private let tvdbPresets: [CatalogPresetItem] = [
+        CatalogPresetItem(id: "tvdb.series.trending_week", name: "Trending TV Shows", type: "series", category: "TVDB Live", endpointPath: "catalog/series/tmdb-latest-shows.json", icon: "tv.fill", source: "TheTVDB"),
+        CatalogPresetItem(id: "tvdb.series.popular_now", name: "Binge-Worthy Dramas", type: "series", category: "TVDB Live", endpointPath: "catalog/series/trakt-trending.json", icon: "play.tv.fill", source: "TheTVDB"),
+        CatalogPresetItem(id: "tvdb.series.top_rated", name: "Top Rated Television", type: "series", category: "TVDB Live", endpointPath: "catalog/series/tmdb-today-shows.json", icon: "crown.fill", source: "TheTVDB"),
+        CatalogPresetItem(id: "tvdb.series.hbo_prestige", name: "HBO & Max Originals", type: "series", category: "TV Networks", endpointPath: "catalog/series/mdblist-pub%3A3086.json", icon: "sparkles.tv", source: "TheTVDB"),
+        CatalogPresetItem(id: "tvdb.series.apple_plus", name: "Apple TV+ Series", type: "series", category: "TV Networks", endpointPath: "catalog/series/mdblist-pub%3A3087.json", icon: "applelogo", source: "TheTVDB"),
+        CatalogPresetItem(id: "tvdb.series.netflix_hits", name: "Netflix Originals", type: "series", category: "TV Networks", endpointPath: "catalog/series/mdblist-pub%3A3088.json", icon: "play.rectangle.fill", source: "TheTVDB")
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header Bar
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Add New Discovery Catalog")
+                        .font(.title3.bold())
+                        .foregroundColor(.white)
+                    Text("Add curated TMDB, TVDB, Trakt, or custom Stremio manifest catalogs.")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+                Spacer()
+                Button(action: { isPresented = false }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(.white.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 22)
+            .padding(.bottom, 16)
+
+            // Tabs Selector
+            Picker("", selection: $selectedTab) {
+                Text("TMDB Movies").tag(0)
+                Text("TVDB & TV Shows").tag(1)
+                Text("Custom Stremio Endpoint").tag(2)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 18)
+
+            Divider().background(Color.white.opacity(0.1))
+
+            // Body Content
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(spacing: 16) {
+                    if let notice = addedNotice {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text(notice)
+                                .font(.caption.bold())
+                                .foregroundColor(.white)
+                            Spacer()
+                        }
+                        .padding(10)
+                        .background(Color.green.opacity(0.2))
+                        .cornerRadius(8)
+                    }
+
+                    if selectedTab == 0 {
+                        presetsGridView(presets: tmdbPresets)
+                    } else if selectedTab == 1 {
+                        presetsGridView(presets: tvdbPresets)
+                    } else {
+                        customCatalogForm
+                    }
+                }
+                .padding(24)
+            }
+        }
+        .frame(width: 700, height: 530)
+        .background(Color(red: 0.08, green: 0.08, blue: 0.09))
+        .preferredColorScheme(.dark)
+    }
+
+    private func presetsGridView(presets: [CatalogPresetItem]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Select a catalog to add it instantly to your Home discovery rows:")
+                .font(.subheadline)
+                .foregroundColor(.white.opacity(0.8))
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                ForEach(presets) { preset in
+                    let isAlreadyAdded = catalogService.catalogs.contains(where: { $0.id == preset.id || $0.name == preset.name })
+                    HStack(spacing: 12) {
+                        Image(systemName: preset.icon)
+                            .font(.title3)
+                            .foregroundColor(.cyan)
+                            .frame(width: 28)
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(preset.name)
+                                .font(.subheadline.bold())
+                                .foregroundColor(.white)
+                            HStack(spacing: 6) {
+                                Text(preset.source)
+                                    .font(.caption2.bold())
+                                    .foregroundColor(.purple)
+                                Text("•")
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                                Text(preset.category)
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                            }
+                        }
+
+                        Spacer()
+
+                        Button(action: {
+                            let newCat = LiveCatalog(
+                                id: preset.id,
+                                name: preset.name,
+                                type: preset.type,
+                                endpointPath: preset.endpointPath,
+                                category: preset.category
+                            )
+                            catalogService.addCatalog(newCat)
+                            withAnimation {
+                                addedNotice = "✓ Added \(preset.name) to your home catalogs!"
+                            }
+                        }) {
+                            Text(isAlreadyAdded ? "Added" : "+ Add")
+                                .font(.caption.bold())
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(isAlreadyAdded ? Color.white.opacity(0.08) : Color.blue)
+                                .foregroundColor(isAlreadyAdded ? .gray : .white)
+                                .cornerRadius(6)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .disabled(isAlreadyAdded)
+                    }
+                    .padding(12)
+                    .background(Color.white.opacity(0.04))
+                    .cornerRadius(10)
+                }
+            }
+        }
+    }
+
+    private var customCatalogForm: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Add Custom Stremio v3 Catalog Endpoint")
+                .font(.subheadline.bold())
+                .foregroundColor(.white)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Catalog Name")
+                    .font(.caption.bold())
+                    .foregroundColor(.white.opacity(0.8))
+                TextField("e.g. My Favorite Sci-Fi", text: $customName)
+                    .textFieldStyle(PlainTextFieldStyle())
+                    .padding(10)
+                    .background(Color.white.opacity(0.06))
+                    .cornerRadius(8)
+            }
+
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Media Type")
+                        .font(.caption.bold())
+                        .foregroundColor(.white.opacity(0.8))
+                    Picker("", selection: $customType) {
+                        Text("Movie").tag("movie")
+                        Text("TV Series").tag("series")
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Category Section")
+                        .font(.caption.bold())
+                        .foregroundColor(.white.opacity(0.8))
+                    TextField("e.g. Custom Discovery", text: $customCategory)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .padding(10)
+                        .background(Color.white.opacity(0.06))
+                        .cornerRadius(8)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Catalog Endpoint Path or Full URL")
+                    .font(.caption.bold())
+                    .foregroundColor(.white.opacity(0.8))
+                TextField("catalog/movie/popular.json or https://...", text: $customEndpoint)
+                    .textFieldStyle(PlainTextFieldStyle())
+                    .font(.system(size: 13, design: .monospaced))
+                    .padding(10)
+                    .background(Color.white.opacity(0.06))
+                    .cornerRadius(8)
+            }
+
+            Button(action: {
+                guard !customName.isEmpty, !customEndpoint.isEmpty else { return }
+                let newCat = LiveCatalog(
+                    id: "custom.\(UUID().uuidString.prefix(8))",
+                    name: customName,
+                    type: customType,
+                    endpointPath: customEndpoint,
+                    category: customCategory.isEmpty ? "Custom Discovery" : customCategory
+                )
+                catalogService.addCatalog(newCat)
+                withAnimation {
+                    addedNotice = "✓ Successfully created \(customName)!"
+                    customName = ""
+                    customEndpoint = ""
+                }
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus.circle.fill")
+                    Text("Save & Add Catalog")
+                }
+                .font(.headline)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(customName.isEmpty || customEndpoint.isEmpty ? Color.gray.opacity(0.3) : Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .disabled(customName.isEmpty || customEndpoint.isEmpty)
+        }
     }
 }

@@ -584,6 +584,34 @@ class LiveCatalogService: ObservableObject {
         }
     }
 
+    func addCatalog(_ catalog: LiveCatalog) {
+        if let idx = catalogs.firstIndex(where: { $0.id == catalog.id }) {
+            catalogs[idx] = catalog
+        } else {
+            catalogs.insert(catalog, at: 0)
+        }
+        updateHeroSpotlight()
+        saveDiskCache()
+        Task {
+            await syncSingleCatalog(catalog)
+        }
+    }
+
+    func syncSingleCatalog(_ catalog: LiveCatalog) async {
+        guard let path = catalog.endpointPath else { return }
+        do {
+            let items = try await fetchEndpoint(path: path)
+            if !items.isEmpty, let idx = catalogs.firstIndex(where: { $0.id == catalog.id }) {
+                catalogs[idx].items = items
+                catalogs[idx].lastUpdated = Date()
+                updateHeroSpotlight()
+                saveDiskCache()
+            }
+        } catch {
+            print("[LiveCatalogService] Error fetching single catalog: \(error)")
+        }
+    }
+
     func removeCatalog(id: String) {
         catalogs.removeAll(where: { $0.id == id })
         updateHeroSpotlight()
