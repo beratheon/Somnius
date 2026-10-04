@@ -1,8 +1,8 @@
 {
-  "id": "community.somnius.official",
-  "name": "Somnius Community Streams",
+  "id": "community.streams.resolver",
+  "name": "Community Streams",
   "version": "1.0.0",
-  "description": "Official decoupled community scraper add-on for Somnius. Provides stream aggregation for movies and series via Torrentio, Comet, and Debrid CDN resolving.",
+  "description": "Community stream resolver for movies and series.",
   "icon": "https://raw.githubusercontent.com/beratheon/Somnius/main/assets/icon.png",
   "background": "https://raw.githubusercontent.com/beratheon/Somnius/main/assets/background.png",
   "types": [

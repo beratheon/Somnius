@@ -119,12 +119,12 @@ class StremioAddonManager: ObservableObject {
     @Published var isInstalling: Bool = false
     @Published var lastErrorMessage: String?
 
-    // Official / Community add-on template pointing to user's GitHub addon repository
+    // Community add-on template pointing to community repository
     let communityTemplates: [CommunityAddonTemplate] = [
         CommunityAddonTemplate(
-            id: "community.somnius.official",
-            name: "Somnius Community Add-on",
-            description: "Decoupled community stream scraper engine hosted on GitHub.",
+            id: "community.streams.resolver",
+            name: "Community Streams",
+            description: "External community stream metadata indexing.",
             manifestUrl: "https://raw.githubusercontent.com/beratheon/Somnius/main/addon-repository/manifest.json",
             icon: "sparkles.tv",
             isDebridConfigurable: true

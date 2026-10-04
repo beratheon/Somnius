@@ -64,24 +64,25 @@ public class KSPlayerEngine: ObservableObject {
         KSOptions.secondPlayerType = KSAVPlayer.self
         KSOptions.hardwareDecode = true
         KSOptions.asynchronousDecompression = true
-        KSOptions.isSecondOpen = Config.fastStartBuffering
+        KSOptions.isSecondOpen = true
         KSOptions.isAccurateSeek = true
         KSOptions.isSeekedAutoPlay = true
         KSOptions.canStartPictureInPictureAutomaticallyFromInline = true
-        KSOptions.preferredForwardBufferDuration = max(10.0, Double(Config.bufferAheadSeconds))
+        // Set low playback start threshold (3s) so video starts immediately and never stutters waiting for huge buffers
+        KSOptions.preferredForwardBufferDuration = 3.0
         KSOptions.maxBufferDuration = max(60.0, Double(Config.bufferAheadSeconds) * 2)
 
         options.hardwareDecode = true
         options.asynchronousDecompression = true
-        options.isSecondOpen = Config.fastStartBuffering
-        options.probesize = 1024 * 1024 * 2 // 2MB fast stream probe
+        options.isSecondOpen = true
+        options.probesize = 1024 * 1024 * 4 // 4MB robust stream probe
         options.maxAnalyzeDuration = 1_000_000 // 1s analyze duration
         options.formatContextOptions["tcp_nodelay"] = 1
         options.formatContextOptions["reconnect"] = 1
         options.formatContextOptions["reconnect_streamed"] = 1
         options.formatContextOptions["reconnect_delay_max"] = 3
         options.decoderOptions["threads"] = "auto"
-        options.preferredForwardBufferDuration = max(10.0, Double(Config.bufferAheadSeconds))
+        options.preferredForwardBufferDuration = 3.0
         options.maxBufferDuration = max(60.0, Double(Config.bufferAheadSeconds) * 2)
         options.isAccurateSeek = true
         options.isSeekedAutoPlay = true
@@ -294,14 +295,35 @@ public class KSPlayerEngine: ObservableObject {
 
     // Callbacks from KSVideoPlayer
     public func onPlayTick(current: TimeInterval, total: TimeInterval) {
-        if current > 0 && !current.isNaN && !current.isInfinite {
+        guard current > 0 && !current.isNaN && !current.isInfinite else { return }
+
+        // Throttle updates to @Published properties to avoid thrashing SwiftUI observers (4Hz updates)
+        let timeDiff = abs(current - self.currentTime)
+        let shouldUpdate = timeDiff >= 0.25 || self.currentTime == 0
+
+        if shouldUpdate {
             self.currentTime = current
             if self.isBuffering {
                 self.isBuffering = false
             }
-        }
-        if total > 0 && !total.isNaN && !total.isInfinite {
-            self.duration = total
+            if total > 0 && !total.isNaN && !total.isInfinite && abs(total - self.duration) >= 0.5 {
+                self.duration = total
+            }
+
+            // Calculate buffer fraction
+            if let player = coordinator.playerLayer?.player {
+                let playable = player.playableTime
+                let bufTime = max(0, playable - current)
+                if abs(bufTime - self.bufferedTime) >= 0.5 {
+                    self.bufferedTime = bufTime
+                }
+                if duration > 0 {
+                    let fraction = min(1.0, max(0.0, playable / duration))
+                    if abs(fraction - self.bufferedFraction) >= 0.02 {
+                        self.bufferedFraction = fraction
+                    }
+                }
+            }
         }
 
         // Handle pending start seek if restoring playback position
@@ -310,21 +332,15 @@ public class KSPlayerEngine: ObservableObject {
             pendingStartTime = nil
         }
 
-        // Calculate buffer fraction
-        if let player = coordinator.playerLayer?.player {
-            let playable = player.playableTime
-            self.bufferedTime = max(0, playable - current)
-            if duration > 0 {
-                self.bufferedFraction = min(1.0, max(0.0, playable / duration))
-            }
-        }
-
-        // Update embedded subtitle text
+        // Update embedded subtitle text only when content actually changes
         if selectedSubtitleTrackId != nil {
             let parts = coordinator.subtitleModel.parts
             let text = parts.compactMap { $0.text?.string }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-            self.currentEmbeddedSubtitleText = text.isEmpty ? nil : text
-        } else {
+            let newText = text.isEmpty ? nil : text
+            if self.currentEmbeddedSubtitleText != newText {
+                self.currentEmbeddedSubtitleText = newText
+            }
+        } else if self.currentEmbeddedSubtitleText != nil {
             self.currentEmbeddedSubtitleText = nil
         }
     }

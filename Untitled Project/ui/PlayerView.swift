@@ -1166,11 +1166,30 @@ struct PlayerView: View {
     }
 
     private func onPlayerTick(current: Double, total: Double) {
-        self.currentTime = current
-        self.duration = total
-        self.bufferedSeconds = ksEngine.bufferedTime
-        self.bufferedFraction = ksEngine.bufferedFraction
-        self.isPlaying = ksEngine.isPlaying
+        guard current > 0 && !current.isNaN && !current.isInfinite else { return }
+
+        // Throttle UI re-renders: only update state every ~0.25s or when jump/seek occurs
+        let timeDiff = abs(current - self.currentTime)
+        let shouldUpdateUI = timeDiff >= 0.25 || self.currentTime == 0
+
+        if shouldUpdateUI {
+            self.currentTime = current
+            if abs(total - self.duration) >= 0.5 {
+                self.duration = total
+            }
+            let bSec = ksEngine.bufferedTime
+            if abs(bSec - self.bufferedSeconds) >= 0.5 {
+                self.bufferedSeconds = bSec
+            }
+            let bFrac = ksEngine.bufferedFraction
+            if abs(bFrac - self.bufferedFraction) >= 0.02 {
+                self.bufferedFraction = bFrac
+            }
+            if self.isPlaying != ksEngine.isPlaying {
+                self.isPlaying = ksEngine.isPlaying
+            }
+        }
+
         if current > 0 {
             if self.isBuffering {
                 self.isBuffering = false
@@ -1178,11 +1197,15 @@ struct PlayerView: View {
             self.stallSecondsCount = 0
         }
 
-        // Update subtitles
+        // Update subtitles only when needed
         if let embedded = ksEngine.currentEmbeddedSubtitleText {
-            self.currentSubtitleText = embedded
-        } else {
+            if self.currentSubtitleText != embedded {
+                self.currentSubtitleText = embedded
+            }
+        } else if !subtitleCues.isEmpty {
             updateSubtitleCue(currentSecond: current)
+        } else if self.currentSubtitleText != nil {
+            self.currentSubtitleText = nil
         }
 
         // Auto-save history every 5 seconds while playing
@@ -1190,13 +1213,15 @@ struct PlayerView: View {
             self.saveCurrentHistoryProgress()
         }
 
-        // Zero-latency next episode pre-caching (< 75 seconds remaining)
-        self.checkPrecacheNextEpisode(currentSec: current)
+        if shouldUpdateUI {
+            // Zero-latency next episode pre-caching (< 75 seconds remaining)
+            self.checkPrecacheNextEpisode(currentSec: current)
 
-        // Check if near end of episode for next episode countdown (< 25s)
-        if self.mediaItem?.type == .series && self.duration > 60 && current >= (self.duration - 25.0) {
-            if !self.showNextEpisodeCard && Config.autoPlayNextEpisode {
-                self.triggerNextEpisodeCountdown()
+            // Check if near end of episode for next episode countdown (< 25s)
+            if self.mediaItem?.type == .series && self.duration > 60 && current >= (self.duration - 25.0) {
+                if !self.showNextEpisodeCard && Config.autoPlayNextEpisode {
+                    self.triggerNextEpisodeCountdown()
+                }
             }
         }
     }
@@ -1505,12 +1530,36 @@ struct PlayerView: View {
     }
 
     private func updateSubtitleCue(currentSecond: Double) {
-        guard !subtitleCues.isEmpty else { return }
-        let adjusted = currentSecond + subtitleOffsetSeconds
-        let active = subtitleCues.first { cue in
-            cue.startTime <= adjusted && adjusted <= cue.endTime
+        guard !subtitleCues.isEmpty else {
+            if currentSubtitleText != nil {
+                currentSubtitleText = nil
+            }
+            return
         }
-        currentSubtitleText = active?.text
+        let adjusted = currentSecond + subtitleOffsetSeconds
+
+        // High-performance binary search across chronological cues
+        var low = 0
+        var high = subtitleCues.count - 1
+        var matchedCue: SubtitleCue? = nil
+
+        while low <= high {
+            let mid = (low + high) / 2
+            let cue = subtitleCues[mid]
+            if adjusted < cue.startTime {
+                high = mid - 1
+            } else if adjusted > cue.endTime {
+                low = mid + 1
+            } else {
+                matchedCue = cue
+                break
+            }
+        }
+
+        let newText = matchedCue?.text
+        if currentSubtitleText != newText {
+            currentSubtitleText = newText
+        }
     }
 
     // MARK: - Keyboard Shortcuts (macOS)

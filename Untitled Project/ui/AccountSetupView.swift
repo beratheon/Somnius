@@ -449,19 +449,19 @@ struct AccountSetupView: View {
                     .foregroundColor(.white.opacity(0.6))
             }
 
-            // Legal notice with GitHub Repository Link
+            // Agnostic Add-on Architecture Notice
             HStack(spacing: 14) {
-                Image(systemName: "shield.lefthalf.filled")
+                Image(systemName: "puzzlepiece.extension.fill")
                     .foregroundColor(.cyan)
                     .font(.title3)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Zero scrapers or tracking code are bundled in this application.")
-                        .font(.custom("Helvetica", size: 13).weight(.medium))
-                        .foregroundColor(.white.opacity(0.9))
-                    Text("You can run Somnius purely as a local video player, or connect community add-ons from GitHub.")
+                    Text("Modular Stremio Add-on Support")
+                        .font(.custom("Helvetica", size: 14).weight(.semibold))
+                        .foregroundColor(.white.opacity(0.95))
+                    Text("Somnius is an agnostic media player shell. You can connect third-party community add-on manifests to browse catalogs or aggregate media.")
                         .font(.custom("Helvetica", size: 12))
-                        .foregroundColor(.white.opacity(0.55))
+                        .foregroundColor(.white.opacity(0.6))
                 }
 
                 Spacer()
@@ -469,12 +469,12 @@ struct AccountSetupView: View {
                 Link(destination: URL(string: "https://github.com/beratheon/Somnius")!) {
                     HStack(spacing: 5) {
                         Image(systemName: "arrow.up.right.square")
-                        Text("Browse Add-ons on GitHub ↗")
+                        Text("Browse Add-ons ↗")
                     }
                     .font(.custom("Helvetica", size: 12).weight(.semibold))
                     .foregroundColor(.cyan)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, 7)
                     .background(Color.cyan.opacity(0.12))
                     .cornerRadius(8)
                 }
@@ -484,67 +484,9 @@ struct AccountSetupView: View {
             .cornerRadius(12)
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
 
-            // Official Add-on Card
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Recommended Community Add-on")
-                    .font(.custom("Baskerville", size: 18))
-                    .foregroundColor(.white)
-
-                let isOfficialInstalled = addonManager.installedAddons.contains(where: { $0.id == "community.somnius.official" })
-                HStack(spacing: 14) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.purple.opacity(0.2))
-                            .frame(width: 44, height: 44)
-                        Image(systemName: "sparkles.tv")
-                            .font(.system(size: 20))
-                            .foregroundColor(.purple)
-                    }
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 8) {
-                            Text("Somnius Official Add-on")
-                                .font(.custom("Helvetica", size: 15).weight(.semibold))
-                                .foregroundColor(.white)
-                            Text("Open Source")
-                                .font(.custom("Helvetica", size: 10).weight(.bold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.white.opacity(0.1))
-                                .cornerRadius(4)
-                                .foregroundColor(.white.opacity(0.7))
-                        }
-                        Text("Curated stream indexing engine maintained on GitHub (beratheon/Somnius).")
-                            .font(.custom("Helvetica", size: 12))
-                            .foregroundColor(.gray)
-                    }
-
-                    Spacer()
-
-                    Button(action: {
-                        Task {
-                            try? await addonManager.installAddon(rawUrl: "https://raw.githubusercontent.com/beratheon/Somnius/main/addon-repository/manifest.json")
-                        }
-                    }) {
-                        Text(isOfficialInstalled ? "✓ Installed" : "Install Add-on")
-                            .font(.custom("Helvetica", size: 12).weight(.bold))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(isOfficialInstalled ? Color.white.opacity(0.1) : Color.blue)
-                            .foregroundColor(isOfficialInstalled ? .gray : .white)
-                            .cornerRadius(8)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(isOfficialInstalled)
-                }
-                .padding(16)
-                .background(Color.white.opacity(0.04))
-                .cornerRadius(12)
-            }
-
-            // Custom Add-on URL Input
+            // Custom Add-on Manifest URL Input
             VStack(alignment: .leading, spacing: 8) {
-                Text("Or Install via Manifest URL")
+                Text("Install Add-on via Manifest URL")
                     .font(.custom("Baskerville", size: 16))
                     .foregroundColor(.white.opacity(0.85))
 
