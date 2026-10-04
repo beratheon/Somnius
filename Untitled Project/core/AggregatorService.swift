@@ -2,7 +2,7 @@ import Foundation
 
 protocol StreamProvider {
     var name: String { get }
-    func fetchLinks(tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async throws -> [AggregatedLink]
+    func fetchLinks(imdbID: String, tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async throws -> [AggregatedLink]
 }
 
 // MARK: - Helper for RD Config String
@@ -18,22 +18,14 @@ private func rdConfigPath() -> String {
 class TorrentioScraper: StreamProvider {
     let name = "Torrentio"
 
-    func fetchLinks(tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async throws -> [AggregatedLink] {
-        var imdbID: String? = nil
-        if tmdbID.hasPrefix("tt") {
-            imdbID = tmdbID
-        } else {
-            imdbID = try? await TMDBService().fetchIMDbID(tmdbID: tmdbID, type: type)
-        }
-
-        guard let targetBase = imdbID ?? (tmdbID.hasPrefix("tt") ? tmdbID : nil) else { return [] }
+    func fetchLinks(imdbID: String, tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async throws -> [AggregatedLink] {
         let targetID: String
         if type == .series {
             let s = season ?? 1
             let e = episode ?? 1
-            targetID = "\(targetBase):\(s):\(e)"
+            targetID = "\(imdbID):\(s):\(e)"
         } else {
-            targetID = targetBase
+            targetID = imdbID
         }
 
         let mediaPath = (type == .series) ? "series" : "movie"
@@ -97,22 +89,14 @@ class TorrentioScraper: StreamProvider {
 class CometScraper: StreamProvider {
     let name = "Comet"
 
-    func fetchLinks(tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async throws -> [AggregatedLink] {
-        var imdbID: String? = nil
-        if tmdbID.hasPrefix("tt") {
-            imdbID = tmdbID
-        } else {
-            imdbID = try? await TMDBService().fetchIMDbID(tmdbID: tmdbID, type: type)
-        }
-
-        guard let targetBase = imdbID ?? (tmdbID.hasPrefix("tt") ? tmdbID : nil) else { return [] }
+    func fetchLinks(imdbID: String, tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async throws -> [AggregatedLink] {
         let targetID: String
         if type == .series {
             let s = season ?? 1
             let e = episode ?? 1
-            targetID = "\(targetBase):\(s):\(e)"
+            targetID = "\(imdbID):\(s):\(e)"
         } else {
-            targetID = targetBase
+            targetID = imdbID
         }
 
         let mediaPath = (type == .series) ? "series" : "movie"
@@ -123,11 +107,13 @@ class CometScraper: StreamProvider {
             endpoints.append("https://comet.elfhosted.com/\(rdConfig)")
         }
         endpoints.append("https://comet.elfhosted.com")
+        endpoints.append(Config.cometUrl)
 
         var allLinks: [AggregatedLink] = []
 
         for base in endpoints {
             let cleanBase = base.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard !cleanBase.isEmpty else { continue }
             guard let url = URL(string: "\(cleanBase)/stream/\(mediaPath)/\(targetID).json") else { continue }
 
             var request = URLRequest(url: url)
@@ -175,22 +161,14 @@ class CometScraper: StreamProvider {
 class MediaFusionScraper: StreamProvider {
     let name = "MediaFusion"
 
-    func fetchLinks(tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async throws -> [AggregatedLink] {
-        var imdbID: String? = nil
-        if tmdbID.hasPrefix("tt") {
-            imdbID = tmdbID
-        } else {
-            imdbID = try? await TMDBService().fetchIMDbID(tmdbID: tmdbID, type: type)
-        }
-
-        guard let targetBase = imdbID ?? (tmdbID.hasPrefix("tt") ? tmdbID : nil) else { return [] }
+    func fetchLinks(imdbID: String, tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async throws -> [AggregatedLink] {
         let targetID: String
         if type == .series {
             let s = season ?? 1
             let e = episode ?? 1
-            targetID = "\(targetBase):\(s):\(e)"
+            targetID = "\(imdbID):\(s):\(e)"
         } else {
-            targetID = targetBase
+            targetID = imdbID
         }
 
         let mediaPath = (type == .series) ? "series" : "movie"
@@ -253,22 +231,14 @@ class MediaFusionScraper: StreamProvider {
 class KnightcrawlerScraper: StreamProvider {
     let name = "Knightcrawler"
 
-    func fetchLinks(tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async throws -> [AggregatedLink] {
-        var imdbID: String? = nil
-        if tmdbID.hasPrefix("tt") {
-            imdbID = tmdbID
-        } else {
-            imdbID = try? await TMDBService().fetchIMDbID(tmdbID: tmdbID, type: type)
-        }
-
-        guard let targetBase = imdbID ?? (tmdbID.hasPrefix("tt") ? tmdbID : nil) else { return [] }
+    func fetchLinks(imdbID: String, tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async throws -> [AggregatedLink] {
         let targetID: String
         if type == .series {
             let s = season ?? 1
             let e = episode ?? 1
-            targetID = "\(targetBase):\(s):\(e)"
+            targetID = "\(imdbID):\(s):\(e)"
         } else {
-            targetID = targetBase
+            targetID = imdbID
         }
 
         let mediaPath = (type == .series) ? "series" : "movie"
@@ -327,28 +297,19 @@ class KnightcrawlerScraper: StreamProvider {
     }
 }
 
-// MARK: - 5. Zilean & DMM (Debrid Media Manager) Scraper
+// MARK: - 5. Zilean & DMM Scraper
 class ZileanScraper: StreamProvider {
     let name = "Zilean & Bitmagnet"
 
-    func fetchLinks(tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async throws -> [AggregatedLink] {
-        var imdbID: String? = nil
-        if tmdbID.hasPrefix("tt") {
-            imdbID = tmdbID
-        } else {
-            imdbID = try? await TMDBService().fetchIMDbID(tmdbID: tmdbID, type: type)
-        }
-
+    func fetchLinks(imdbID: String, tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async throws -> [AggregatedLink] {
         let mediaPath = (type == .series) ? "series" : "movie"
-        var targetID = tmdbID
-        if let imdb = imdbID {
-            if type == .series {
-                let s = season ?? 1
-                let e = episode ?? 1
-                targetID = "\(imdb):\(s):\(e)"
-            } else {
-                targetID = imdb
-            }
+        let targetID: String
+        if type == .series {
+            let s = season ?? 1
+            let e = episode ?? 1
+            targetID = "\(imdbID):\(s):\(e)"
+        } else {
+            targetID = imdbID
         }
 
         var allLinks: [AggregatedLink] = []
@@ -395,50 +356,48 @@ class ZileanScraper: StreamProvider {
         }
 
         // B. Zilean Native DMM API Endpoint (/dmm/filtered)
-        if let imdb = imdbID {
-            let title = (try? await TMDBService().fetchTitle(tmdbID: tmdbID, type: type)) ?? ""
-            let category = (type == .series) ? "tv" : "movie"
+        let title = (try? await TMDBService().fetchTitle(tmdbID: tmdbID, type: type)) ?? ""
+        let category = (type == .series) ? "tv" : "movie"
 
-            var components = URLComponents(string: "\(Config.zileanUrl)/dmm/filtered")
-            var queryItems = [
-                URLQueryItem(name: "Query", value: title),
-                URLQueryItem(name: "ImdbId", value: imdb),
-                URLQueryItem(name: "Category", value: category)
-            ]
-            if type == .series, let s = season, let e = episode {
-                queryItems.append(URLQueryItem(name: "Season", value: "\(s)"))
-                queryItems.append(URLQueryItem(name: "Episode", value: "\(e)"))
-            }
-            components?.queryItems = queryItems
+        var components = URLComponents(string: "\(Config.zileanUrl)/dmm/filtered")
+        var queryItems = [
+            URLQueryItem(name: "Query", value: title),
+            URLQueryItem(name: "ImdbId", value: imdbID),
+            URLQueryItem(name: "Category", value: category)
+        ]
+        if type == .series, let s = season, let e = episode {
+            queryItems.append(URLQueryItem(name: "Season", value: "\(s)"))
+            queryItems.append(URLQueryItem(name: "Episode", value: "\(e)"))
+        }
+        components?.queryItems = queryItems
 
-            if let dmmURL = components?.url {
-                var dmmReq = URLRequest(url: dmmURL)
-                dmmReq.timeoutInterval = 3.5
+        if let dmmURL = components?.url {
+            var dmmReq = URLRequest(url: dmmURL)
+            dmmReq.timeoutInterval = 3.5
 
-                do {
-                    let (data, resp) = try await URLSession.shared.data(for: dmmReq)
-                    if let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) {
-                        struct DmmTorrentInfo: Decodable {
-                            let raw_title: String?
-                            let parsed_title: String?
-                            let info_hash: String?
-                            let resolution: String?
-                            let size: String?
-                        }
-
-                        if let dmmItems = try? JSONDecoder().decode([DmmTorrentInfo].self, from: data) {
-                            let items = dmmItems.compactMap { dmm -> AggregatedLink? in
-                                guard let hash = dmm.info_hash, !hash.isEmpty else { return nil }
-                                let rawTitle = dmm.raw_title ?? dmm.parsed_title ?? title
-                                let sz = dmm.size != nil ? " [\(dmm.size!)]" : ""
-                                let combined = "\(rawTitle)\(sz)"
-                                return StreamParser.parse(rawTitle: combined, source: name, url: nil, infoHash: hash)
-                            }
-                            allLinks.append(contentsOf: items)
-                        }
+            do {
+                let (data, resp) = try await URLSession.shared.data(for: dmmReq)
+                if let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+                    struct DmmTorrentInfo: Decodable {
+                        let raw_title: String?
+                        let parsed_title: String?
+                        let info_hash: String?
+                        let resolution: String?
+                        let size: String?
                     }
-                } catch {}
-            }
+
+                    if let dmmItems = try? JSONDecoder().decode([DmmTorrentInfo].self, from: data) {
+                        let items = dmmItems.compactMap { dmm -> AggregatedLink? in
+                            guard let hash = dmm.info_hash, !hash.isEmpty else { return nil }
+                            let rawTitle = dmm.raw_title ?? dmm.parsed_title ?? title
+                            let sz = dmm.size != nil ? " [\(dmm.size!)]" : ""
+                            let combined = "\(rawTitle)\(sz)"
+                            return StreamParser.parse(rawTitle: combined, source: name, url: nil, infoHash: hash)
+                        }
+                        allLinks.append(contentsOf: items)
+                    }
+                }
+            } catch {}
         }
 
         return allLinks
@@ -449,22 +408,14 @@ class ZileanScraper: StreamProvider {
 class CyberflixScraper: StreamProvider {
     let name = "Cyberflix"
 
-    func fetchLinks(tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async throws -> [AggregatedLink] {
-        var imdbID: String? = nil
-        if tmdbID.hasPrefix("tt") {
-            imdbID = tmdbID
-        } else {
-            imdbID = try? await TMDBService().fetchIMDbID(tmdbID: tmdbID, type: type)
-        }
-
-        guard let targetBase = imdbID ?? (tmdbID.hasPrefix("tt") ? tmdbID : nil) else { return [] }
+    func fetchLinks(imdbID: String, tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async throws -> [AggregatedLink] {
         let targetID: String
         if type == .series {
             let s = season ?? 1
             let e = episode ?? 1
-            targetID = "\(targetBase):\(s):\(e)"
+            targetID = "\(imdbID):\(s):\(e)"
         } else {
-            targetID = targetBase
+            targetID = imdbID
         }
 
         let mediaPath = (type == .series) ? "series" : "movie"
@@ -527,7 +478,7 @@ class CyberflixScraper: StreamProvider {
 class PirateBayScraper: StreamProvider {
     let name = "PirateBay"
 
-    func fetchLinks(tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async throws -> [AggregatedLink] {
+    func fetchLinks(imdbID: String, tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async throws -> [AggregatedLink] {
         guard let title = try? await TMDBService().fetchTitle(tmdbID: tmdbID, type: type) else { return [] }
 
         var searchQuery = title
@@ -569,6 +520,7 @@ class PirateBayScraper: StreamProvider {
 class AggregatorService {
     private let providers: [StreamProvider]
     private let rdService = RealDebridService()
+    private let tmdbService = TMDBService()
 
     init() {
         self.providers = [
@@ -582,11 +534,25 @@ class AggregatorService {
         ]
     }
 
-    func fetchBestLinks(tmdbID: String, type: MediaItem.MediaType, season: Int? = nil, episode: Int? = nil) async throws -> [AggregatedLink] {
-        return try await getBestLinks(tmdbID: tmdbID, type: type, season: season, episode: episode)
+    func fetchBestLinks(tmdbID: String, imdbID: String? = nil, type: MediaItem.MediaType, season: Int? = nil, episode: Int? = nil) async throws -> [AggregatedLink] {
+        return try await getBestLinks(tmdbID: tmdbID, imdbID: imdbID, type: type, season: season, episode: episode)
     }
 
-    func getBestLinks(tmdbID: String, type: MediaItem.MediaType, season: Int? = nil, episode: Int? = nil) async throws -> [AggregatedLink] {
+    func getBestLinks(tmdbID: String, imdbID: String? = nil, type: MediaItem.MediaType, season: Int? = nil, episode: Int? = nil) async throws -> [AggregatedLink] {
+        // Resolve IMDb ID once so providers don't duplicate TMDB calls
+        var resolvedIMDb: String? = imdbID
+        if resolvedIMDb == nil || resolvedIMDb!.isEmpty {
+            if tmdbID.hasPrefix("tt") {
+                resolvedIMDb = tmdbID
+            } else {
+                resolvedIMDb = try? await tmdbService.fetchIMDbID(tmdbID: tmdbID, type: type)
+            }
+        }
+
+        guard let baseIMDb = resolvedIMDb, !baseIMDb.isEmpty else {
+            return []
+        }
+
         var allLinks: [AggregatedLink] = []
 
         await withTaskGroup(of: [AggregatedLink].self) { group in
@@ -594,7 +560,7 @@ class AggregatorService {
                 let providerName = provider.name
                 group.addTask {
                     do {
-                        return try await provider.fetchLinks(tmdbID: tmdbID, type: type, season: season, episode: episode)
+                        return try await provider.fetchLinks(imdbID: baseIMDb, tmdbID: tmdbID, type: type, season: season, episode: episode)
                     } catch {
                         print("Provider \(providerName) error: \(error.localizedDescription)")
                         return []
@@ -661,21 +627,11 @@ class AggregatorService {
         let candidates = [startingLink] + allLinks.filter { $0.id != startingLink.id }
 
         for candidate in candidates {
-            if let directURL = candidate.url, directURL.scheme != "magnet", !directURL.absoluteString.hasPrefix("magnet:") {
+            if let directURL = candidate.url {
                 return (directURL, candidate)
             }
 
-            var hashToUse = candidate.infoHash
-            if (hashToUse == nil || hashToUse?.isEmpty == true), let u = candidate.url, u.absoluteString.hasPrefix("magnet:") {
-                let str = u.absoluteString
-                if let range = str.range(of: "urn:btih:") {
-                    let sub = str[range.upperBound...]
-                    let hash = sub.components(separatedBy: "&").first?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    hashToUse = hash
-                }
-            }
-
-            if let infoHash = hashToUse, !infoHash.isEmpty {
+            if let infoHash = candidate.infoHash, !infoHash.isEmpty {
                 do {
                     let resolvedURL = try await rdService.addMagnetAndGetLink(infoHash: infoHash)
                     return (resolvedURL, candidate)

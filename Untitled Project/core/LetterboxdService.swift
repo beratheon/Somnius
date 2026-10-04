@@ -18,10 +18,14 @@ class LetterboxdService {
         async let topRated = tmdb.fetchTopRatedCatalog(page: 1)
         async let topRated2 = tmdb.fetchTopRatedCatalog(page: 2)
         async let actionFilms = tmdb.fetchActionCatalog()
+        async let sciFiFilms = tmdb.fetchSciFiCatalog()
+        async let animeFilms = tmdb.fetchAnimationCatalog()
         async let trendingSeries = tmdb.fetchPopularSeries()
 
         let letterboxdTop = await topRated + topRated2
         let a24Vault = await actionFilms
+        let sciFiVault = await sciFiFilms
+        let animeVault = await animeFilms
         let topTV = await trendingSeries
 
         return [
@@ -33,11 +37,25 @@ class LetterboxdService {
                 items: Array(letterboxdTop.prefix(15))
             ),
             CuratedCollection(
+                id: "sci_fi_cyberpunk",
+                title: "Sci-Fi & Cyberpunk Visions",
+                description: "Mind-bending futuristic epics, space odysseys & dystopian classics",
+                iconName: "sparkles",
+                items: Array(sciFiVault.prefix(15))
+            ),
+            CuratedCollection(
                 id: "a24_classics",
                 title: "Cinematic Action & Thrillers",
                 description: "High-octane blockbusters & critically acclaimed thrillers",
                 iconName: "flame.fill",
                 items: Array(a24Vault.prefix(15))
+            ),
+            CuratedCollection(
+                id: "anime_masterpieces",
+                title: "Animation & Anime Masterpieces",
+                description: "Studio Ghibli, Makoto Shinkai & visionary animated cinema",
+                iconName: "wand.and.stars",
+                items: Array(animeVault.prefix(15))
             ),
             CuratedCollection(
                 id: "top_tv_masterpieces",

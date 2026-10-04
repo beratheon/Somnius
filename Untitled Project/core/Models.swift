@@ -15,8 +15,9 @@ struct AggregatedLink: Identifiable, Codable {
     let score: Int
     var isCached: Bool
     var isBestInCategory: Bool = false
+    let sizeString: String?
 
-    init(id: String = UUID().uuidString, title: String, rawTitle: String, url: URL?, infoHash: String?, quality: String, resolutionBadge: String, hdrTag: String?, audioTag: String?, codecTag: String?, source: String, score: Int, isCached: Bool, isBestInCategory: Bool = false) {
+    init(id: String = UUID().uuidString, title: String, rawTitle: String, url: URL?, infoHash: String?, quality: String, resolutionBadge: String, hdrTag: String?, audioTag: String?, codecTag: String?, source: String, score: Int, isCached: Bool, isBestInCategory: Bool = false, sizeString: String? = nil) {
         self.id = id
         self.title = title
         self.rawTitle = rawTitle
@@ -31,6 +32,7 @@ struct AggregatedLink: Identifiable, Codable {
         self.score = score
         self.isCached = isCached
         self.isBestInCategory = isBestInCategory
+        self.sizeString = sizeString
     }
 
     static func cleanQuality(from title: String) -> String {
@@ -51,7 +53,7 @@ struct AggregatedLink: Identifiable, Codable {
                 return true
             }
         }
-        return true
+        return false
     }
 }
 
@@ -116,6 +118,16 @@ struct StreamParser {
             baseScore = 30
         }
 
+        // Apply User Preferred Stream Quality Weighting
+        if Config.preferredStreamQuality == "1080p" {
+            if quality == "FHD" { baseScore += 50 }
+        } else if Config.preferredStreamQuality == "720p" {
+            if quality == "HD" { baseScore += 80 }
+        } else {
+            // Default: 4K priority
+            if quality == "4K" { baseScore += 20 }
+        }
+
         // 3. HDR / Dolby Vision Tag
         var hdrTag: String? = nil
         if upper.contains("DV") || upper.contains("DOLBY VISION") || upper.contains("DOLBY-VISION") {
@@ -143,12 +155,20 @@ struct StreamParser {
         } else if upper.contains("DTS") {
             audioTag = "DTS 5.1"
             baseScore += 5
+        } else if upper.contains("DDP") || upper.contains("EAC3") || upper.contains("E-AC-3") || upper.contains("E-AC3") {
+            audioTag = "Dolby Digital+ 5.1"
+            baseScore += 5
+        } else if upper.contains("FLAC") {
+            audioTag = "Lossless FLAC"
+            baseScore += 6
         } else if upper.contains("5.1") {
             audioTag = "5.1 Surround"
             baseScore += 4
         } else if upper.contains("7.1") {
             audioTag = "7.1 Surround"
             baseScore += 5
+        } else if upper.contains("AAC") {
+            audioTag = "AAC Stereo"
         }
 
         // 5. Codec Tag
@@ -163,6 +183,9 @@ struct StreamParser {
             codecTag = "AVC x264"
         }
 
+        // 6. Extract File Size if present
+        let sizeString = extractSizeString(from: rawTitle)
+
         // Construct magnet URL if URL is nil and infoHash is present
         var finalURL = url
         if finalURL == nil, let hash = infoHash, !hash.isEmpty {
@@ -170,13 +193,13 @@ struct StreamParser {
             finalURL = URL(string: "magnet:?xt=urn:btih:\(hash)&dn=\(encodedTitle)")
         }
 
-        // 6. Check RealDebrid Cached
+        // 7. Check RealDebrid Cached
         let isCached = AggregatedLink.checkIsCached(url: finalURL, title: rawTitle)
         if isCached {
             baseScore += 40
         }
 
-        // 7. Clean title
+        // 8. Clean title
         let clean = cleanTorrentTitle(rawTitle)
 
         return AggregatedLink(
@@ -191,8 +214,19 @@ struct StreamParser {
             codecTag: codecTag,
             source: source,
             score: baseScore,
-            isCached: isCached
+            isCached: isCached,
+            sizeString: sizeString
         )
+    }
+
+    private static func extractSizeString(from title: String) -> String? {
+        let pattern = #"(\d+(?:\.\d+)?\s*(?:GB|GIB|MB|MIB|TB|TIB))\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)),
+              let range = Range(match.range(at: 1), in: title) else {
+            return nil
+        }
+        return String(title[range]).uppercased()
     }
 
     private static func cleanTorrentTitle(_ title: String) -> String {

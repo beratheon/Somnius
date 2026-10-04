@@ -8,7 +8,14 @@ struct Config {
     private static let apiKeyKey = "RealDebrid_API_Key"
     private static let subtitleLangKey = "Preferred_Subtitle_Language"
     private static let showOnlyCachedKey = "Show_Only_Cached_Results"
-    private static let useIINAKey = "Use_IINA_By_Default"
+    private static let defaultPlayerKey = "Default_Player_Selection"
+    private static let autoPlayNextKey = "Auto_Play_Next_Episode"
+    private static let bufferSecondsKey = "Buffer_Ahead_Duration_Seconds"
+
+    private static let preferredQualityKey = "Preferred_Stream_Quality"
+    private static let playbackEngineKey = "Playback_Engine_Mode"
+    private static let subtitleColorKey = "Subtitle_Color_Preference"
+    private static let subtitleSizeKey = "Subtitle_Size_Preference"
 
     static var realDebridApiKey: String {
         get { UserDefaults.standard.string(forKey: apiKeyKey) ?? "" }
@@ -21,8 +28,31 @@ struct Config {
     }
 
     static var preferredSubtitleLanguage: String {
-        get { UserDefaults.standard.string(forKey: subtitleLangKey) ?? "fr" }
+        get { UserDefaults.standard.string(forKey: subtitleLangKey) ?? "en" }
         set { UserDefaults.standard.set(newValue, forKey: subtitleLangKey) }
+    }
+
+    static var preferredStreamQuality: String {
+        get { UserDefaults.standard.string(forKey: preferredQualityKey) ?? "4k" }
+        set { UserDefaults.standard.set(newValue, forKey: preferredQualityKey) }
+    }
+
+    static var playbackEngineMode: String {
+        get { UserDefaults.standard.string(forKey: playbackEngineKey) ?? "auto" }
+        set { UserDefaults.standard.set(newValue, forKey: playbackEngineKey) }
+    }
+
+    static var subtitleColorPreference: String {
+        get { UserDefaults.standard.string(forKey: subtitleColorKey) ?? "yellow" }
+        set { UserDefaults.standard.set(newValue, forKey: subtitleColorKey) }
+    }
+
+    static var subtitleFontSizePreference: CGFloat {
+        get {
+            let v = UserDefaults.standard.double(forKey: subtitleSizeKey)
+            return v > 10 ? CGFloat(v) : 22.0
+        }
+        set { UserDefaults.standard.set(Double(newValue), forKey: subtitleSizeKey) }
     }
 
     static var showOnlyCachedResults: Bool {
@@ -30,14 +60,30 @@ struct Config {
         set { UserDefaults.standard.set(newValue, forKey: showOnlyCachedKey) }
     }
 
+    static var defaultPlayerSelection: String {
+        get { UserDefaults.standard.string(forKey: defaultPlayerKey) ?? "native" }
+        set { UserDefaults.standard.set(newValue, forKey: defaultPlayerKey) }
+    }
+
     static var useIINAByDefault: Bool {
+        get { defaultPlayerSelection == "iina" }
+        set { defaultPlayerSelection = newValue ? "iina" : "native" }
+    }
+
+    static var autoPlayNextEpisode: Bool {
         get {
-            if UserDefaults.standard.object(forKey: useIINAKey) == nil {
-                return IINAPlayerService.isIINAInstalled
-            }
-            return UserDefaults.standard.bool(forKey: useIINAKey)
+            if UserDefaults.standard.object(forKey: autoPlayNextKey) == nil { return true }
+            return UserDefaults.standard.bool(forKey: autoPlayNextKey)
         }
-        set { UserDefaults.standard.set(newValue, forKey: useIINAKey) }
+        set { UserDefaults.standard.set(newValue, forKey: autoPlayNextKey) }
+    }
+
+    static var bufferAheadSeconds: Double {
+        get {
+            let v = UserDefaults.standard.double(forKey: bufferSecondsKey)
+            return v > 0 ? v : 60.0
+        }
+        set { UserDefaults.standard.set(newValue, forKey: bufferSecondsKey) }
     }
 
     static let cometUrl = "http://localhost:8000"
@@ -50,40 +96,79 @@ struct Config {
     static let tmdbApiKeyFallback = "e9e9d8da18ae29fc430845952232787c"
 }
 
-// MARK: - IINA Player Service Helper
-class IINAPlayerService {
-    static var isIINAInstalled: Bool {
+// MARK: - Multi-Player Launcher Support (IINA, VLC, Infuse, MPV)
+enum ExternalPlayer: String, CaseIterable, Identifiable {
+    case iina = "IINA"
+    case vlc = "VLC"
+    case infuse = "Infuse"
+    case mpv = "mpv"
+
+    var id: String { rawValue }
+
+    var appPath: String {
+        switch self {
+        case .iina: return "/Applications/IINA.app"
+        case .vlc: return "/Applications/VLC.app"
+        case .infuse: return "/Applications/Infuse.app"
+        case .mpv: return "/Applications/mpv.app"
+        }
+    }
+
+    var isInstalled: Bool {
         #if os(macOS)
-        let iinaPath = "/Applications/IINA.app"
-        return FileManager.default.fileExists(atPath: iinaPath)
+        return FileManager.default.fileExists(atPath: appPath)
         #else
         return false
         #endif
     }
 
     @discardableResult
-    static func openInIINA(url: URL) -> Bool {
+    func open(url: URL, startTime: Double? = nil) -> Bool {
         #if os(macOS)
-        let iinaAppURL = URL(fileURLWithPath: "/Applications/IINA.app")
-        if FileManager.default.fileExists(atPath: iinaAppURL.path) {
+        let appURL = URL(fileURLWithPath: appPath)
+        if FileManager.default.fileExists(atPath: appPath) {
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = true
-
-            NSWorkspace.shared.open([url], withApplicationAt: iinaAppURL, configuration: configuration) { app, error in
+            var args: [String] = []
+            if let s = startTime, s > 2 {
+                let sec = Int(s)
+                switch self {
+                case .iina:
+                    args = ["--mpv-start=\(sec)"]
+                case .vlc:
+                    args = ["--start-time=\(sec)"]
+                case .mpv:
+                    args = ["--start=\(sec)"]
+                case .infuse:
+                    break
+                }
+            }
+            configuration.arguments = args
+            NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: configuration) { app, error in
                 if let error = error {
-                    print("Failed to open IINA: \(error.localizedDescription)")
+                    print("Failed to open \(rawValue): \(error.localizedDescription)")
                 } else {
-                    print("Successfully launched IINA player.")
+                    print("Successfully launched \(rawValue) player at \(Int(startTime ?? 0))s.")
                 }
             }
             return true
         }
-
-        NSWorkspace.shared.open(url)
         return false
         #else
         return false
         #endif
+    }
+}
+
+// MARK: - Legacy IINA Helper Compatibility
+class IINAPlayerService {
+    static var isIINAInstalled: Bool {
+        return ExternalPlayer.iina.isInstalled
+    }
+
+    @discardableResult
+    static func openInIINA(url: URL) -> Bool {
+        return ExternalPlayer.iina.open(url: url)
     }
 }
 
@@ -149,37 +234,52 @@ class RealDebridService {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty, !hashes.isEmpty else { return [] }
 
-        let cleanHashes = hashes.compactMap { h -> String? in
+        let cleanHashes = Array(Set(hashes.compactMap { h -> String? in
             let trimmed = h.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             return trimmed.count == 40 ? trimmed : nil
-        }
+        }))
         guard !cleanHashes.isEmpty else { return [] }
 
-        let hashPath = cleanHashes.prefix(50).joined(separator: "/")
-        guard let url = URL(string: "\(baseURL)/torrents/instantAvailability/\(hashPath)") else { return [] }
-
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 4.0
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return [] }
-
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                var cachedHashes = Set<String>()
-                for (hashKey, val) in json {
-                    if let dict = val as? [String: Any], !dict.isEmpty {
-                        cachedHashes.insert(hashKey.lowercased())
-                    }
-                }
-                return cachedHashes
-            }
-        } catch {
-            print("Instant availability check failed: \(error)")
+        var cachedHashes = Set<String>()
+        let chunkSize = 40
+        let chunks = stride(from: 0, to: cleanHashes.count, by: chunkSize).map {
+            Array(cleanHashes[$0..<min($0 + chunkSize, cleanHashes.count)])
         }
 
-        return []
+        await withTaskGroup(of: Set<String>.self) { group in
+            for chunk in chunks {
+                let hashPath = chunk.joined(separator: "/")
+                guard let url = URL(string: "\(baseURL)/torrents/instantAvailability/\(hashPath)") else { continue }
+
+                group.addTask {
+                    var request = URLRequest(url: url)
+                    request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+                    request.timeoutInterval = 4.0
+
+                    do {
+                        let (data, response) = try await URLSession.shared.data(for: request)
+                        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return [] }
+
+                        if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                            var set = Set<String>()
+                            for (hashKey, val) in json {
+                                if let dict = val as? [String: Any], !dict.isEmpty {
+                                    set.insert(hashKey.lowercased())
+                                }
+                            }
+                            return set
+                        }
+                    } catch {}
+                    return []
+                }
+            }
+
+            for await result in group {
+                cachedHashes.formUnion(result)
+            }
+        }
+
+        return cachedHashes
     }
 
     func unrestrict(link: URL) async throws -> URL {
@@ -439,6 +539,32 @@ class TMDBService {
         do {
             let items = [
                 URLQueryItem(name: "with_genres", value: "28"),
+                URLQueryItem(name: "page", value: "\(page)")
+            ]
+            let (data, _) = try await executeRequest(endpoint: "/discover/movie", queryItems: items)
+            return parseMediaItems(data: data, type: .movie)
+        } catch {
+            return []
+        }
+    }
+
+    func fetchSciFiCatalog(page: Int = 1) async -> [MediaItem] {
+        do {
+            let items = [
+                URLQueryItem(name: "with_genres", value: "878"),
+                URLQueryItem(name: "page", value: "\(page)")
+            ]
+            let (data, _) = try await executeRequest(endpoint: "/discover/movie", queryItems: items)
+            return parseMediaItems(data: data, type: .movie)
+        } catch {
+            return []
+        }
+    }
+
+    func fetchAnimationCatalog(page: Int = 1) async -> [MediaItem] {
+        do {
+            let items = [
+                URLQueryItem(name: "with_genres", value: "16"),
                 URLQueryItem(name: "page", value: "\(page)")
             ]
             let (data, _) = try await executeRequest(endpoint: "/discover/movie", queryItems: items)

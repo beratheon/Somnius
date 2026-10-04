@@ -6,6 +6,10 @@ struct ContentDiscoveryView: View {
     var onMediaSelected: (MediaItem) -> Void
     var onOpenProfile: () -> Void
 
+    @State private var selectedCatalogCategory: String = "All"
+
+    private let categories = ["All", "Movies", "TV Shows", "Sci-Fi & Action", "Anime", "My Watchlist"]
+
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 28) {
@@ -72,12 +76,35 @@ struct ContentDiscoveryView: View {
                         }
                     }
 
+                    // Category Filter Pills
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(categories, id: \.self) { cat in
+                                Button(action: {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                                        selectedCatalogCategory = cat
+                                    }
+                                }) {
+                                    Text(cat)
+                                        .font(.subheadline.bold())
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 8)
+                                        .background(selectedCatalogCategory == cat ? Color.purple : Color.white.opacity(0.1))
+                                        .foregroundColor(selectedCatalogCategory == cat ? .white : .gray)
+                                        .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+
                     if let user = viewModel.realDebridUser {
                         RealDebridUserBanner(user: user, onProfileTap: onOpenProfile)
                             .padding(.horizontal)
                     }
 
-                    // Continue Watching Section
+                    // Continue Watching Section (Always visible if history exists)
                     if !watchlistManager.history.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
@@ -106,26 +133,71 @@ struct ContentDiscoveryView: View {
                         }
                     }
 
-                    if !viewModel.trendingMovies.isEmpty {
-                        ContentSection(title: "🔥 Trending This Week", items: Array(viewModel.trendingMovies.dropFirst(6)), onSelect: onMediaSelected)
-                    }
+                    // Category-Filtered Content Rows
+                    if selectedCatalogCategory == "My Watchlist" {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("📑 My Saved Watchlist (\(watchlistManager.watchlist.count))")
+                                .font(.title2.bold())
+                                .foregroundColor(.white)
+                                .padding(.horizontal)
 
-                    if !viewModel.popularSeries.isEmpty {
-                        ContentSection(title: "📺 Popular TV Series", items: viewModel.popularSeries, onSelect: onMediaSelected)
-                    }
-
-                    if !viewModel.curatedCollections.isEmpty {
-                        ForEach(viewModel.curatedCollections) { collection in
-                            ContentSection(title: "\(collection.title)", items: collection.items, onSelect: onMediaSelected)
+                            if watchlistManager.watchlist.isEmpty {
+                                Text("Your watchlist is empty. Bookmark any title to see it here.")
+                                    .foregroundColor(.gray)
+                                    .padding(.horizontal)
+                                    .padding(.vertical, 20)
+                            } else {
+                                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140, maximum: 160), spacing: 16)], spacing: 20) {
+                                    ForEach(watchlistManager.watchlist) { item in
+                                        MoviePosterCard(item: item)
+                                            .onTapGesture {
+                                                onMediaSelected(item)
+                                            }
+                                    }
+                                }
+                                .padding(.horizontal)
+                            }
                         }
-                    }
+                    } else {
+                        // Regular / Filtered sections
+                        if (selectedCatalogCategory == "All" || selectedCatalogCategory == "Movies") && !viewModel.trendingMovies.isEmpty {
+                            ContentSection(title: "🔥 Trending This Week", items: Array(viewModel.trendingMovies.dropFirst(6)), onSelect: onMediaSelected)
+                        }
 
-                    if !viewModel.topRatedMovies.isEmpty {
-                        ContentSection(title: "⭐ Top Rated Masterpieces", items: viewModel.topRatedMovies, onSelect: onMediaSelected)
-                    }
+                        if (selectedCatalogCategory == "All" || selectedCatalogCategory == "TV Shows") && !viewModel.popularSeries.isEmpty {
+                            ContentSection(title: "📺 Popular TV Series", items: viewModel.popularSeries, onSelect: onMediaSelected)
+                        }
 
-                    if !viewModel.actionMovies.isEmpty {
-                        ContentSection(title: "💥 Action & Blockbusters", items: viewModel.actionMovies, onSelect: onMediaSelected)
+                        if selectedCatalogCategory == "All" || selectedCatalogCategory == "Movies" || selectedCatalogCategory == "Sci-Fi & Action" || selectedCatalogCategory == "Anime" {
+                            ForEach(viewModel.curatedCollections) { collection in
+                                let matchesCategory: Bool = {
+                                    switch selectedCatalogCategory {
+                                    case "Sci-Fi & Action":
+                                        return collection.id.contains("sci_fi") || collection.id.contains("action")
+                                    case "Anime":
+                                        return collection.id.contains("anime")
+                                    case "Movies":
+                                        return !collection.id.contains("tv")
+                                    case "TV Shows":
+                                        return collection.id.contains("tv")
+                                    default:
+                                        return true
+                                    }
+                                }()
+
+                                if matchesCategory {
+                                    ContentSection(title: "\(collection.title)", items: collection.items, onSelect: onMediaSelected)
+                                }
+                            }
+                        }
+
+                        if (selectedCatalogCategory == "All" || selectedCatalogCategory == "Movies") && !viewModel.topRatedMovies.isEmpty {
+                            ContentSection(title: "⭐ Top Rated Masterpieces", items: viewModel.topRatedMovies, onSelect: onMediaSelected)
+                        }
+
+                        if (selectedCatalogCategory == "All" || selectedCatalogCategory == "Sci-Fi & Action") && !viewModel.actionMovies.isEmpty {
+                            ContentSection(title: "💥 Action & Blockbusters", items: viewModel.actionMovies, onSelect: onMediaSelected)
+                        }
                     }
 
                     if viewModel.isLoading {

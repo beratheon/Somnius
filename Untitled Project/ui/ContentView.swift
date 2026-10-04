@@ -105,6 +105,7 @@ struct ContentView: View {
                     mediaItem: selectedMediaItem,
                     currentSeason: playingSeason,
                     currentEpisode: playingEpisode,
+                    initialLinks: scrapedLinks,
                     onDismiss: {
                         showPlayer = false
                         selectedStreamURL = nil
@@ -203,7 +204,7 @@ struct ContentView: View {
         showStreamPicker = true
 
         do {
-            let links = try await AggregatorService().fetchBestLinks(tmdbID: item.id, type: item.type, season: season, episode: episode)
+            let links = try await AggregatorService().fetchBestLinks(tmdbID: item.id, imdbID: item.imdbID, type: item.type, season: season, episode: episode)
             scrapedLinks = links
             isFetchingStreams = false
         } catch {
@@ -221,6 +222,18 @@ struct ContentView: View {
             let (url, resolvedLink) = try await AggregatorService().resolveStreamURLWithFallback(startingLink: scrapedLinks[0], allLinks: scrapedLinks)
             isFetchingStreams = false
             print("Successfully resolved stream via fallback: \(resolvedLink.title)")
+
+            if Config.defaultPlayerSelection != "native",
+               let ext = ExternalPlayer(rawValue: Config.defaultPlayerSelection.uppercased()) ?? ExternalPlayer.allCases.first(where: { $0.rawValue.lowercased() == Config.defaultPlayerSelection.lowercased() }),
+               ext.isInstalled {
+                let resumeTime = selectedMediaItem.flatMap { WatchlistManager.shared.getResumeTime(id: $0.id, season: playingSeason, episode: playingEpisode) }
+                ext.open(url: url, startTime: resumeTime)
+                if let media = selectedMediaItem {
+                    WatchlistManager.shared.recordHistory(item: media, season: playingSeason, episode: playingEpisode, progress: resumeTime ?? 0, duration: 0)
+                }
+                return
+            }
+
             self.selectedStreamURL = url
             self.showPlayer = true
         } catch {
@@ -235,6 +248,18 @@ struct ContentView: View {
         do {
             let (url, _) = try await AggregatorService().resolveStreamURLWithFallback(startingLink: link, allLinks: scrapedLinks)
             isFetchingStreams = false
+
+            if Config.defaultPlayerSelection != "native",
+               let ext = ExternalPlayer(rawValue: Config.defaultPlayerSelection.uppercased()) ?? ExternalPlayer.allCases.first(where: { $0.rawValue.lowercased() == Config.defaultPlayerSelection.lowercased() }),
+               ext.isInstalled {
+                let resumeTime = selectedMediaItem.flatMap { WatchlistManager.shared.getResumeTime(id: $0.id, season: playingSeason, episode: playingEpisode) }
+                ext.open(url: url, startTime: resumeTime)
+                if let media = selectedMediaItem {
+                    WatchlistManager.shared.recordHistory(item: media, season: playingSeason, episode: playingEpisode, progress: resumeTime ?? 0, duration: 0)
+                }
+                return
+            }
+
             self.selectedStreamURL = url
             self.showPlayer = true
         } catch {
@@ -250,6 +275,14 @@ struct ContentView: View {
             let rd = RealDebridService()
             let resolved = try await rd.unrestrict(urlString: linkString)
             isFetchingStreams = false
+
+            if Config.defaultPlayerSelection != "native",
+               let ext = ExternalPlayer(rawValue: Config.defaultPlayerSelection.uppercased()) ?? ExternalPlayer.allCases.first(where: { $0.rawValue.lowercased() == Config.defaultPlayerSelection.lowercased() }),
+               ext.isInstalled {
+                ext.open(url: resolved)
+                return
+            }
+
             self.selectedStreamURL = resolved
             self.showPlayer = true
         } catch {
@@ -424,6 +457,16 @@ struct StreamSelectionSheet: View {
                                                         .padding(.vertical, 4)
                                                         .background(Color.white.opacity(0.12))
                                                         .foregroundColor(.white.opacity(0.7))
+                                                        .cornerRadius(6)
+                                                }
+
+                                                if let sz = link.sizeString {
+                                                    Text(sz)
+                                                        .font(.caption.bold())
+                                                        .padding(.horizontal, 8)
+                                                        .padding(.vertical, 4)
+                                                        .background(Color.white.opacity(0.12))
+                                                        .foregroundColor(.white.opacity(0.85))
                                                         .cornerRadius(6)
                                                 }
 

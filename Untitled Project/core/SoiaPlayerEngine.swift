@@ -8,6 +8,9 @@ typealias mpv_initialize_fn = @convention(c) (UnsafeMutableRawPointer?) -> Int32
 typealias mpv_set_option_string_fn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
 typealias mpv_command_string_fn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Int32
 typealias mpv_command_fn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UnsafePointer<CChar>?>?) -> Int32
+typealias mpv_get_property_string_fn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?
+typealias mpv_set_property_string_fn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+typealias mpv_free_fn = @convention(c) (UnsafeMutableRawPointer?) -> Void
 typealias mpv_destroy_fn = @convention(c) (UnsafeMutableRawPointer?) -> Void
 
 class SoiaPlayerEngine: ObservableObject {
@@ -18,6 +21,9 @@ class SoiaPlayerEngine: ObservableObject {
     private var mpv_set_option_string: mpv_set_option_string_fn?
     private var mpv_command_string: mpv_command_string_fn?
     private var mpv_command: mpv_command_fn?
+    private var mpv_get_property_string: mpv_get_property_string_fn?
+    private var mpv_set_property_string: mpv_set_property_string_fn?
+    private var mpv_free: mpv_free_fn?
     private var mpv_destroy: mpv_destroy_fn?
 
     private(set) var mpvHandle: UnsafeMutableRawPointer? = nil
@@ -60,6 +66,9 @@ class SoiaPlayerEngine: ObservableObject {
         mpv_set_option_string = loadSym("mpv_set_option_string")
         mpv_command_string = loadSym("mpv_command_string")
         mpv_command = loadSym("mpv_command")
+        mpv_get_property_string = loadSym("mpv_get_property_string")
+        mpv_set_property_string = loadSym("mpv_set_property_string")
+        mpv_free = loadSym("mpv_free")
         mpv_destroy = loadSym("mpv_destroy")
     }
 
@@ -114,10 +123,36 @@ class SoiaPlayerEngine: ObservableObject {
         self.isPlaying = true
     }
 
-    func togglePlayPause() {
-        guard let mpv = mpvHandle, let cmdStr = mpv_command_string else { return }
-        cmdStr(mpv, "cycle pause")
-        isPlaying.toggle()
+    func getPropertyString(_ name: String) -> String? {
+        guard let mpv = mpvHandle, let getProp = mpv_get_property_string, let freeMpv = mpv_free else { return nil }
+        guard let cStr = getProp(mpv, name) else { return nil }
+        let str = String(cString: cStr)
+        freeMpv(cStr)
+        return str
+    }
+
+    func setPropertyString(_ name: String, value: String) {
+        guard let mpv = mpvHandle, let setProp = mpv_set_property_string else { return }
+        _ = setProp(mpv, name, value)
+    }
+
+    func getTimePos() -> Double {
+        guard let str = getPropertyString("time-pos") else { return 0 }
+        return Double(str) ?? 0
+    }
+
+    func getDuration() -> Double {
+        guard let str = getPropertyString("duration") else { return 0 }
+        return Double(str) ?? 0
+    }
+
+    func getCacheDuration() -> Double {
+        guard let str = getPropertyString("demuxer-cache-duration") else { return 0 }
+        return Double(str) ?? 0
+    }
+
+    func seekTo(_ seconds: Double) {
+        setPropertyString("time-pos", value: "\(seconds)")
     }
 
     func seekRelative(_ seconds: Double) {
@@ -125,9 +160,39 @@ class SoiaPlayerEngine: ObservableObject {
         cmdStr(mpv, "seek \(seconds) relative")
     }
 
+    func setPause(_ paused: Bool) {
+        setPropertyString("pause", value: paused ? "yes" : "no")
+        isPlaying = !paused
+    }
+
+    func togglePlayPause() {
+        guard let mpv = mpvHandle, let cmdStr = mpv_command_string else { return }
+        cmdStr(mpv, "cycle pause")
+        isPlaying.toggle()
+    }
+
     func setVolume(_ volume: Double) {
         guard let mpv = mpvHandle, let cmdStr = mpv_command_string else { return }
         cmdStr(mpv, "set volume \(Int(volume * 100))")
+    }
+
+    func setSpeed(_ speed: Double) {
+        setPropertyString("speed", value: String(format: "%.2f", speed))
+    }
+
+    func cycleAudioTrack() {
+        guard let mpv = mpvHandle, let cmdStr = mpv_command_string else { return }
+        cmdStr(mpv, "cycle aid")
+    }
+
+    func cycleSubtitleTrack() {
+        guard let mpv = mpvHandle, let cmdStr = mpv_command_string else { return }
+        cmdStr(mpv, "cycle sid")
+    }
+
+    func addSubtitle(urlOrPath: String) {
+        guard let mpv = mpvHandle, let cmdStr = mpv_command_string else { return }
+        cmdStr(mpv, "sub-add \"\(urlOrPath)\"")
     }
 
     func destroy() {

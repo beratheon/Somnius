@@ -26,12 +26,19 @@ class WatchlistManager: ObservableObject {
     private let watchlistKey = "User_Watchlist_Items_V2"
     private let favoritesKey = "User_Favorites_Items_V2"
     private let historyKey = "User_WatchHistory_Items_V2"
+    private let episodeProgressKey = "User_EpisodeProgress_Map_V1"
+
+    private var episodeProgressMap: [String: Double] = [:]
 
     init() {
         loadData()
     }
 
     private func loadData() {
+        if let map = UserDefaults.standard.dictionary(forKey: episodeProgressKey) as? [String: Double] {
+            self.episodeProgressMap = map
+        }
+
         let decoder = JSONDecoder()
         if let data = UserDefaults.standard.data(forKey: watchlistKey),
            let items = try? decoder.decode([MediaItem].self, from: data) {
@@ -72,6 +79,7 @@ class WatchlistManager: ObservableObject {
         if let data = try? encoder.encode(history) {
             UserDefaults.standard.set(data, forKey: historyKey)
         }
+        UserDefaults.standard.set(episodeProgressMap, forKey: episodeProgressKey)
     }
 
     func isWatchlisted(id: String) -> Bool {
@@ -103,6 +111,21 @@ class WatchlistManager: ObservableObject {
     func recordHistory(item: MediaItem, season: Int? = nil, episode: Int? = nil, progress: Double, duration: Double) {
         let s = (item.type == .series) ? season : nil
         let e = (item.type == .series) ? episode : nil
+
+        // Granular key tracking
+        let granularKey: String
+        if let sNum = s, let eNum = e {
+            granularKey = "\(item.id)_s\(sNum)_e\(eNum)"
+        } else {
+            granularKey = "\(item.id)_movie"
+        }
+
+        if duration > 0 && (progress / duration) >= 0.92 {
+            episodeProgressMap.removeValue(forKey: granularKey)
+        } else if progress > 5 {
+            episodeProgressMap[granularKey] = progress
+        }
+
         history.removeAll(where: { $0.mediaItem.id == item.id })
         let record = WatchHistoryItem(
             mediaItem: item,
@@ -116,6 +139,37 @@ class WatchlistManager: ObservableObject {
         if history.count > 50 {
             history = Array(history.prefix(50))
         }
+        saveData()
+    }
+
+    func getResumeTime(id: String, season: Int? = nil, episode: Int? = nil) -> Double? {
+        let granularKey: String
+        if let s = season, let e = episode {
+            granularKey = "\(id)_s\(s)_e\(e)"
+        } else {
+            granularKey = "\(id)_movie"
+        }
+
+        if let savedSec = episodeProgressMap[granularKey], savedSec > 10 {
+            return savedSec
+        }
+
+        if let match = history.first(where: { item in
+            guard item.mediaItem.id == id else { return false }
+            if item.mediaItem.type == .series {
+                return item.seasonNumber == season && item.episodeNumber == episode
+            }
+            return true
+        }) {
+            if match.progressSeconds > 10 && match.progressFraction < 0.92 {
+                return match.progressSeconds
+            }
+        }
+        return nil
+    }
+
+    func removeHistory(id: String) {
+        history.removeAll(where: { $0.mediaItem.id == id })
         saveData()
     }
 
