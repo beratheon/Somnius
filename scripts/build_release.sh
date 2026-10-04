@@ -38,7 +38,17 @@ echo "💿 Packaging into $DMG_PATH..."
 rm -f "$DMG_PATH"
 hdiutil create -volname "$APP_NAME" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_PATH" -quiet
 
-echo "✅ Successfully built: $DMG_PATH"
-echo "👉 When ready to publish an update:"
-echo "   1. Upload $APP_NAME-$VERSION.dmg to your GitHub Release"
-echo "   2. Run generate_appcast to update appcast.xml"
+# 4. Create ZIP package
+ZIP_PATH="$BUILD_DIR/$APP_NAME-$VERSION-macOS.zip"
+echo "🗜️ Packaging into $ZIP_PATH..."
+rm -f "$ZIP_PATH"
+(cd "$BUILD_DIR" && ditto -c -k --sequesterRsrc --keepParent "$APP_NAME.app" "$ZIP_PATH")
+
+echo "✅ Successfully built release artifacts:"
+echo "   💿 DMG: $DMG_PATH"
+echo "   📦 ZIP: $ZIP_PATH"
+echo "👉 When ready to publish your release to GitHub:"
+echo "   1. Go to github.com/beratheon/Somnius/releases/new"
+echo "   2. Tag: v$VERSION, Title: Somnius $VERSION"
+echo "   3. Attach $APP_NAME-$VERSION.dmg and $APP_NAME-$VERSION-macOS.zip"
+

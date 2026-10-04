@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var selectedStreamURL: URL? = nil
     @State private var showPlayer: Bool = false
     @State private var isFetchingStreams: Bool = false
+    @ObservedObject private var accountManager = AccountManager.shared
     @State private var showStreamPicker: Bool = false
     @State private var showProfileModal: Bool = false
     @State private var errorMessage: String? = nil
@@ -19,8 +20,8 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            if !hasCompletedOnboarding {
-                OnboardingSetupView {
+            if accountManager.activeAccount == nil || !hasCompletedOnboarding {
+                AccountSetupView {
                     withAnimation(.easeInOut(duration: 0.5)) {
                         hasCompletedOnboarding = true
                     }
@@ -91,18 +92,46 @@ struct ContentView: View {
 
                         Spacer()
 
+                        // Profile Switcher Pill
+                        Button(action: {
+                            accountManager.showAccountModal = true
+                        }) {
+                            HStack(spacing: 8) {
+                                ZStack {
+                                    Circle()
+                                        .fill(AccountManager.colorForName(accountManager.activeAccount?.avatarColor ?? "purple").opacity(0.35))
+                                        .frame(width: 22, height: 22)
+                                    Image(systemName: accountManager.activeAccount?.avatarIcon ?? "person.fill")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(AccountManager.colorForName(accountManager.activeAccount?.avatarColor ?? "purple"))
+                                }
+                                Text(accountManager.activeAccount?.username ?? "Profile")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.white)
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.5))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Color.white.opacity(0.08))
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
                         Button(action: {
                             showProfileModal = true
                         }) {
                             HStack(spacing: 6) {
                                 Image(systemName: "gearshape")
                                     .font(.system(size: 13, weight: .medium))
-                                Text(viewModel.realDebridUser != nil ? viewModel.realDebridUser!.username : "Settings")
+                                Text("Settings")
                                     .font(.system(size: 12, weight: .semibold))
                             }
                             .foregroundColor(.white.opacity(0.9))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
                             .background(Color.white.opacity(0.08))
                             .clipShape(Capsule())
                             .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
@@ -197,6 +226,12 @@ struct ContentView: View {
                     }
                 }
             )
+        }
+        .sheet(isPresented: $accountManager.showAccountModal) {
+            AccountSetupView {
+                accountManager.showAccountModal = false
+                viewModel.fetchContent()
+            }
         }
         .alert("Playback Notice", isPresented: Binding(
             get: { errorMessage != nil },
