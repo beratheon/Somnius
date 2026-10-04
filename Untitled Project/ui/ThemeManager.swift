@@ -9,6 +9,9 @@ enum AppTheme {
 
 class ThemeManager: ObservableObject {
     @Published var currentTheme: AppTheme = .miniLEDBlack
+    @AppStorage("enableExternalAudioInjection") var enableExternalAudioInjection: Bool = true
+    @AppStorage("preferredAudioLanguage") var preferredAudioLanguage: String = "tr"
+    @AppStorage("enablePALSpeedupCorrection") var enablePALSpeedupCorrection: Bool = true
     
     // This now returns only the Color, which fixes your error
     var baseColor: Color {

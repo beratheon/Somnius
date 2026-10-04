@@ -15,87 +15,127 @@ struct ContentView: View {
     @State private var showStreamPicker: Bool = false
     @State private var showProfileModal: Bool = false
     @State private var errorMessage: String? = nil
+    @State private var hasCompletedOnboarding: Bool = Config.hasCompletedOnboarding
 
     var body: some View {
         ZStack {
-            // Dark Minimal Background
-            Color(red: 0.07, green: 0.07, blue: 0.08)
-                .ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                // Header Bar
-                HStack {
-                    HStack(spacing: 8) {
-                        Image(systemName: "play.tv.fill")
-                            .font(.title2)
-                            .foregroundColor(.purple)
-                        Text("Debrid Streamer")
-                            .font(.title2.weight(.bold))
-                            .foregroundColor(.white)
+            if !hasCompletedOnboarding {
+                OnboardingSetupView {
+                    withAnimation(.easeInOut(duration: 0.5)) {
+                        hasCompletedOnboarding = true
                     }
+                    viewModel.fetchContent()
+                }
+                .transition(.opacity)
+                .zIndex(300)
+            } else {
+                // Dark Minimal Background
+                Color(red: 0.07, green: 0.07, blue: 0.08)
+                    .ignoresSafeArea()
 
-                    Spacer()
+                VStack(spacing: 0) {
+                    // Header Bar (Apple TV+ / macOS Native Aesthetic)
+                    HStack(spacing: 16) {
+                        // Somnus Branding (25% Larger, positioned cleanly under macOS traffic lights)
+                        HStack(spacing: 12) {
+                            // Claude-like minimalist full moon icon (no emoji) - 25% larger
+                            ZStack {
+                                Circle()
+                                    .fill(
+                                        RadialGradient(
+                                            gradient: Gradient(colors: [Color.white, Color(white: 0.85)]),
+                                            center: .center,
+                                            startRadius: 2,
+                                            endRadius: 11
+                                        )
+                                    )
+                                    .frame(width: 21, height: 21)
+                                    .shadow(color: Color.white.opacity(0.45), radius: 6, x: 0, y: 0)
+                            }
 
-                    // Search Bar Widget in Header
-                    HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundColor(.gray)
-                        TextField("Search movies, TV series...", text: $viewModel.searchQuery)
-                            .textFieldStyle(.plain)
-                            .foregroundColor(.white)
-                            .onSubmit {
-                                viewModel.performSearch()
-                            }
-                        if !viewModel.searchQuery.isEmpty {
-                            Button(action: { viewModel.clearSearch() }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.gray)
-                            }
-                            .buttonStyle(.plain)
+                            Text("Somnus")
+                                .font(.custom("Baskerville", size: 26))
+                                .foregroundColor(.white)
+                                .tracking(0.6)
                         }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(Color.white.opacity(0.1))
-                    .cornerRadius(18)
-                    .frame(width: 280)
 
-                    Spacer()
+                        Spacer()
 
-                    Button(action: {
-                        showProfileModal = true
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "person.crop.circle.fill")
-                                .font(.headline)
-                                .foregroundColor(.purple)
-                            Text(viewModel.realDebridUser != nil ? viewModel.realDebridUser!.username : "My Profile")
-                                .font(.subheadline.bold())
+                        // Search Bar Widget in Header
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.white.opacity(0.45))
+                            TextField("Search movies, TV series...", text: $viewModel.searchQuery)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 13))
+                                .foregroundColor(.white)
+                                .onSubmit {
+                                    viewModel.performSearch()
+                                }
+                            if !viewModel.searchQuery.isEmpty {
+                                Button(action: { viewModel.clearSearch() }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.white.opacity(0.45))
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                         .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color.white.opacity(0.1))
-                        .foregroundColor(.white)
-                        .cornerRadius(20)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 14)
-                .background(Color.black.opacity(0.6))
+                        .padding(.vertical, 7)
+                        .background(Color.white.opacity(0.08))
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
+                        .frame(width: 300)
 
-                // Discovery View
-                ContentDiscoveryView(
-                    viewModel: viewModel,
-                    onMediaSelected: { item in
-                        withAnimation {
-                            detailMediaItem = item
+                        Spacer()
+
+                        Button(action: {
+                            showProfileModal = true
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "gearshape")
+                                    .font(.system(size: 13, weight: .medium))
+                                Text(viewModel.realDebridUser != nil ? viewModel.realDebridUser!.username : "Settings")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(.white.opacity(0.9))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(Color.white.opacity(0.08))
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
                         }
-                    },
-                    onOpenProfile: {
-                        showProfileModal = true
+                        .buttonStyle(PlainButtonStyle())
                     }
-                )
+                    .padding(.leading, 28)
+                    .padding(.trailing, 28)
+                    .padding(.top, 28)
+                    .padding(.bottom, 14)
+                    .background(.ultraThinMaterial)
+                    .overlay(
+                        VStack {
+                            Spacer()
+                            Rectangle()
+                                .fill(Color.white.opacity(0.08))
+                                .frame(height: 1)
+                        }
+                    )
+
+                    // Discovery View
+                    ContentDiscoveryView(
+                        viewModel: viewModel,
+                        onMediaSelected: { item in
+                            withAnimation {
+                                detailMediaItem = item
+                            }
+                        },
+                        onOpenProfile: {
+                            showProfileModal = true
+                        }
+                    )
+                }
             }
 
             // Internal Player View Fullscreen Sheet / Overlay
@@ -109,6 +149,9 @@ struct ContentView: View {
                     onDismiss: {
                         showPlayer = false
                         selectedStreamURL = nil
+                        if let sel = selectedMediaItem {
+                            detailMediaItem = sel
+                        }
                     }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -118,6 +161,7 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .ignoresSafeArea()
         .sheet(isPresented: $showStreamPicker) {
             StreamSelectionSheet(
                 mediaItem: selectedMediaItem,
@@ -159,6 +203,12 @@ struct ContentView: View {
             set: { if !$0 { errorMessage = nil } }
         )) {
             Button("OK") { errorMessage = nil }
+            if Config.realDebridApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button("Configure Real-Debrid Key") {
+                    errorMessage = nil
+                    showProfileModal = true
+                }
+            }
             Button("Choose Alternative Source") {
                 errorMessage = nil
                 showStreamPicker = true
@@ -168,13 +218,10 @@ struct ContentView: View {
         }
         .overlay {
             // Mid-Screen Detail Modal Overlay
-            if let item = detailMediaItem {
+            if let item = detailMediaItem, !showPlayer {
                 MediaDetailView(
                     item: item,
                     onPlay: { itemToPlay, season, episode in
-                        withAnimation {
-                            detailMediaItem = nil
-                        }
                         Task {
                             await selectMediaAndScrape(itemToPlay, season: season, episode: episode)
                         }
@@ -191,6 +238,9 @@ struct ContentView: View {
         }
         .onAppear {
             viewModel.fetchContent()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenProfileSettings"))) { _ in
+            showProfileModal = true
         }
     }
 
@@ -270,6 +320,26 @@ struct ContentView: View {
 
     @MainActor
     private func playDirectLink(_ linkString: String) async {
+        guard let directCandidate = URL(string: linkString), directCandidate.scheme == "http" || directCandidate.scheme == "https" else {
+            errorMessage = "Invalid video stream URL: \(linkString)"
+            return
+        }
+
+        // Direct media links (e.g. MP4, MKV, M3U8, demo streams) can be played directly
+        let ext = directCandidate.pathExtension.lowercased()
+        if ["mp4", "mkv", "m3u8", "mov", "webm", "ts"].contains(ext) || linkString.contains("commondatastorage.googleapis.com") || linkString.contains("googlevideo.com") {
+            if Config.defaultPlayerSelection != "native",
+               let ext = ExternalPlayer(rawValue: Config.defaultPlayerSelection.uppercased()) ?? ExternalPlayer.allCases.first(where: { $0.rawValue.lowercased() == Config.defaultPlayerSelection.lowercased() }),
+               ext.isInstalled {
+                ext.open(url: directCandidate)
+                return
+            }
+
+            self.selectedStreamURL = directCandidate
+            self.showPlayer = true
+            return
+        }
+
         isFetchingStreams = true
         do {
             let rd = RealDebridService()
@@ -312,8 +382,8 @@ struct StreamSelectionSheet: View {
         switch selectedFilter {
         case "4K": return base.filter { $0.quality == "4K" }
         case "FHD": return base.filter { $0.quality == "FHD" }
-        case "Zilean & Bitmagnet": return base.filter { $0.source.contains("Zilean") || $0.source.contains("Bitmagnet") }
-        case "Torrentio": return base.filter { $0.source.contains("Torrentio") }
+        case "Cached": return base.filter { $0.isCached }
+        case "HDR/DV": return base.filter { $0.hdrTag != nil }
         default: return base
         }
     }
@@ -325,14 +395,11 @@ struct StreamSelectionSheet: View {
                     VStack(spacing: 16) {
                         Spacer()
                         ProgressView()
-                            .scaleEffect(1.4)
-                            .tint(.purple)
-                        Text("Scraping Zilean, Bitmagnet, PirateBay & Torrentio Indexers...")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                        Text("Searching 4K UHD, Dolby Vision, REMUX, and cached Debrid sources...")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
+                            .scaleEffect(1.3)
+                            .tint(.white)
+                        Text("Finding streams…")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white.opacity(0.7))
                         Spacer()
                     }
                 } else if links.isEmpty {
@@ -347,21 +414,69 @@ struct StreamSelectionSheet: View {
                         Text("Verify your RealDebrid API key in settings or try another item.")
                             .font(.caption)
                             .foregroundColor(.gray)
+
+                        if Config.realDebridApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Button("Enter Real-Debrid Key") {
+                                dismiss()
+                                NotificationCenter.default.post(name: NSNotification.Name("OpenProfileSettings"), object: nil)
+                            }
+                            .font(.subheadline.bold())
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.orange)
+                            .foregroundColor(.black)
+                            .cornerRadius(14)
+                            .buttonStyle(.plain)
+                            .padding(.top, 6)
+                        }
                         Spacer()
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 12) {
+                        if Config.realDebridApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            HStack(spacing: 12) {
+                                Image(systemName: "key.fill")
+                                    .foregroundColor(SoftTone.sand.color)
+                                    .font(.title3)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Real-Debrid API Key Required")
+                                        .font(.subheadline.bold())
+                                        .foregroundColor(.white)
+                                    Text("Torrent streams require a Real-Debrid API key to resolve into fast HTTPS video streams.")
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                }
+                                Spacer()
+                                Button("Enter Key") {
+                                    dismiss()
+                                    NotificationCenter.default.post(name: NSNotification.Name("OpenProfileSettings"), object: nil)
+                                }
+                                .font(.caption.bold())
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .background(SoftTone.sand.color)
+                                .foregroundColor(.black)
+                                .cornerRadius(12)
+                                .buttonStyle(.plain)
+                            }
+                            .padding(12)
+                            .background(SoftTone.sand.color.opacity(0.10))
+                            .cornerRadius(10)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                        }
+
                         // Quick Action Header Bar
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("\(filteredLinks.count) Streams Found")
-                                    .font(.headline.bold())
+                                    .font(.headline.weight(.semibold))
                                     .foregroundColor(.white)
 
                                 if Config.showOnlyCachedResults {
-                                    Text("⚡ Filtered: Showing Only Cached Streams")
-                                        .font(.caption.bold())
-                                        .foregroundColor(.green)
+                                    Text("Instant streams only")
+                                        .font(.caption.weight(.medium))
+                                        .foregroundColor(SoftTone.sage.color)
                                 }
                             }
 
@@ -370,14 +485,14 @@ struct StreamSelectionSheet: View {
                             Button(action: onAutoPlayBest) {
                                 HStack(spacing: 6) {
                                     Image(systemName: "bolt.fill")
-                                    Text("Auto-Play Best Source")
+                                    Text("Play Best")
                                 }
-                                .font(.subheadline.bold())
-                                .padding(.horizontal, 14)
+                                .font(.subheadline.weight(.bold))
+                                .padding(.horizontal, 16)
                                 .padding(.vertical, 8)
-                                .background(Color.purple)
-                                .foregroundColor(.white)
-                                .cornerRadius(20)
+                                .background(Color.white)
+                                .foregroundColor(.black)
+                                .clipShape(Capsule())
                             }
                             .buttonStyle(PlainButtonStyle())
                         }
@@ -396,11 +511,11 @@ struct StreamSelectionSheet: View {
                                 FilterChip(title: "1080p FHD (\(links.filter { $0.quality == "FHD" }.count))", isSelected: selectedFilter == "FHD") {
                                     selectedFilter = "FHD"
                                 }
-                                FilterChip(title: "Zilean & Bitmagnet (\(links.filter { $0.source.contains("Zilean") || $0.source.contains("Bitmagnet") }.count))", isSelected: selectedFilter == "Zilean & Bitmagnet") {
-                                    selectedFilter = "Zilean & Bitmagnet"
+                                FilterChip(title: "Instant (\(links.filter { $0.isCached }.count))", isSelected: selectedFilter == "Cached") {
+                                    selectedFilter = "Cached"
                                 }
-                                FilterChip(title: "Torrentio (\(links.filter { $0.source.contains("Torrentio") }.count))", isSelected: selectedFilter == "Torrentio") {
-                                    selectedFilter = "Torrentio"
+                                FilterChip(title: "HDR & DV (\(links.filter { $0.hdrTag != nil }.count))", isSelected: selectedFilter == "HDR/DV") {
+                                    selectedFilter = "HDR/DV"
                                 }
                             }
                             .padding(.horizontal, 16)
@@ -410,112 +525,34 @@ struct StreamSelectionSheet: View {
                             ForEach(filteredLinks) { link in
                                 Button(action: { onSelect(link) }) {
                                     HStack(spacing: 14) {
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            HStack(spacing: 6) {
-                                                Text(link.resolutionBadge)
-                                                    .font(.caption.bold())
-                                                    .padding(.horizontal, 8)
-                                                    .padding(.vertical, 4)
-                                                    .background(qualityColor(link.quality))
+                                        VStack(alignment: .leading, spacing: 5) {
+                                            HStack(spacing: 8) {
+                                                Text(mediaItem?.title ?? "Media")
+                                                    .font(.system(size: 13, weight: .bold))
                                                     .foregroundColor(.white)
-                                                    .clipShape(Capsule())
-
-                                                if link.isCached {
-                                                    Text("⚡ RD+ Cached")
-                                                        .font(.caption.bold())
-                                                        .padding(.horizontal, 8)
-                                                        .padding(.vertical, 4)
-                                                        .background(Color.green.opacity(0.25))
-                                                        .foregroundColor(.green)
-                                                        .cornerRadius(6)
-                                                }
-
-                                                if let hdr = link.hdrTag {
-                                                    Text(hdr)
-                                                        .font(.caption.bold())
-                                                        .padding(.horizontal, 8)
-                                                        .padding(.vertical, 4)
-                                                        .background(Color.purple.opacity(0.3))
-                                                        .foregroundColor(.purple)
-                                                        .cornerRadius(6)
-                                                }
-
-                                                if let audio = link.audioTag {
-                                                    Text(audio)
-                                                        .font(.caption.bold())
-                                                        .padding(.horizontal, 8)
-                                                        .padding(.vertical, 4)
-                                                        .background(Color.blue.opacity(0.3))
-                                                        .foregroundColor(.cyan)
-                                                        .cornerRadius(6)
-                                                }
-
-                                                if let codec = link.codecTag {
-                                                    Text(codec)
-                                                        .font(.caption.bold())
-                                                        .padding(.horizontal, 8)
-                                                        .padding(.vertical, 4)
-                                                        .background(Color.white.opacity(0.12))
-                                                        .foregroundColor(.white.opacity(0.7))
-                                                        .cornerRadius(6)
-                                                }
-
-                                                if let sz = link.sizeString {
-                                                    Text(sz)
-                                                        .font(.caption.bold())
-                                                        .padding(.horizontal, 8)
-                                                        .padding(.vertical, 4)
-                                                        .background(Color.white.opacity(0.12))
-                                                        .foregroundColor(.white.opacity(0.85))
-                                                        .cornerRadius(6)
-                                                }
-
-                                                if link.isBestInCategory {
-                                                    Text("✨ Top Pick")
-                                                        .font(.caption.bold())
-                                                        .padding(.horizontal, 8)
-                                                        .padding(.vertical, 4)
-                                                        .background(Color.yellow.opacity(0.25))
-                                                        .foregroundColor(.yellow)
-                                                        .cornerRadius(6)
-                                                }
-
-                                                Spacer()
-
-                                                Text(link.source)
-                                                    .font(.caption.bold())
-                                                    .foregroundColor(.gray)
+                                                    .lineLimit(1)
+                                                StreamAttributeRow(link: link)
                                             }
 
-                                            Text(link.title)
-                                                .font(.subheadline.bold())
-                                                .foregroundColor(.white)
-                                                .lineLimit(1)
-
-                                            Text(link.rawTitle)
-                                                .font(.caption)
-                                                .foregroundColor(.gray.opacity(0.8))
-                                                .lineLimit(1)
+                                            Text(link.fileName)
+                                                .font(.system(size: 11, weight: .regular))
+                                                .foregroundColor(.white.opacity(0.45))
+                                                .lineLimit(2)
                                         }
 
                                         Spacer()
 
-                                        HStack(spacing: 4) {
-                                            Image(systemName: "play.circle.fill")
-                                                .font(.title3)
-                                            Text("Play")
-                                                .font(.subheadline.bold())
-                                        }
-                                        .foregroundColor(.green)
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 8)
-                                        .background(Color.green.opacity(0.15))
-                                        .clipShape(Capsule())
+                                        Image(systemName: "play.fill")
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundColor(.white.opacity(0.85))
+                                            .frame(width: 30, height: 30)
+                                            .background(Color.white.opacity(0.08))
+                                            .clipShape(Circle())
                                     }
                                     .padding(.vertical, 6)
                                 }
                                 .buttonStyle(PlainButtonStyle())
-                                .listRowBackground(Color.white.opacity(0.05))
+                                .listRowBackground(Color.white.opacity(0.03))
                             }
                         }
                         .scrollContentBackground(.hidden)
@@ -531,15 +568,6 @@ struct StreamSelectionSheet: View {
         }
         .preferredColorScheme(.dark)
     }
-
-    private func qualityColor(_ quality: String) -> Color {
-        switch quality {
-        case "4K": return .purple
-        case "FHD": return .blue
-        case "HD": return .teal
-        default: return .gray
-        }
-    }
 }
 
 struct FilterChip: View {
@@ -550,20 +578,23 @@ struct FilterChip: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.caption.bold())
+                .font(.system(size: 12, weight: .medium))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(isSelected ? Color.purple : Color.white.opacity(0.1))
-                .foregroundColor(isSelected ? .white : .gray)
+                .background(isSelected ? Color.white.opacity(0.9) : Color.white.opacity(0.06))
+                .foregroundColor(isSelected ? .black : .white.opacity(0.7))
                 .clipShape(Capsule())
         }
         .buttonStyle(PlainButtonStyle())
     }
 }
 
-// MARK: - Content View Model
+// MARK: - Content View Model (Powered by Live Catalog Sync System)
 @MainActor
 class ContentViewModel: ObservableObject {
+    @Published var liveCatalogs: [LiveCatalog] = []
+    @Published var featuredHeroItems: [MediaItem] = []
+
     @Published var trendingMovies: [MediaItem] = []
     @Published var popularMovies: [MediaItem] = []
     @Published var popularSeries: [MediaItem] = []
@@ -579,44 +610,81 @@ class ContentViewModel: ObservableObject {
     @Published var realDebridUser: RealDebridUser? = nil
     @Published var realDebridTorrents: [RealDebridTorrentItem] = []
 
-    private let tmdbService = TMDBService()
     private let realDebridService = RealDebridService()
-    private let letterboxdService = LetterboxdService()
+    private var cancellables = Set<AnyCancellable>()
+    private var searchTask: Task<Void, Never>? = nil
+
+    init() {
+        // Observe LiveCatalogService updates
+        LiveCatalogService.shared.$catalogs
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] cats in
+                self?.syncFromLiveCatalogs(cats)
+            }
+            .store(in: &cancellables)
+
+        LiveCatalogService.shared.$featuredHeroItems
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$featuredHeroItems)
+
+        // As-you-type search with 300ms debounce
+        $searchQuery
+            .dropFirst()
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .removeDuplicates()
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] query in
+                self?.performSearch(query: query)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func syncFromLiveCatalogs(_ cats: [LiveCatalog]) {
+        self.liveCatalogs = cats
+
+        if let latest = cats.first(where: { $0.id.contains("tmdb_latest") && $0.type == "movie" && !$0.items.isEmpty }) {
+            self.trendingMovies = latest.items
+        } else if let firstNonEmpty = cats.first(where: { !$0.items.isEmpty && $0.type == "movie" }) {
+            self.trendingMovies = firstNonEmpty.items
+        }
+
+        if let popular = cats.first(where: { $0.id.contains("trakt_popular") && $0.type == "movie" && !$0.items.isEmpty }) {
+            self.popularMovies = popular.items
+        }
+
+        if let series = cats.first(where: { ($0.id.contains("tmdb_latest_shows") || $0.id.contains("trakt_trending")) && $0.type == "series" && !$0.items.isEmpty }) {
+            self.popularSeries = series.items
+        }
+
+        if let top = cats.first(where: { ($0.id.contains("imdb_top_rated_movies") || $0.id.contains("tmdb_today")) && !$0.items.isEmpty }) {
+            self.topRatedMovies = top.items
+        }
+
+        if let mindfuck = cats.first(where: { ($0.id.contains("best_mindfucks") || $0.id.contains("a24")) && !$0.items.isEmpty }) {
+            self.actionMovies = mindfuck.items
+        }
+    }
 
     func fetchContent() {
         isLoading = true
         errorMessage = nil
 
         Task {
-            async let trendingTask = (try? tmdbService.fetchTrending()) ?? []
-            async let popularTask = (try? tmdbService.fetchPopularMovies()) ?? []
-            async let seriesTask = (try? tmdbService.fetchPopularSeries()) ?? []
-            async let topRatedTask = (try? tmdbService.fetchTopRatedMovies()) ?? []
-            async let actionTask = (try? tmdbService.fetchActionMovies()) ?? []
-            async let userTask = try? realDebridService.fetchUser()
-            async let curatedTask = letterboxdService.fetchCuratedCollections()
+            // 1. Fetch Real-Debrid User Status
+            if let user = try? await realDebridService.fetchUser() {
+                self.realDebridUser = user
+            }
 
-            let trending = await trendingTask
-            let popular = await popularTask
-            let series = await seriesTask
-            let topRated = await topRatedTask
-            let action = await actionTask
-            let user = await userTask
-            let curated = await curatedTask
-
-            self.trendingMovies = trending
-            self.popularMovies = popular
-            self.popularSeries = series
-            self.topRatedMovies = topRated
-            self.actionMovies = action
-            self.realDebridUser = user
-            self.curatedCollections = curated
+            // 2. Sync all Live Catalogs in parallel from live endpoints
+            await LiveCatalogService.shared.syncAllCatalogs()
             self.isLoading = false
         }
     }
 
-    func performSearch() {
-        let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    func performSearch(query: String? = nil) {
+        let trimmed = (query ?? searchQuery).trimmingCharacters(in: .whitespacesAndNewlines)
+        searchTask?.cancel()
+
         guard !trimmed.isEmpty else {
             searchResults = []
             isSearching = false
@@ -624,12 +692,14 @@ class ContentViewModel: ObservableObject {
         }
 
         isSearching = true
-        Task {
+        searchTask = Task {
             do {
-                let results = try await tmdbService.search(query: trimmed)
+                let results = try await LiveCatalogService.shared.searchLive(query: trimmed)
+                guard !Task.isCancelled else { return }
                 self.searchResults = results
                 self.isSearching = false
             } catch {
+                guard !Task.isCancelled else { return }
                 self.errorMessage = "Search failed: \(error.localizedDescription)"
                 self.isSearching = false
             }
@@ -637,6 +707,7 @@ class ContentViewModel: ObservableObject {
     }
 
     func clearSearch() {
+        searchTask?.cancel()
         searchQuery = ""
         searchResults = []
         isSearching = false

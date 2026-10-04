@@ -1,7 +1,10 @@
 .DS_Store
 *.xcuserstate
 xcuserdata/
+*.xcworkspace/xcuserdata/
 .derivedData/
 build/
+build_output/
+*.bak
 .tmp/
 data/

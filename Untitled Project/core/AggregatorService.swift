@@ -586,10 +586,6 @@ class AggregatorService {
             }
         }
 
-        if Config.showOnlyCachedResults {
-            allLinks = allLinks.filter { $0.isCached }
-        }
-
         // Deduplicate links by infoHash or URL
         var seenHashes = Set<String>()
         var seenURLs = Set<String>()
@@ -608,10 +604,40 @@ class AggregatorService {
             uniqueLinks.append(link)
         }
 
-        // Sort links: RealDebrid cached first, then by score
+        // Filter based on setup mode: Classic vs Debrid
+        if !Config.isDebridMode {
+            // In Classic mode (without Debrid), only bring fast, verified, or highly seeded sources
+            uniqueLinks = uniqueLinks.filter { link in
+                if let url = link.url, let scheme = url.scheme?.lowercased(), (scheme == "http" || scheme == "https") {
+                    return true
+                }
+                if link.isCached {
+                    return true
+                }
+                if let seeds = link.seeds {
+                    return seeds >= 10 // Only fast peers
+                }
+                return false
+            }
+        } else if Config.showOnlyCachedResults {
+            uniqueLinks = uniqueLinks.filter { $0.isCached }
+        }
+
+        // Sort links:
+        // In Debrid mode: RealDebrid cached first, then by score
+        // In Classic mode: Direct HTTP/HTTPS first, then high seeders, then by score
         uniqueLinks.sort { l1, l2 in
-            if l1.isCached != l2.isCached {
-                return l1.isCached && !l2.isCached
+            if !Config.isDebridMode {
+                let l1IsDirect = (l1.url?.scheme?.lowercased() == "http" || l1.url?.scheme?.lowercased() == "https")
+                let l2IsDirect = (l2.url?.scheme?.lowercased() == "http" || l2.url?.scheme?.lowercased() == "https")
+                if l1IsDirect != l2IsDirect { return l1IsDirect && !l2IsDirect }
+                let s1 = l1.seeds ?? 0
+                let s2 = l2.seeds ?? 0
+                if s1 != s2 { return s1 > s2 }
+            } else {
+                if l1.isCached != l2.isCached {
+                    return l1.isCached && !l2.isCached
+                }
             }
             return l1.score > l2.score
         }
@@ -625,13 +651,36 @@ class AggregatorService {
 
     func resolveStreamURLWithFallback(startingLink: AggregatedLink, allLinks: [AggregatedLink]) async throws -> (URL, AggregatedLink) {
         let candidates = [startingLink] + allLinks.filter { $0.id != startingLink.id }
+        let key = Config.realDebridApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        // 1. First check if any candidate is already a playable HTTP/HTTPS stream
         for candidate in candidates {
-            if let directURL = candidate.url {
+            if let directURL = candidate.url,
+               let scheme = directURL.scheme?.lowercased(),
+               (scheme == "http" || scheme == "https") {
                 return (directURL, candidate)
             }
+        }
 
-            if let infoHash = candidate.infoHash, !infoHash.isEmpty {
+        // 2. All remaining candidates are torrents (magnet / infoHash). Real-Debrid is required to convert them to HTTP streams.
+        guard !key.isEmpty else {
+            throw NSError(
+                domain: "AggregatorService",
+                code: 401,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "Real-Debrid API Key is required to resolve torrent streams into video. Please enter your Real-Debrid API Key in Profile > Settings to stream 4K/HDR content."
+                ]
+            )
+        }
+
+        for candidate in candidates {
+            // Extract infoHash from either the candidate infoHash or a magnet URI
+            var hashToResolve = candidate.infoHash
+            if (hashToResolve == nil || hashToResolve!.isEmpty), let u = candidate.url, u.scheme?.lowercased() == "magnet" {
+                hashToResolve = extractInfoHash(from: u)
+            }
+
+            if let infoHash = hashToResolve, !infoHash.isEmpty {
                 do {
                     let resolvedURL = try await rdService.addMagnetAndGetLink(infoHash: infoHash)
                     return (resolvedURL, candidate)
@@ -642,6 +691,21 @@ class AggregatorService {
             }
         }
 
-        throw NSError(domain: "AggregatorService", code: 404, userInfo: [NSLocalizedDescriptionKey: "Failed to resolve stream: All available stream candidates are DMCA blocked or offline on RealDebrid."])
+        throw NSError(
+            domain: "AggregatorService",
+            code: 404,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Failed to resolve stream: All available stream candidates are offline or blocked on Real-Debrid."
+            ]
+        )
+    }
+
+    private func extractInfoHash(from url: URL) -> String? {
+        let str = url.absoluteString
+        guard let range = str.range(of: "urn:btih:", options: .caseInsensitive) else { return nil }
+        let sub = str[range.upperBound...]
+        let endIdx = sub.firstIndex(where: { $0 == "&" || $0 == "/" }) ?? sub.endIndex
+        let hash = String(sub[..<endIdx])
+        return hash.isEmpty ? nil : hash
     }
 }

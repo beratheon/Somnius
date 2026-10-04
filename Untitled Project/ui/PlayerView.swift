@@ -1,85 +1,10 @@
 import SwiftUI
 import AVKit
 import Combine
+import KSPlayer
 
 #if os(macOS)
 import AppKit
-
-class NativePlayerNSView: NSView, AVPictureInPictureControllerDelegate {
-    let playerLayer = AVPlayerLayer()
-    var pipController: AVPictureInPictureController?
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer = playerLayer
-        playerLayer.backgroundColor = NSColor.black.cgColor
-        playerLayer.videoGravity = .resizeAspect
-
-        if AVPictureInPictureController.isPictureInPictureSupported() {
-            pipController = AVPictureInPictureController(playerLayer: playerLayer)
-            pipController?.delegate = self
-        }
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-    }
-
-    override func layout() {
-        super.layout()
-        playerLayer.frame = bounds
-    }
-
-    func setPlayer(_ p: AVPlayer) {
-        if playerLayer.player != p {
-            playerLayer.player = p
-        }
-    }
-
-    func setVideoGravity(_ g: AVLayerVideoGravity) {
-        playerLayer.videoGravity = g
-    }
-
-    func togglePiP() {
-        guard let pip = pipController else { return }
-        if pip.isPictureInPictureActive {
-            pip.stopPictureInPicture()
-        } else {
-            pip.startPictureInPicture()
-        }
-    }
-}
-
-struct NativePlayerView: NSViewRepresentable {
-    let player: AVPlayer
-    var videoGravity: AVLayerVideoGravity = .resizeAspect
-    var pipTrigger: Bool = false
-
-    func makeNSView(context: Context) -> NativePlayerNSView {
-        let view = NativePlayerNSView()
-        view.setPlayer(player)
-        view.setVideoGravity(videoGravity)
-        return view
-    }
-
-    func updateNSView(_ nsView: NativePlayerNSView, context: Context) {
-        nsView.setPlayer(player)
-        nsView.setVideoGravity(videoGravity)
-        if pipTrigger != context.coordinator.lastPipTrigger {
-            context.coordinator.lastPipTrigger = pipTrigger
-            nsView.togglePiP()
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    class Coordinator {
-        var lastPipTrigger: Bool = false
-    }
-}
 #endif
 
 // MARK: - Streaming Scrubber Bar with Hover Tooltip & Buffer Indicator
@@ -106,26 +31,26 @@ struct StreamingScrubberBar: View {
 
             ZStack(alignment: .leading) {
                 // Background Track
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(Color.white.opacity(0.18))
-                    .frame(height: isHovering || isDragging ? 7 : 4)
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.white.opacity(0.2))
+                    .frame(height: isHovering || isDragging ? 6 : 3)
 
                 // Buffered Progress Track
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(Color.white.opacity(0.42))
-                    .frame(width: bufferWidth, height: isHovering || isDragging ? 7 : 4)
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.white.opacity(0.4))
+                    .frame(width: bufferWidth, height: isHovering || isDragging ? 6 : 3)
 
-                // Played Progress Track
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(LinearGradient(colors: [Color.blue, Color.cyan, Color.purple], startPoint: .leading, endPoint: .trailing))
-                    .frame(width: playedWidth, height: isHovering || isDragging ? 7 : 4)
+                // Played Progress Track (Clean white)
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.white)
+                    .frame(width: playedWidth, height: isHovering || isDragging ? 6 : 3)
 
                 // Scrubbing Thumb
                 Circle()
                     .fill(Color.white)
-                    .frame(width: isHovering || isDragging ? 16 : 10, height: isHovering || isDragging ? 16 : 10)
-                    .shadow(color: .black.opacity(0.6), radius: 4, x: 0, y: 1)
-                    .offset(x: max(0, min(width - 16, playedWidth - (isHovering || isDragging ? 8 : 5))))
+                    .frame(width: isHovering || isDragging ? 14 : 0, height: isHovering || isDragging ? 14 : 0)
+                    .shadow(color: .black.opacity(0.5), radius: 3, x: 0, y: 1)
+                    .offset(x: max(0, min(width - 14, playedWidth - 7)))
 
                 // Hover / Scrub Time Tooltip
                 if isHovering || isDragging {
@@ -193,17 +118,17 @@ struct StreamingScrubberBar: View {
     }
 }
 
-enum PlayerEngineType: String, CaseIterable, Identifiable {
-    case avPlayer = "Apple Native (AVPlayer)"
-    case soiaMPV = "Soia Hardware Engine (libmpv)"
-
-    var id: String { rawValue }
-}
 
 struct AudioTrackItem: Identifiable, Hashable {
     let id: String
     let displayName: String
-    let option: AVMediaSelectionOption?
+    let trackID: Int32?
+
+    init(id: String = UUID().uuidString, displayName: String, trackID: Int32? = nil) {
+        self.id = id
+        self.displayName = displayName
+        self.trackID = trackID
+    }
 
     static func == (lhs: AudioTrackItem, rhs: AudioTrackItem) -> Bool {
         lhs.id == rhs.id
@@ -216,12 +141,14 @@ struct AudioTrackItem: Identifiable, Hashable {
 struct SubtitleTrack: Identifiable, Hashable {
     let id: String
     let displayName: String
+    let trackID: Int32?
     let option: AVMediaSelectionOption?
     let externalURL: URL?
 
-    init(id: String = UUID().uuidString, displayName: String, option: AVMediaSelectionOption? = nil, externalURL: URL? = nil) {
+    init(id: String = UUID().uuidString, displayName: String, trackID: Int32? = nil, option: AVMediaSelectionOption? = nil, externalURL: URL? = nil) {
         self.id = id
         self.displayName = displayName
+        self.trackID = trackID
         self.option = option
         self.externalURL = externalURL
     }
@@ -234,6 +161,60 @@ struct SubtitleTrack: Identifiable, Hashable {
     }
 }
 
+#if os(macOS)
+// MARK: - Center-Fitted High Performance Video Host
+struct CenteredKSVideoHost: NSViewRepresentable {
+    let coordinator: KSVideoPlayer.Coordinator
+    let url: URL
+    let options: KSOptions
+    var onPlay: ((TimeInterval, TimeInterval) -> Void)?
+    var onStateChanged: ((KSPlayerLayer, KSPlayerState) -> Void)?
+    var onFinish: ((KSPlayerLayer, Error?) -> Void)?
+
+    func makeCoordinator() -> KSVideoPlayer.Coordinator {
+        coordinator
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.black.cgColor
+        container.autoresizingMask = [.width, .height]
+
+        coordinator.onPlay = onPlay
+        coordinator.onStateChanged = onStateChanged
+        coordinator.onFinish = onFinish
+
+        let playerView = coordinator.makeView(url: url, options: options)
+        playerView.wantsLayer = true
+        playerView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(playerView)
+
+        NSLayoutConstraint.activate([
+            playerView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            playerView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            playerView.topAnchor.constraint(equalTo: container.topAnchor),
+            playerView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+
+        return container
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        coordinator.onPlay = onPlay
+        coordinator.onStateChanged = onStateChanged
+        coordinator.onFinish = onFinish
+        if coordinator.playerLayer?.url != url {
+            _ = coordinator.makeView(url: url, options: options)
+        }
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: KSVideoPlayer.Coordinator) {
+        coordinator.resetPlayer()
+    }
+}
+#endif
+
 struct PlayerView: View {
     var streamURL: URL?
     var mediaItem: MediaItem?
@@ -242,11 +223,9 @@ struct PlayerView: View {
     var initialLinks: [AggregatedLink] = []
     var onDismiss: () -> Void
 
+    @StateObject private var ksEngine = KSPlayerEngine.shared
     @StateObject private var watchlistManager = WatchlistManager.shared
     @State private var activeStreamURL: URL? = nil
-    @State private var player: AVPlayer?
-    @State private var currentEngine: PlayerEngineType = .avPlayer
-    private let soiaEngine = SoiaPlayerEngine.shared
 
     @State private var isPlaying: Bool = true
     @State private var currentTime: Double = 0
@@ -258,12 +237,9 @@ struct PlayerView: View {
     @State private var isBuffering: Bool = false
     @State private var stallSecondsCount: Double = 0
     @State private var stallTimer: Timer? = nil
-    @State private var soiaPollTimer: Timer? = nil
     @State private var cancellables = Set<AnyCancellable>()
 
-    // Video aspect ratio & PiP
-    @State private var videoGravity: AVLayerVideoGravity = .resizeAspect
-    @State private var pipTrigger: Bool = false
+    // Video playback controls
     @State private var playbackSpeed: Double = 1.0
 
     // Auto-hide controls & cursor state
@@ -303,8 +279,7 @@ struct PlayerView: View {
 
     @State private var audioTracks: [AudioTrackItem] = []
     @State private var selectedAudioTrack: AudioTrackItem?
-    @State private var audioSelectionGroup: AVMediaSelectionGroup?
-    @State private var embeddedSubGroup: AVMediaSelectionGroup?
+    @State private var audioSubtitleTab: Int = 0
 
     // Popovers
     @State private var showAudioPopover: Bool = false
@@ -337,19 +312,44 @@ struct PlayerView: View {
     private let subtitleService = SubtitleService.shared
 
     var body: some View {
-        ZStack(alignment: .trailing) {
+        ZStack {
             Color.black.ignoresSafeArea()
 
-            // 1. Dual-Engine Video Player View
-            if currentEngine == .soiaMPV, let url = activeStreamURL ?? streamURL {
-                SoiaEmbeddedPlayerView(urlString: url.absoluteString, engine: soiaEngine)
-                    .ignoresSafeArea()
-            } else if let _ = activeStreamURL ?? streamURL, let p = player {
+            // 1. High Performance KSPlayer Metal/FFmpeg Engine (Dead-Center Fit)
+            if let url = activeStreamURL ?? streamURL {
                 #if os(macOS)
-                NativePlayerView(player: p, videoGravity: videoGravity, pipTrigger: pipTrigger)
-                    .ignoresSafeArea()
+                CenteredKSVideoHost(
+                    coordinator: ksEngine.coordinator,
+                    url: url,
+                    options: ksEngine.options,
+                    onPlay: { current, total in
+                        ksEngine.onPlayTick(current: current, total: total)
+                        onPlayerTick(current: current, total: total)
+                    },
+                    onStateChanged: { layer, state in
+                        ksEngine.onStateChanged(layer: layer, state: state)
+                        onPlayerStateChanged(state: state)
+                    },
+                    onFinish: { layer, error in
+                        ksEngine.onFinish(layer: layer, error: error)
+                    }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
                 #else
-                VideoPlayer(player: p)
+                KSVideoPlayer(coordinator: ksEngine.coordinator, url: url, options: ksEngine.options)
+                    .onPlay { current, total in
+                        ksEngine.onPlayTick(current: current, total: total)
+                        onPlayerTick(current: current, total: total)
+                    }
+                    .onStateChanged { layer, state in
+                        ksEngine.onStateChanged(layer: layer, state: state)
+                        onPlayerStateChanged(state: state)
+                    }
+                    .onFinish { layer, error in
+                        ksEngine.onFinish(layer: layer, error: error)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea()
                 #endif
             } else {
@@ -357,49 +357,50 @@ struct PlayerView: View {
                     ProgressView()
                         .tint(.white)
                         .scaleEffect(1.3)
-                    Text("Loading Stream...")
-                        .font(.headline)
-                        .foregroundColor(.white)
+
                 }
             }
 
-            // 2. Active Buffer / Stall Overlay Spinner
-            if isBuffering && !isSwitchingEpisode {
-                VStack(spacing: 12) {
-                    ProgressView()
-                        .tint(.cyan)
-                        .scaleEffect(1.4)
-                    Text("Buffering 4K HDR Stream...")
-                        .font(.subheadline.bold())
-                        .foregroundColor(.white)
-                    if stallSecondsCount > 5 {
-                        Text("Optimizing Debrid buffer (\(Int(stallSecondsCount))s)...")
-                            .font(.caption2)
-                            .foregroundColor(.gray)
+            // 2. Active Buffer / Stall Overlay Spinner (Dead-Center Window Overlay)
+            if isBuffering && !isSwitchingEpisode && (currentTime == 0 || stallSecondsCount > 2) {
+                ZStack {
+                    Color.black.opacity(0.35).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .tint(.white)
+                            .scaleEffect(1.3)
+
                     }
+                    .padding(24)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.8), radius: 24, x: 0, y: 10)
                 }
-                .padding(20)
-                .background(.ultraThinMaterial)
-                .cornerRadius(16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .ignoresSafeArea()
                 .transition(.opacity)
-                .zIndex(50)
+                .zIndex(100)
             }
 
             // 3. On-Screen Subtitle Text Overlay
+            // 3. On-Screen Subtitle Text Overlay (Static, Crisp, No Motion Animation)
             if let text = currentSubtitleText, !text.isEmpty {
                 VStack {
                     Spacer()
                     Text(text)
-                        .font(.system(size: subtitleFontSize, weight: .semibold, design: .rounded))
+                        .font(.system(size: subtitleFontSize, weight: .semibold, design: .default))
                         .foregroundColor(subtitleColor)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
-                        .background(Color.black.opacity(0.75))
-                        .cornerRadius(10)
-                        .shadow(color: .black.opacity(0.9), radius: 6, x: 0, y: 3)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 7)
+                        .background(Color.black.opacity(0.85))
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .shadow(color: .black.opacity(0.9), radius: 4, x: 0, y: 2)
                         .padding(.bottom, showControls ? 110 : 45)
-                        .animation(.easeInOut(duration: 0.15), value: currentSubtitleText)
                 }
                 .frame(maxWidth: .infinity)
                 .ignoresSafeArea()
@@ -433,14 +434,11 @@ struct PlayerView: View {
                     Color.black.opacity(0.85).ignoresSafeArea()
                     VStack(spacing: 16) {
                         ProgressView()
-                            .scaleEffect(1.5)
-                            .tint(.blue)
-                        Text("Loading \(switchingEpisodeTitle)...")
-                            .font(.title3.bold())
-                            .foregroundColor(.white)
-                        Text("Scraping 4K HDR & Debrid sources...")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
+                            .scaleEffect(1.2)
+                            .tint(.white)
+                        Text(switchingEpisodeTitle)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white.opacity(0.8))
                     }
                 }
                 .transition(.opacity)
@@ -453,7 +451,7 @@ struct PlayerView: View {
                     HStack(spacing: 14) {
                         Image(systemName: "clock.arrow.circlepath")
                             .font(.title3)
-                            .foregroundColor(.blue)
+                            .foregroundColor(.white.opacity(0.7))
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Resume Playback?")
@@ -474,8 +472,8 @@ struct PlayerView: View {
                         .font(.caption.bold())
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
+                        .background(Color.white)
+                        .foregroundColor(.black)
                         .clipShape(Capsule())
 
                         Button("Start Over") {
@@ -506,7 +504,8 @@ struct PlayerView: View {
                             HStack {
                                 Text("UP NEXT")
                                     .font(.caption2.bold())
-                                    .foregroundColor(.cyan)
+                                    .tracking(1.2)
+                                    .foregroundColor(.white.opacity(0.55))
                                 Spacer()
                                 Button(action: cancelNextEpisodeCountdown) {
                                     Image(systemName: "xmark.circle.fill")
@@ -528,8 +527,8 @@ struct PlayerView: View {
                                     .font(.caption.bold())
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 8)
-                                    .background(Color.blue)
-                                    .foregroundColor(.white)
+                                    .background(Color.white)
+                                    .foregroundColor(.black)
                                     .clipShape(Capsule())
                                 }
                                 .buttonStyle(.plain)
@@ -557,15 +556,15 @@ struct PlayerView: View {
                     Color.black.opacity(0.85).ignoresSafeArea()
                     VStack(spacing: 20) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 48))
-                            .foregroundColor(.yellow)
+                            .font(.system(size: 40))
+                            .foregroundColor(SoftTone.sand.color)
 
                         VStack(spacing: 6) {
                             Text("Playback Notice")
                                 .font(.title2.bold())
                                 .foregroundColor(.white)
 
-                            Text(playbackError ?? "This high-bitrate stream (MKV/Dolby TrueHD) can be played directly with Soia Engine or an external player.")
+                            Text(playbackError ?? "This stream couldn't be played. Try again or pick another source.")
                                 .font(.subheadline)
                                 .foregroundColor(.gray)
                                 .multilineTextAlignment(.center)
@@ -573,19 +572,41 @@ struct PlayerView: View {
                         }
 
                         VStack(spacing: 12) {
-                            // Option 1: Embedded Soia Engine (libmpv)
-                            if soiaEngine.isLoaded {
+                            if Config.realDebridApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                // Priority Action: Prompt user to enter Real-Debrid API Key
                                 Button(action: {
-                                    switchToSoiaEngine()
+                                    showPlaybackErrorSheet = false
+                                    onDismiss()
+                                    NotificationCenter.default.post(name: NSNotification.Name("OpenProfileSettings"), object: nil)
                                 }) {
                                     HStack(spacing: 8) {
-                                        Image(systemName: "cpu.fill")
-                                        Text("Play with In-App Soia Engine (libmpv)")
+                                        Image(systemName: "key.fill")
+                                        Text("Enter Real-Debrid API Key in Settings")
                                     }
                                     .font(.headline)
                                     .frame(maxWidth: 380)
                                     .padding(.vertical, 12)
-                                    .background(LinearGradient(colors: [.purple, .blue], startPoint: .leading, endPoint: .trailing))
+                                    .background(Color.white)
+                                    .foregroundColor(.black)
+                                    .cornerRadius(12)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                // Option 1: Reconnect stream with KSPlayer
+                                Button(action: {
+                                    showPlaybackErrorSheet = false
+                                    if let url = activeStreamURL ?? streamURL {
+                                        ksEngine.loadStream(url: url, startTime: currentTime)
+                                    }
+                                }) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "arrow.clockwise.circle.fill")
+                                        Text("Try Again")
+                                    }
+                                    .font(.headline)
+                                    .frame(maxWidth: 380)
+                                    .padding(.vertical, 12)
+                                    .background(LinearGradient(colors: [.blue, .purple], startPoint: .leading, endPoint: .trailing))
                                     .foregroundColor(.white)
                                     .cornerRadius(12)
                                 }
@@ -598,20 +619,41 @@ struct PlayerView: View {
                                 withAnimation { showSourcesDrawer = true }
                             }) {
                                 HStack(spacing: 8) {
-                                    Image(systemName: "sparkles.tv")
-                                    Text("Choose Alternative 4K / 1080p Source")
+                                    Image(systemName: "list.bullet")
+                                    Text("Choose Another Source")
                                 }
                                 .font(.headline)
                                 .frame(maxWidth: 380)
                                 .padding(.vertical, 12)
-                                .background(Color.blue)
-                                .foregroundColor(.white)
+                                .background(Color.white)
+                                .foregroundColor(.black)
                                 .cornerRadius(12)
                             }
                             .buttonStyle(.plain)
 
-                            // Option 3: External Players with exact resume timestamp
-                            if let url = activeStreamURL ?? streamURL {
+                            // Option 3: If it's a magnet URL, offer to open in Mac BitTorrent client
+                            if let url = activeStreamURL ?? streamURL, url.scheme?.lowercased() == "magnet" {
+                                Button(action: {
+                                    NSWorkspace.shared.open(url)
+                                    showPlaybackErrorSheet = false
+                                    onDismiss()
+                                }) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "arrow.down.circle.fill")
+                                        Text("Open Magnet in Torrent Client (Transmission/Folx)")
+                                    }
+                                    .font(.subheadline.bold())
+                                    .frame(maxWidth: 380)
+                                    .padding(.vertical, 10)
+                                    .background(Color.white.opacity(0.08))
+                                    .foregroundColor(.white)
+                                    .cornerRadius(10)
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            // Option 4: External Players with exact resume timestamp (for playable HTTP/HTTPS streams)
+                            if let url = activeStreamURL ?? streamURL, url.scheme?.lowercased() != "magnet" {
                                 if ExternalPlayer.iina.isInstalled {
                                     Button(action: {
                                         ExternalPlayer.iina.open(url: url, startTime: currentTime)
@@ -625,7 +667,7 @@ struct PlayerView: View {
                                         .font(.subheadline.bold())
                                         .frame(maxWidth: 380)
                                         .padding(.vertical, 10)
-                                        .background(Color.purple.opacity(0.8))
+                                        .background(Color.white.opacity(0.08))
                                         .foregroundColor(.white)
                                         .cornerRadius(10)
                                     }
@@ -645,7 +687,7 @@ struct PlayerView: View {
                                         .font(.subheadline.bold())
                                         .frame(maxWidth: 380)
                                         .padding(.vertical, 10)
-                                        .background(Color.orange.opacity(0.8))
+                                        .background(Color.white.opacity(0.08))
                                         .foregroundColor(.white)
                                         .cornerRadius(10)
                                     }
@@ -671,186 +713,153 @@ struct PlayerView: View {
 
             // 10. Floating Top & Bottom Minimalist Controls
             VStack {
-                // Top Bar
+                // Top Bar (Streaming Service Minimalist HUD)
                 HStack(spacing: 16) {
                     Button(action: {
                         exitPlayer()
                     }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 26))
-                            .foregroundColor(.white.opacity(0.85))
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 38, height: 38)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                     }
                     .buttonStyle(.plain)
 
                     if let media = mediaItem {
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: 3) {
                             Text(media.title)
-                                .font(.headline.weight(.semibold))
+                                .font(.system(size: 16, weight: .bold))
                                 .foregroundColor(.white)
                                 .lineLimit(1)
 
-                            HStack(spacing: 8) {
-                                if media.type == .series {
-                                    Text("S\(playingSeasonNumber) E\(playingEpisodeNumber)")
-                                        .font(.caption.bold())
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color.blue.opacity(0.3))
-                                        .foregroundColor(.cyan)
-                                        .cornerRadius(4)
-                                }
-
-                                Text(currentEngine == .soiaMPV ? "⚡ SOIA ENGINE (HDR TONE-MAPPED)" : "⚡ HARDWARE DECODE (60s BUFFER)")
-                                    .font(.caption.bold())
-                                    .foregroundColor(currentEngine == .soiaMPV ? .green : .purple)
-
-                                if bufferedSeconds > 0 {
-                                    Text("• \(Int(bufferedSeconds))s CACHED")
-                                        .font(.caption2.bold())
-                                        .foregroundColor(.white.opacity(0.7))
-                                }
+                            if media.type == .series {
+                                Text("Season \(playingSeasonNumber) · Episode \(playingEpisodeNumber)")
+                                    .font(.system(size: 11.5, weight: .medium))
+                                    .foregroundColor(.white.opacity(0.6))
                             }
                         }
                     }
 
                     Spacer()
 
-                    // Quick Watchlist Toggle
-                    if let media = mediaItem {
-                        Button(action: {
-                            userInteracted()
-                            watchlistManager.toggleWatchlist(media)
-                        }) {
-                            Image(systemName: watchlistManager.isWatchlisted(id: media.id) ? "bookmark.fill" : "bookmark")
-                                .font(.system(size: 18))
-                                .foregroundColor(watchlistManager.isWatchlisted(id: media.id) ? .yellow : .white)
-                                .padding(8)
-                                .background(Circle().fill(Color.white.opacity(0.12)))
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    // Sources & Quality Drawer Button
-                    Button(action: {
-                        userInteracted()
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            showSourcesDrawer.toggle()
-                            if showSourcesDrawer && availableStreamLinks.isEmpty {
-                                loadAvailableSources()
+                    // Right Controls Cluster
+                    HStack(spacing: 10) {
+                        // Quick Watchlist Toggle
+                        if let media = mediaItem {
+                            Button(action: {
+                                userInteracted()
+                                watchlistManager.toggleWatchlist(media)
+                            }) {
+                                Image(systemName: watchlistManager.isWatchlisted(id: media.id) ? "bookmark.fill" : "bookmark")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .frame(width: 36, height: 36)
+                                    .background(.ultraThinMaterial)
+                                    .clipShape(Circle())
+                                    .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                             }
+                            .buttonStyle(.plain)
                         }
-                    }) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "sparkles.tv")
-                                .font(.system(size: 14, weight: .bold))
-                            Text("Sources")
-                                .font(.caption.bold())
-                        }
-                        .foregroundColor(.white.opacity(0.9))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Capsule().fill(Color.white.opacity(0.12)))
-                    }
-                    .buttonStyle(.plain)
 
-                    // TV Show Episodes Drawer Button
-                    if mediaItem?.type == .series {
-                        Button(action: {
-                            userInteracted()
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                                showEpisodesDrawer.toggle()
+                        // TV Show Episodes Drawer Button
+                        if mediaItem?.type == .series {
+                            Button(action: {
+                                userInteracted()
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    showEpisodesDrawer.toggle()
+                                }
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "rectangle.grid.1x2")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text("Episodes")
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Capsule())
+                                .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                             }
-                        }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "rectangle.grid.1x2.fill")
-                                    .font(.system(size: 14, weight: .bold))
-                                Text("Episodes")
-                                    .font(.subheadline.weight(.bold))
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .background(LinearGradient(colors: [.blue, .purple], startPoint: .leading, endPoint: .trailing))
-                            .foregroundColor(.white)
-                            .clipShape(Capsule())
-                            .shadow(color: .blue.opacity(0.4), radius: 6)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    // External Player Quick Launcher
-                    Button(action: {
-                        userInteracted()
-                        showExternalPlayerPopover.toggle()
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.up.right.video.fill")
-                                .font(.system(size: 14))
-                            Text("External")
-                                .font(.caption.bold())
-                        }
-                        .foregroundColor(.white.opacity(0.9))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Capsule().fill(Color.white.opacity(0.12)))
-                    }
-                    .buttonStyle(.plain)
-                    .popover(isPresented: $showExternalPlayerPopover) {
-                        externalPlayersMenu
-                    }
-
-                    // Engine Switcher
-                    if soiaEngine.isLoaded {
-                        Button(action: {
-                            userInteracted()
-                            showEnginePopover.toggle()
-                        }) {
-                            Image(systemName: "cpu")
-                                .font(.system(size: 16))
-                                .foregroundColor(.white.opacity(0.9))
-                                .padding(8)
-                                .background(Circle().fill(Color.white.opacity(0.12)))
-                        }
-                        .buttonStyle(.plain)
-                        .popover(isPresented: $showEnginePopover) {
-                            engineSwitcherMenu
-                        }
-                    }
-
-                    // Track Selectors: Audio & Subtitles
-                    HStack(spacing: 12) {
-                        Button(action: {
-                            userInteracted()
-                            showAudioPopover.toggle()
-                        }) {
-                            Image(systemName: "waveform")
-                                .font(.system(size: 18))
-                                .foregroundColor(.white.opacity(0.9))
-                                .padding(8)
-                                .background(Circle().fill(Color.white.opacity(0.12)))
-                        }
-                        .buttonStyle(.plain)
-                        .popover(isPresented: $showAudioPopover) {
-                            audioTracksMenu
+                            .buttonStyle(.plain)
                         }
 
+                        // Audio & Subtitles
                         Button(action: {
                             userInteracted()
                             showSubtitlePopover.toggle()
                         }) {
-                            Image(systemName: selectedSubtitle != nil ? "captions.bubble.fill" : "captions.bubble")
-                                .font(.system(size: 18))
-                                .foregroundColor(selectedSubtitle != nil ? .yellow : .white.opacity(0.9))
-                                .padding(8)
-                                .background(Circle().fill(Color.white.opacity(0.12)))
+                            HStack(spacing: 6) {
+                                Image(systemName: selectedSubtitle != nil ? "captions.bubble.fill" : "captions.bubble")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(selectedSubtitle != nil ? .white : .white.opacity(0.85))
+                                Text("Audio & Subtitles")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                         }
                         .buttonStyle(.plain)
                         .popover(isPresented: $showSubtitlePopover) {
                             subtitlesMenu
                         }
+
+                        // Sources & Quality Drawer Button
+                        Button(action: {
+                            userInteracted()
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                showSourcesDrawer.toggle()
+                                if showSourcesDrawer && availableStreamLinks.isEmpty {
+                                    loadAvailableSources()
+                                }
+                            }
+                        }) {
+                            HStack(spacing: 5) {
+                                Image(systemName: "slider.horizontal.3")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text("Sources")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+                        }
+                        .buttonStyle(.plain)
+
+                        // External Player Quick Launcher
+                        Button(action: {
+                            userInteracted()
+                            showExternalPlayerPopover.toggle()
+                        }) {
+                            Image(systemName: "arrow.up.right.video")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 36, height: 36)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+                        }
+                        .buttonStyle(.plain)
+                        .popover(isPresented: $showExternalPlayerPopover) {
+                            externalPlayersMenu
+                        }
+
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 20)
+                .padding(.leading, 14)
+                .padding(.trailing, 28)
+                .padding(.top, 38)
                 .padding(.bottom, 24)
                 .background(
                     LinearGradient(colors: [.black.opacity(0.85), .black.opacity(0.4), .clear], startPoint: .top, endPoint: .bottom)
@@ -887,16 +896,20 @@ struct PlayerView: View {
                         }
                     )
 
-                    // Timestamps & Controls Row
-                    HStack(spacing: 18) {
-                        // Play / Pause Toggle
+                    // Timestamps & Controls Row (Streaming Service Style)
+                    HStack(spacing: 16) {
+                        // Play / Pause Toggle (Solid white circle button)
                         Button(action: {
                             userInteracted()
                             togglePlayPause()
                         }) {
-                            Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                                .font(.system(size: 38))
-                                .foregroundColor(.white)
+                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.black)
+                                .frame(width: 38, height: 38)
+                                .background(Color.white)
+                                .clipShape(Circle())
+                                .shadow(color: .white.opacity(0.18), radius: 6)
                         }
                         .buttonStyle(.plain)
 
@@ -906,7 +919,7 @@ struct PlayerView: View {
                             seekRelative(-10)
                         }) {
                             Image(systemName: "gobackward.10")
-                                .font(.title3)
+                                .font(.system(size: 18, weight: .semibold))
                                 .foregroundColor(.white.opacity(0.9))
                         }
                         .buttonStyle(.plain)
@@ -917,58 +930,75 @@ struct PlayerView: View {
                             seekRelative(10)
                         }) {
                             Image(systemName: "goforward.10")
-                                .font(.title3)
+                                .font(.system(size: 18, weight: .semibold))
                                 .foregroundColor(.white.opacity(0.9))
                         }
                         .buttonStyle(.plain)
 
+                        // Next Episode Button (Series only)
+                        if mediaItem?.type == .series {
+                            Button(action: {
+                                userInteracted()
+                                playNextEpisodeNow()
+                            }) {
+                                Image(systemName: "forward.end.fill")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.9))
+                            }
+                            .buttonStyle(.plain)
+                        }
+
                         // Time display (Current / Total / Remaining)
-                        HStack(spacing: 6) {
+                        HStack(spacing: 5) {
                             Text(formatTime(currentTime))
-                                .font(.caption.monospacedDigit().bold())
+                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
                                 .foregroundColor(.white)
 
                             Text("/")
-                                .font(.caption)
-                                .foregroundColor(.gray)
+                                .font(.system(size: 12))
+                                .foregroundColor(.white.opacity(0.35))
 
                             Text(formatTime(duration))
-                                .font(.caption.monospacedDigit())
-                                .foregroundColor(.gray)
+                                .font(.system(size: 12, weight: .regular, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.6))
 
                             if duration > currentTime {
                                 Text("(-\(formatTime(duration - currentTime)))")
-                                    .font(.caption2.monospacedDigit())
-                                    .foregroundColor(.white.opacity(0.5))
+                                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.4))
                             }
                         }
 
                         Spacer()
 
-                        // Playback Speed Selector (0.75x, 1x, 1.25x, 1.5x, 2x)
+                        // Playback Speed Selector
                         Button(action: {
                             userInteracted()
                             cyclePlaybackSpeed()
                         }) {
                             Text(String(format: "%.2fx", playbackSpeed).replacingOccurrences(of: ".00", with: ""))
-                                .font(.caption.bold().monospacedDigit())
-                                .foregroundColor(.white.opacity(0.9))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Capsule().fill(Color.white.opacity(0.15)))
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Capsule())
+                                .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                         }
                         .buttonStyle(.plain)
 
-                        // Aspect Ratio Toggle (Fit / Zoom Fill / Stretch)
+                        // Aspect Ratio Toggle
                         Button(action: {
                             userInteracted()
                             cycleVideoGravity()
                         }) {
                             Image(systemName: "aspectratio")
-                                .font(.subheadline)
+                                .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(.white.opacity(0.9))
-                                .padding(6)
-                                .background(Circle().fill(Color.white.opacity(0.12)))
+                                .frame(width: 32, height: 32)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                         }
                         .buttonStyle(.plain)
 
@@ -976,13 +1006,15 @@ struct PlayerView: View {
                         // Picture-in-Picture Button
                         Button(action: {
                             userInteracted()
-                            pipTrigger.toggle()
+                            ksEngine.togglePiP()
                         }) {
-                            Image(systemName: "pip.enter")
-                                .font(.subheadline)
+                            Image(systemName: ksEngine.isPipActive ? "pip.exit" : "pip.enter")
+                                .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(.white.opacity(0.9))
-                                .padding(6)
-                                .background(Circle().fill(Color.white.opacity(0.12)))
+                                .frame(width: 32, height: 32)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                         }
                         .buttonStyle(.plain)
                         #endif
@@ -992,38 +1024,49 @@ struct PlayerView: View {
                             Button(action: {
                                 userInteracted()
                                 isMuted.toggle()
-                                if currentEngine == .soiaMPV {
-                                    soiaEngine.setVolume(isMuted ? 0 : volume)
-                                } else {
-                                    player?.isMuted = isMuted
-                                }
+                                ksEngine.toggleMute()
                             }) {
                                 Image(systemName: isMuted ? "speaker.slash.fill" : (volume > 0.5 ? "speaker.wave.3.fill" : "speaker.wave.1.fill"))
-                                    .font(.subheadline)
-                                    .foregroundColor(.white.opacity(0.85))
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.9))
                             }
                             .buttonStyle(.plain)
 
                             Slider(value: $volume, in: 0...1) { _ in
                                 userInteracted()
-                                if currentEngine == .soiaMPV {
-                                    soiaEngine.setVolume(volume)
-                                } else {
-                                    player?.volume = Float(volume)
-                                }
+                                ksEngine.setVolume(volume)
                                 if isMuted && volume > 0 {
                                     isMuted = false
-                                    player?.isMuted = false
+                                    ksEngine.isMuted = false
                                 }
                             }
-                            .tint(.white.opacity(0.8))
+                            .tint(.white)
                             .frame(width: 75)
                         }
+
+                        #if os(macOS)
+                        // Fullscreen Toggle Button
+                        Button(action: {
+                            userInteracted()
+                            if let window = NSApp.keyWindow {
+                                window.toggleFullScreen(nil)
+                            }
+                        }) {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.9))
+                                .frame(width: 32, height: 32)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+                        }
+                        .buttonStyle(.plain)
+                        #endif
                     }
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 28)
                 .padding(.top, 18)
-                .padding(.bottom, 18)
+                .padding(.bottom, 22)
                 .background(
                     LinearGradient(colors: [.clear, .black.opacity(0.4), .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
                 )
@@ -1034,6 +1077,7 @@ struct PlayerView: View {
             // 11. TV Show Seasons & Episodes Side Drawer
             if showEpisodesDrawer {
                 episodesSideDrawer
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                     .transition(.move(edge: .trailing))
                     .zIndex(250)
             }
@@ -1041,6 +1085,7 @@ struct PlayerView: View {
             // 12. In-Player Stream Sources & Quality Switcher Drawer
             if showSourcesDrawer {
                 sourcesSideDrawer
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                     .transition(.move(edge: .trailing))
                     .zIndex(260)
             }
@@ -1069,6 +1114,13 @@ struct PlayerView: View {
         activeStreamURL = streamURL
         guard let url = activeStreamURL else { return }
 
+        // Validate that url is a playable stream scheme (http, https, file)
+        guard let scheme = url.scheme?.lowercased(), (scheme == "http" || scheme == "https" || scheme == "file") else {
+            playbackError = "Direct stream URL not available. A Real-Debrid API Key is required to resolve torrent streams into video. Please enter your Real-Debrid API key in Profile > Settings."
+            showPlaybackErrorSheet = true
+            return
+        }
+
         // Check for resume time
         if let media = mediaItem {
             if let resumeSec = watchlistManager.getResumeTime(id: media.id, season: playingSeasonNumber, episode: playingEpisodeNumber) {
@@ -1082,130 +1134,46 @@ struct PlayerView: View {
             }
         }
 
-        // Automatic choice of engine if user configured "soia"
-        if Config.playbackEngineMode == "soia" && soiaEngine.isLoaded {
-            switchToSoiaEngine()
-            return
-        }
+        let targetIMDb = mediaItem?.imdbID ?? (mediaItem?.id.hasPrefix("tt") == true ? mediaItem?.id : nil)
+        let savedResume = resumeTimeAvailable ?? 0.0
 
-        let playerItem = AVPlayerItem(url: url)
-        playerItem.preferredForwardBufferDuration = Config.bufferAheadSeconds
-        playerItem.automaticallyPreservesTimeOffsetFromLive = true
-
-        let newPlayer = AVPlayer(playerItem: playerItem)
-        newPlayer.automaticallyWaitsToMinimizeStalling = true
-        self.player = newPlayer
-        newPlayer.play()
+        ksEngine.loadStream(url: url, startTime: savedResume, imdbID: targetIMDb)
         self.isPlaying = true
-
-        setupStallWatchdog(for: playerItem)
-
-        // Observe Item Status & Errors
-        Task {
-            if let dur = try? await playerItem.asset.load(.duration) {
-                await MainActor.run {
-                    self.duration = dur.seconds
-                }
-            }
-        }
-
-        // Periodic observer for current time & watch history auto-save
-        newPlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 1000), queue: .main) { time in
-            let sec = time.seconds
-            self.currentTime = sec
-            if let itemDur = newPlayer.currentItem?.duration.seconds, !itemDur.isNaN, itemDur > 0 {
-                self.duration = itemDur
-            }
-
-            // Update on-screen subtitle cue
-            updateSubtitleCue(currentSecond: sec)
-
-            // Auto-save history every 5 seconds while playing
-            if self.isPlaying && sec > 5 && Date().timeIntervalSince(self.lastHistorySaveTime) > 5.0 {
-                self.saveCurrentHistoryProgress()
-            }
-
-            // Zero-latency next episode pre-caching (< 75 seconds remaining)
-            self.checkPrecacheNextEpisode(currentSec: sec)
-
-            // Check if near end of episode for next episode countdown (< 25s)
-            if self.mediaItem?.type == .series && self.duration > 60 && sec >= (self.duration - 25.0) {
-                if !self.showNextEpisodeCard && Config.autoPlayNextEpisode {
-                    self.triggerNextEpisodeCountdown()
-                }
-            }
-        }
-
-        // Watch for playback errors
-        NotificationCenter.default.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: playerItem, queue: .main) { notif in
-            let err = (notif.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)?.localizedDescription
-            self.playbackError = err ?? "Stream encountered a format error (e.g. MKV/Dolby TrueHD)."
-            self.showPlaybackErrorSheet = true
-        }
-
-        loadEmbeddedTracks(item: playerItem)
+        setupStallWatchdog()
     }
 
-    private func setupStallWatchdog(for playerItem: AVPlayerItem) {
-        cancellables.removeAll()
-
-        playerItem.publisher(for: \.loadedTimeRanges)
-            .receive(on: DispatchQueue.main)
-            .sink { [self] ranges in
-                guard let first = ranges.first as? CMTimeRange else { return }
-                let loadedEnd = first.start.seconds + first.duration.seconds
-                self.bufferedSeconds = max(0, loadedEnd - self.currentTime)
-                if self.duration > 0 {
-                    self.bufferedFraction = min(1.0, loadedEnd / self.duration)
-                }
-            }
-            .store(in: &cancellables)
-
-        playerItem.publisher(for: \.isPlaybackBufferEmpty)
-            .receive(on: DispatchQueue.main)
-            .sink { [self] empty in
-                if empty && self.isPlaying {
-                    self.isBuffering = true
-                }
-            }
-            .store(in: &cancellables)
-
-        playerItem.publisher(for: \.isPlaybackLikelyToKeepUp)
-            .receive(on: DispatchQueue.main)
-            .sink { [self] likely in
-                if likely {
-                    self.isBuffering = false
-                    self.stallSecondsCount = 0
-                    if self.isPlaying {
-                        self.player?.play()
-                        self.player?.rate = Float(self.playbackSpeed)
-                    }
-                }
-            }
-            .store(in: &cancellables)
-
+    private func setupStallWatchdog() {
         stallTimer?.invalidate()
-        stallTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [self] _ in
-            guard self.isPlaying, let p = self.player else { return }
-            if p.timeControlStatus == .waitingToPlayAtSpecifiedRate || self.isBuffering {
-                self.stallSecondsCount += 1.0
-                if self.stallSecondsCount == 6.0 {
-                    print("[StallWatchdog] Soft kick after 6s")
-                    p.play()
-                    p.rate = Float(self.playbackSpeed)
-                } else if self.stallSecondsCount == 14.0 {
-                    print("[StallWatchdog] Reseeking after 14s")
-                    p.seek(to: CMTime(seconds: self.currentTime, preferredTimescale: 1000))
-                    p.play()
-                    p.rate = Float(self.playbackSpeed)
-                } else if self.stallSecondsCount >= 22.0 {
-                    print("[StallWatchdog] Prolonged stall. Trying auto-recovery.")
-                    self.attemptStallAutoRecovery()
+        var lastRecordedTime: Double = -1
+        stallTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            DispatchQueue.main.async {
+                guard self.isPlaying else { return }
+                // If currentTime is advancing, playback is completely healthy
+                if self.currentTime > 0 && abs(self.currentTime - lastRecordedTime) > 0.05 {
+                    lastRecordedTime = self.currentTime
+                    if self.isBuffering {
+                        self.isBuffering = false
+                    }
+                    self.stallSecondsCount = 0
+                    return
                 }
-            } else {
-                self.stallSecondsCount = 0
+
+                // If playback is stalled (time not advancing while supposed to play)
                 if self.isBuffering {
-                    self.isBuffering = false
+                    self.stallSecondsCount += 1.0
+                    if self.stallSecondsCount == 6.0 {
+                        print("[StallWatchdog] Soft kick after 6s")
+                        self.ksEngine.play()
+                    } else if self.stallSecondsCount == 14.0 {
+                        print("[StallWatchdog] Reseeking after 14s")
+                        self.ksEngine.seek(to: self.currentTime)
+                        self.ksEngine.play()
+                    } else if self.stallSecondsCount >= 22.0 {
+                        print("[StallWatchdog] Prolonged stall. Trying auto-recovery.")
+                        self.attemptStallAutoRecovery()
+                    }
+                } else {
+                    self.stallSecondsCount = 0
                 }
             }
         }
@@ -1216,92 +1184,102 @@ struct PlayerView: View {
         showToast("Reconnecting Debrid stream buffer...")
         guard let url = activeStreamURL ?? streamURL else { return }
         let saved = currentTime
-        let newItem = AVPlayerItem(url: url)
-        newItem.preferredForwardBufferDuration = Config.bufferAheadSeconds
-        setupStallWatchdog(for: newItem)
-        player?.replaceCurrentItem(with: newItem)
-        player?.seek(to: CMTime(seconds: saved, preferredTimescale: 1000))
-        player?.play()
-        player?.rate = Float(playbackSpeed)
+        ksEngine.loadStream(url: url, startTime: saved)
     }
 
-    private func switchToSoiaEngine() {
-        guard let url = activeStreamURL ?? streamURL else { return }
-        let saved = currentTime
-        player?.pause()
-        currentEngine = .soiaMPV
-        showPlaybackErrorSheet = false
-        showToast("Switched to Soia Engine (libmpv)")
-        startSoiaPolling(savedTime: saved)
-    }
+    private func onPlayerTick(current: Double, total: Double) {
+        self.currentTime = current
+        self.duration = total
+        self.bufferedSeconds = ksEngine.bufferedTime
+        self.bufferedFraction = ksEngine.bufferedFraction
+        self.isPlaying = ksEngine.isPlaying
+        if current > 0 {
+            if self.isBuffering {
+                self.isBuffering = false
+            }
+            self.stallSecondsCount = 0
+        }
 
-    private func startSoiaPolling(savedTime: Double = 0) {
-        soiaPollTimer?.invalidate()
-        if savedTime > 0 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                self.soiaEngine.seekTo(savedTime)
+        // Update subtitles
+        if let embedded = ksEngine.currentEmbeddedSubtitleText {
+            self.currentSubtitleText = embedded
+        } else {
+            updateSubtitleCue(currentSecond: current)
+        }
+
+        // Auto-save history every 5 seconds while playing
+        if self.isPlaying && current > 5 && Date().timeIntervalSince(self.lastHistorySaveTime) > 5.0 {
+            self.saveCurrentHistoryProgress()
+        }
+
+        // Zero-latency next episode pre-caching (< 75 seconds remaining)
+        self.checkPrecacheNextEpisode(currentSec: current)
+
+        // Check if near end of episode for next episode countdown (< 25s)
+        if self.mediaItem?.type == .series && self.duration > 60 && current >= (self.duration - 25.0) {
+            if !self.showNextEpisodeCard && Config.autoPlayNextEpisode {
+                self.triggerNextEpisodeCountdown()
             }
         }
-        soiaPollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-            let pos = self.soiaEngine.getTimePos()
-            let dur = self.soiaEngine.getDuration()
-            let cache = self.soiaEngine.getCacheDuration()
+    }
 
-            if pos > 0 { self.currentTime = pos }
-            if dur > 0 { self.duration = dur }
-            if dur > 0 {
-                self.bufferedSeconds = cache
-                self.bufferedFraction = min(1.0, (pos + cache) / dur)
+    private func onPlayerStateChanged(state: KSPlayerState) {
+        if state == .buffering {
+            // Only flag buffering if playback hasn't started or currentTime is not moving
+            if !self.isPlaying || self.currentTime == 0 {
+                self.isBuffering = true
             }
-
-            self.updateSubtitleCue(currentSecond: pos)
-
-            if self.isPlaying && pos > 5 && Date().timeIntervalSince(self.lastHistorySaveTime) > 5.0 {
-                self.saveCurrentHistoryProgress()
+        } else if state == .readyToPlay || state == .bufferFinished {
+            self.isBuffering = false
+            self.stallSecondsCount = 0
+            self.isPlaying = true
+            if state == .readyToPlay {
+                self.syncAudioAndSubtitleTracks()
             }
+        } else if state == .paused {
+            self.isPlaying = false
+        } else if state == .error {
+            self.isBuffering = false
+            self.isPlaying = false
+            self.playbackError = ksEngine.playbackError ?? "Playback error"
+            self.showPlaybackErrorSheet = true
+        }
+    }
 
-            self.checkPrecacheNextEpisode(currentSec: pos)
+    private func syncAudioAndSubtitleTracks() {
+        // Sync audio tracks
+        self.audioTracks = ksEngine.availableAudioTracks.map { track in
+            AudioTrackItem(id: "\(track.id)", displayName: track.name, trackID: track.id)
+        }
+        if let activeId = ksEngine.selectedAudioTrackId {
+            self.selectedAudioTrack = self.audioTracks.first { $0.trackID == activeId }
+        }
 
-            if self.mediaItem?.type == .series && dur > 60 && pos >= (dur - 25.0) {
-                if !self.showNextEpisodeCard && Config.autoPlayNextEpisode {
-                    self.triggerNextEpisodeCountdown()
-                }
-            }
+        // Sync embedded subtitle tracks
+        let embeddedSubs = ksEngine.availableSubtitleTracks.map { track in
+            SubtitleTrack(id: "embedded_\(track.id)", displayName: "\(track.name) [Embedded]", trackID: track.id, externalURL: nil)
+        }
+        self.subtitles.removeAll { $0.trackID != nil }
+        self.subtitles.insert(contentsOf: embeddedSubs, at: 0)
+        if let activeSubId = ksEngine.selectedSubtitleTrackId {
+            self.selectedSubtitle = self.subtitles.first { $0.trackID == activeSubId }
         }
     }
 
     private func cycleVideoGravity() {
-        switch videoGravity {
-        case .resizeAspect:
-            videoGravity = .resizeAspectFill
-            showToast("Aspect: Zoom / Fill (No Black Bars)")
-        case .resizeAspectFill:
-            videoGravity = .resize
-            showToast("Aspect: Stretch to Window")
-        default:
-            videoGravity = .resizeAspect
-            showToast("Aspect: Fit (Original Aspect)")
-        }
+        ksEngine.toggleAspect()
+        showToast(ksEngine.isAspectFill ? "Aspect: Fill Screen (Zoom)" : "Aspect: Fit (Original Aspect)")
     }
 
     private func cyclePlaybackSpeed() {
-        if playbackSpeed == 1.0 {
-            playbackSpeed = 1.25
-        } else if playbackSpeed == 1.25 {
-            playbackSpeed = 1.5
-        } else if playbackSpeed == 1.5 {
-            playbackSpeed = 2.0
-        } else if playbackSpeed == 2.0 {
-            playbackSpeed = 0.75
+        let speeds = [0.75, 1.0, 1.25, 1.5, 2.0]
+        if let idx = speeds.firstIndex(of: playbackSpeed) {
+            let nextIdx = (idx + 1) % speeds.count
+            playbackSpeed = speeds[nextIdx]
         } else {
             playbackSpeed = 1.0
         }
-
-        if currentEngine == .soiaMPV {
-            soiaEngine.setSpeed(playbackSpeed)
-        } else {
-            player?.rate = Float(playbackSpeed)
-        }
+        ksEngine.setRate(playbackSpeed)
         showToast("Playback Speed: \(String(format: "%.2fx", playbackSpeed).replacingOccurrences(of: ".00", with: ""))")
     }
 
@@ -1347,7 +1325,6 @@ struct PlayerView: View {
         hideControlsWorkItem?.cancel()
         countdownTimer?.invalidate()
         stallTimer?.invalidate()
-        soiaPollTimer?.invalidate()
         cancellables.removeAll()
         saveCurrentHistoryProgress()
         #if os(macOS)
@@ -1357,11 +1334,8 @@ struct PlayerView: View {
         }
         NSCursor.unhide()
         #endif
-        player?.pause()
-        player = nil
-        if currentEngine == .soiaMPV {
-            soiaEngine.destroy()
-        }
+        ksEngine.pause()
+        ksEngine.reset()
     }
 
     private func exitPlayer() {
@@ -1404,19 +1378,7 @@ struct PlayerView: View {
                 let (newURL, _) = try await aggregatorService.resolveStreamURLWithFallback(startingLink: link, allLinks: availableStreamLinks)
                 await MainActor.run {
                     self.activeStreamURL = newURL
-                    if self.currentEngine == .soiaMPV {
-                        self.soiaEngine.playNewStream(urlString: newURL.absoluteString)
-                        self.soiaEngine.seekTo(savedTime)
-                    } else {
-                        let newItem = AVPlayerItem(url: newURL)
-                        newItem.preferredForwardBufferDuration = Config.bufferAheadSeconds
-                        self.setupStallWatchdog(for: newItem)
-                        self.player?.replaceCurrentItem(with: newItem)
-                        self.player?.seek(to: CMTime(seconds: savedTime, preferredTimescale: 1000))
-                        self.player?.play()
-                        self.player?.rate = Float(self.playbackSpeed)
-                        self.isPlaying = true
-                    }
+                    self.ksEngine.loadStream(url: newURL, startTime: savedTime)
                     self.showToast("Switched to \(link.resolutionBadge) at \(formatTime(savedTime))")
                 }
             } catch {
@@ -1430,9 +1392,7 @@ struct PlayerView: View {
     private var sourcesSideDrawer: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Image(systemName: "sparkles.tv")
-                    .foregroundColor(.yellow)
-                Text("Stream Sources & Quality")
+                Text("Sources")
                     .font(.headline.bold())
                     .foregroundColor(.white)
                 Spacer()
@@ -1450,7 +1410,7 @@ struct PlayerView: View {
                 VStack {
                     Spacer()
                     ProgressView().tint(.white)
-                    Text("Finding alternative 4K & FHD streams...")
+                    Text("Finding sources…")
                         .font(.caption)
                         .foregroundColor(.gray)
                         .padding(.top, 8)
@@ -1474,72 +1434,30 @@ struct PlayerView: View {
                                 switchToLink(link)
                             }) {
                                 HStack(alignment: .top, spacing: 12) {
-                                    VStack(alignment: .leading, spacing: 6) {
+                                    VStack(alignment: .leading, spacing: 5) {
                                         HStack(spacing: 6) {
-                                            Text(link.resolutionBadge)
-                                                .font(.caption2.bold())
-                                                .padding(.horizontal, 6)
-                                                .padding(.vertical, 2)
-                                                .background(Color.blue.opacity(0.3))
-                                                .foregroundColor(.cyan)
-                                                .cornerRadius(4)
-
-                                            if let size = link.sizeString {
-                                                Text(size)
-                                                    .font(.caption2.bold())
-                                                    .padding(.horizontal, 6)
-                                                    .padding(.vertical, 2)
-                                                    .background(Color.white.opacity(0.12))
-                                                    .foregroundColor(.white.opacity(0.9))
-                                                    .cornerRadius(4)
-                                            }
-
-                                            if link.isCached {
-                                                Text("⚡ Instant Debrid")
-                                                    .font(.system(size: 9, weight: .bold))
-                                                    .padding(.horizontal, 5)
-                                                    .padding(.vertical, 2)
-                                                    .background(Color.green.opacity(0.25))
-                                                    .foregroundColor(.green)
-                                                    .cornerRadius(4)
-                                            }
-
-                                            if let hdr = link.hdrTag {
-                                                Text(hdr)
-                                                    .font(.system(size: 9, weight: .bold))
-                                                    .padding(.horizontal, 5)
-                                                    .padding(.vertical, 2)
-                                                    .background(Color.purple.opacity(0.3))
-                                                    .foregroundColor(.purple)
-                                                    .cornerRadius(4)
-                                            }
-
-                                            if let audio = link.audioTag {
-                                                Text(audio)
-                                                    .font(.system(size: 9, weight: .bold))
-                                                    .padding(.horizontal, 5)
-                                                    .padding(.vertical, 2)
-                                                    .background(Color.orange.opacity(0.25))
-                                                    .foregroundColor(.orange)
-                                                    .cornerRadius(4)
-                                            }
+                                            Text(mediaItem?.title ?? "Stream")
+                                                .font(.system(size: 12.5, weight: .bold))
+                                                .foregroundColor(.white)
+                                                .lineLimit(1)
+                                            StreamAttributeRow(link: link)
                                         }
 
-                                        Text(link.title)
-                                            .font(.caption.weight(.medium))
-                                            .foregroundColor(.white)
+                                        Text(link.fileName)
+                                            .font(.system(size: 11, weight: .regular))
+                                            .foregroundColor(.white.opacity(0.45))
                                             .lineLimit(2)
                                             .multilineTextAlignment(.leading)
                                     }
 
                                     Spacer()
 
-                                    Image(systemName: "play.circle")
-                                        .font(.title3)
-                                        .foregroundColor(.blue)
+                                    Image(systemName: "play.fill")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.white.opacity(0.7))
                                 }
                                 .padding(12)
-                                .background(Color.white.opacity(0.06))
+                                .background(Color.white.opacity(0.04))
                                 .cornerRadius(12)
                             }
                             .buttonStyle(.plain)
@@ -1588,10 +1506,10 @@ struct PlayerView: View {
         currentSubtitleText = nil
         subtitleCues = []
 
-        if let option = track.option, let group = embeddedSubGroup {
-            player?.currentItem?.select(option, in: group)
+        if let tid = track.trackID {
+            ksEngine.selectSubtitleTrack(id: tid)
         } else if let externalURL = track.externalURL {
-            disableEmbeddedSubtitles()
+            ksEngine.selectSubtitleTrack(id: nil)
             Task {
                 let cues = await subtitleService.loadCues(from: externalURL)
                 await MainActor.run {
@@ -1605,13 +1523,7 @@ struct PlayerView: View {
         selectedSubtitle = nil
         currentSubtitleText = nil
         subtitleCues = []
-        disableEmbeddedSubtitles()
-    }
-
-    private func disableEmbeddedSubtitles() {
-        if let group = embeddedSubGroup {
-            player?.currentItem?.select(nil, in: group)
-        }
+        ksEngine.selectSubtitleTrack(id: nil)
     }
 
     private func updateSubtitleCue(currentSecond: Double) {
@@ -1644,12 +1556,8 @@ struct PlayerView: View {
                 self.adjustVolume(by: -0.1)
                 return nil
             case 46: // 'M'
-                self.isMuted.toggle()
-                if self.currentEngine == .soiaMPV {
-                    self.soiaEngine.setVolume(self.isMuted ? 0 : self.volume)
-                } else {
-                    self.player?.isMuted = self.isMuted
-                }
+                self.ksEngine.toggleMute()
+                self.isMuted = self.ksEngine.isMuted
                 return nil
             case 3: // 'F'
                 if let window = NSApp.keyWindow {
@@ -1677,7 +1585,7 @@ struct PlayerView: View {
                 }
                 return nil
             case 35: // 'P' - Picture in Picture
-                self.pipTrigger.toggle()
+                self.ksEngine.togglePiP()
                 return nil
             case 53: // Esc
                 self.exitPlayer()
@@ -1691,16 +1599,11 @@ struct PlayerView: View {
 
     private func adjustVolume(by delta: Double) {
         userInteracted()
-        volume = max(0, min(1.0, volume + delta))
-        if currentEngine == .soiaMPV {
-            soiaEngine.setVolume(volume)
-        } else {
-            player?.volume = Float(volume)
-        }
-        if isMuted && volume > 0 {
-            isMuted = false
-            player?.isMuted = false
-        }
+        let newVol = max(0, min(1.0, volume + delta))
+        volume = newVol
+        isMuted = newVol == 0
+        ksEngine.setVolume(newVol)
+        showToast("Volume: \(Int(newVol * 100))%")
     }
 
     // MARK: - Auto-Hide Controls & Inactivity
@@ -1726,18 +1629,9 @@ struct PlayerView: View {
     }
 
     private func togglePlayPause() {
-        if currentEngine == .soiaMPV {
-            soiaEngine.togglePlayPause()
-            isPlaying = soiaEngine.isPlaying
-        } else if let player = player {
-            if isPlaying {
-                player.pause()
-            } else {
-                player.play()
-                player.rate = Float(playbackSpeed)
-            }
-            isPlaying.toggle()
-        }
+        userInteracted()
+        ksEngine.togglePlayPause()
+        isPlaying = ksEngine.isPlaying
 
         withAnimation {
             showPlayPausePulse = true
@@ -1751,24 +1645,14 @@ struct PlayerView: View {
 
     private func seekRelative(_ seconds: Double) {
         userInteracted()
-        if currentEngine == .soiaMPV {
-            soiaEngine.seekRelative(seconds)
-            currentTime = max(0, min(currentTime + seconds, duration))
-        } else if let player = player {
-            let newTime = max(0, min(currentTime + seconds, duration))
-            player.seek(to: CMTime(seconds: newTime, preferredTimescale: 1000))
-            currentTime = newTime
-        }
+        ksEngine.seekRelative(seconds)
+        currentTime = ksEngine.currentTime
     }
 
     private func seekTo(_ seconds: Double) {
-        if currentEngine == .soiaMPV {
-            soiaEngine.seekTo(seconds)
-            currentTime = seconds
-        } else if let player = player {
-            player.seek(to: CMTime(seconds: seconds, preferredTimescale: 1000))
-            currentTime = seconds
-        }
+        userInteracted()
+        ksEngine.seek(to: seconds)
+        currentTime = seconds
     }
 
     private func showToast(_ msg: String) {
@@ -1809,18 +1693,8 @@ struct PlayerView: View {
             self.activeStreamURL = preURL
             self.prefetchedNextEpisodeURL = nil
             self.isPrefetchingNextEpisode = false
-
-            if currentEngine == .soiaMPV {
-                soiaEngine.playNewStream(urlString: preURL.absoluteString)
-            } else {
-                let item = AVPlayerItem(url: preURL)
-                item.preferredForwardBufferDuration = Config.bufferAheadSeconds
-                setupStallWatchdog(for: item)
-                player?.replaceCurrentItem(with: item)
-                player?.play()
-                player?.rate = Float(playbackSpeed)
-                isPlaying = true
-            }
+            self.ksEngine.loadStream(url: preURL, startTime: 0)
+            self.isPlaying = true
             showToast("Now Playing S\(playingSeasonNumber) E\(nextEpNum)")
             loadSubtitlesList()
             return
@@ -1835,7 +1709,7 @@ struct PlayerView: View {
                 let targetEpisode = (nextEpNum > episodesList.count) ? 1 : nextEpNum
                 guard let media = mediaItem else { return }
 
-                let eps = await tmdbService.fetchSeasonEpisodes(tvID: media.id, seasonNumber: targetSeason)
+                let eps = await tmdbService.fetchSeasonEpisodes(tvID: media.id, imdbID: media.imdbID, seasonNumber: targetSeason, title: media.title)
                 if let nextEp = eps.first(where: { $0.episodeNumber == targetEpisode }) {
                     await MainActor.run {
                         self.selectedSeasonNumber = targetSeason
@@ -1868,18 +1742,8 @@ struct PlayerView: View {
                         self.playingEpisodeNumber = episode.episodeNumber
                         self.activeStreamURL = resolvedURL
                         self.availableStreamLinks = links
-
-                        if self.currentEngine == .soiaMPV {
-                            self.soiaEngine.playNewStream(urlString: resolvedURL.absoluteString)
-                        } else {
-                            let item = AVPlayerItem(url: resolvedURL)
-                            item.preferredForwardBufferDuration = Config.bufferAheadSeconds
-                            self.setupStallWatchdog(for: item)
-                            self.player?.replaceCurrentItem(with: item)
-                            self.player?.play()
-                            self.player?.rate = Float(self.playbackSpeed)
-                            self.isPlaying = true
-                        }
+                        self.ksEngine.loadStream(url: resolvedURL, startTime: 0)
+                        self.isPlaying = true
 
                         self.isSwitchingEpisode = false
                         withAnimation {
@@ -1901,207 +1765,211 @@ struct PlayerView: View {
         }
     }
 
-    // MARK: - Audio & Embedded Tracks
-    private func loadEmbeddedTracks(item: AVPlayerItem) {
-        Task {
-            let asset = item.asset
-            if let audioGroup = try? await asset.loadMediaSelectionGroup(for: .audible) {
-                let options = audioGroup.options
-                let tracks = options.compactMap { opt -> AudioTrackItem? in
-                    return AudioTrackItem(id: UUID().uuidString, displayName: opt.displayName, option: opt)
-                }
-                await MainActor.run {
-                    self.audioSelectionGroup = audioGroup
-                    self.audioTracks = tracks
-                    self.selectedAudioTrack = tracks.first
-                }
-            }
-
-            if let subGroup = try? await asset.loadMediaSelectionGroup(for: .legible) {
-                let options = subGroup.options
-                let tracks = options.compactMap { opt -> SubtitleTrack? in
-                    return SubtitleTrack(id: UUID().uuidString, displayName: opt.displayName, option: opt)
-                }
-                await MainActor.run {
-                    self.embeddedSubGroup = subGroup
-                    self.subtitles.insert(contentsOf: tracks, at: 0)
-                }
-            }
-        }
-    }
-
-    private var engineSwitcherMenu: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Playback Engine")
-                .font(.headline)
-                .padding(.bottom, 2)
-
-            ForEach(PlayerEngineType.allCases) { eng in
-                Button(action: {
-                    showEnginePopover = false
-                    if eng != currentEngine {
-                        if eng == .soiaMPV {
-                            switchToSoiaEngine()
-                        } else {
-                            currentEngine = .avPlayer
-                            setupPlayer()
-                        }
-                    }
-                }) {
-                    HStack {
-                        Text(eng.rawValue)
-                        Spacer()
-                        if currentEngine == eng {
-                            Image(systemName: "checkmark")
-                                .foregroundColor(.blue)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding()
-        .frame(width: 260)
-    }
-
     private var audioTracksMenu: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Audio Tracks")
-                .font(.headline)
-                .padding(.bottom, 4)
+        VStack(alignment: .leading, spacing: 14) {
+            if !audioTracks.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("AUDIO TRACKS")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white.opacity(0.5))
 
-            if audioTracks.isEmpty {
-                Text("Default Stream Audio")
-                    .foregroundColor(.secondary)
-            } else {
-                ForEach(audioTracks) { track in
-                    Button(action: {
-                        selectedAudioTrack = track
-                        if let group = audioSelectionGroup, let option = track.option {
-                            player?.currentItem?.select(option, in: group)
-                        }
-                        showAudioPopover = false
-                    }) {
-                        HStack {
-                            Text(track.displayName)
-                            Spacer()
-                            if selectedAudioTrack?.id == track.id {
-                                Image(systemName: "checkmark")
-                                    .foregroundColor(.blue)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .padding()
-        .frame(width: 220)
-    }
-
-    private var subtitlesMenu: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Subtitles")
-                    .font(.headline)
-                Spacer()
-                if isLoadingSubtitles {
-                    ProgressView().scaleEffect(0.7)
-                }
-            }
-
-            Button(action: {
-                disableSubtitles()
-                showSubtitlePopover = false
-            }) {
-                HStack {
-                    Text("Off")
-                    Spacer()
-                    if selectedSubtitle == nil {
-                        Image(systemName: "checkmark")
-                            .foregroundColor(.blue)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-
-            Divider()
-
-            // Subtitle Delay Offset Controls
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Sync Offset:")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                    Spacer()
-                    Text(String(format: "%+.1fs", subtitleOffsetSeconds))
-                        .font(.caption.bold())
-                        .foregroundColor(.cyan)
-                }
-
-                HStack(spacing: 8) {
-                    Button("-0.5s") { subtitleOffsetSeconds -= 0.5 }
-                        .buttonStyle(.bordered)
-                        .controlSize(.mini)
-                    Button("Reset") { subtitleOffsetSeconds = 0.0 }
-                        .buttonStyle(.bordered)
-                        .controlSize(.mini)
-                    Button("+0.5s") { subtitleOffsetSeconds += 0.5 }
-                        .buttonStyle(.bordered)
-                        .controlSize(.mini)
-                }
-            }
-            .padding(.vertical, 2)
-
-            // Subtitle Appearance: Color & Size
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Subtitle Color:")
-                    .font(.caption)
-                    .foregroundColor(.gray)
-
-                HStack(spacing: 8) {
-                    Button("Yellow") { subtitleColor = .yellow }
-                        .buttonStyle(.bordered)
-                        .controlSize(.mini)
-                        .foregroundColor(.yellow)
-                    Button("White") { subtitleColor = .white }
-                        .buttonStyle(.bordered)
-                        .controlSize(.mini)
-                        .foregroundColor(.white)
-                    Button("Cyan") { subtitleColor = .cyan }
-                        .buttonStyle(.bordered)
-                        .controlSize(.mini)
-                        .foregroundColor(.cyan)
-                }
-            }
-
-            Divider()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(subtitles) { track in
+                    ForEach(audioTracks) { track in
                         Button(action: {
-                            selectSubtitleTrack(track)
-                            showSubtitlePopover = false
+                            selectedAudioTrack = track
+                            if let tid = track.trackID {
+                                ksEngine.selectAudioTrack(id: tid)
+                            }
                         }) {
                             HStack {
                                 Text(track.displayName)
-                                    .lineLimit(1)
                                 Spacer()
-                                if selectedSubtitle?.id == track.id {
-                                    Image(systemName: "checkmark")
-                                        .foregroundColor(.blue)
+                                if selectedAudioTrack?.id == track.id {
+                                    Image(systemName: "checkmark").foregroundColor(.blue)
                                 }
                             }
                         }
                         .buttonStyle(.plain)
                     }
                 }
+
+                Divider().background(Color.white.opacity(0.1))
             }
-            .frame(maxHeight: 200)
+
+            // Audio Sync & Lip-Sync Controls
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Lip-Sync Audio Delay")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.white)
+                    Spacer()
+                    Text(String(format: "%+.0f ms", ksEngine.audioDelay * 1000))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundColor(.blue)
+                }
+
+                Slider(
+                    value: Binding(
+                        get: { ksEngine.audioDelay },
+                        set: { ksEngine.setAudioDelay($0) }
+                    ),
+                    in: -3.0...3.0,
+                    step: 0.05
+                )
+                .tint(.blue)
+
+                HStack {
+                    Text("-3.0s")
+                        .font(.system(size: 9))
+                        .foregroundColor(.gray)
+                    Spacer()
+                    Button("Reset (0 ms)") {
+                        ksEngine.setAudioDelay(0.0)
+                    }
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.7))
+                    .buttonStyle(.plain)
+                    Spacer()
+                    Text("+3.0s")
+                        .font(.system(size: 9))
+                        .foregroundColor(.gray)
+                }
+            }
+
+            Divider().background(Color.white.opacity(0.1))
+
+            // PAL Speedup Correction
+            Toggle(isOn: Binding(
+                get: { ksEngine.palSpeedupEnabled },
+                set: { ksEngine.setPALSpeedup($0) }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("PAL Speedup Correction")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.white)
+                    Text("25fps → 23.976fps (atempo=0.95904)")
+                        .font(.system(size: 9))
+                        .foregroundColor(.gray)
+                }
+            }
+            .toggleStyle(.switch)
         }
-        .padding()
-        .frame(width: 260)
+    }
+
+    private var subtitlesMenu: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Picker("", selection: $audioSubtitleTab) {
+                Text("Audio").tag(0)
+                Text("Subtitles").tag(1)
+            }
+            .pickerStyle(.segmented)
+
+            if audioSubtitleTab == 0 {
+                audioTracksMenu
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Subtitles")
+                            .font(.headline)
+                        Spacer()
+                        if isLoadingSubtitles {
+                            ProgressView().scaleEffect(0.7)
+                        }
+                    }
+
+                    Button(action: {
+                        disableSubtitles()
+                        showSubtitlePopover = false
+                    }) {
+                        HStack {
+                            Text("Off")
+                            Spacer()
+                            if selectedSubtitle == nil {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider()
+
+                    // Subtitle Delay Offset Controls
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Sync Offset:")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            Spacer()
+                            Text(String(format: "%+.1fs", subtitleOffsetSeconds))
+                                .font(.caption.bold())
+                                .foregroundColor(.white.opacity(0.8))
+                        }
+
+                        HStack(spacing: 8) {
+                            Button("-0.5s") { subtitleOffsetSeconds -= 0.5 }
+                                .buttonStyle(.bordered)
+                                .controlSize(.mini)
+                            Button("Reset") { subtitleOffsetSeconds = 0.0 }
+                                .buttonStyle(.bordered)
+                                .controlSize(.mini)
+                            Button("+0.5s") { subtitleOffsetSeconds += 0.5 }
+                                .buttonStyle(.bordered)
+                                .controlSize(.mini)
+                        }
+                    }
+                    .padding(.vertical, 2)
+
+                    // Subtitle Appearance: Color & Size
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Subtitle Color:")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+
+                        HStack(spacing: 8) {
+                            Button("Yellow") { subtitleColor = .yellow }
+                                .buttonStyle(.bordered)
+                                .controlSize(.mini)
+                                .foregroundColor(.yellow)
+                            Button("White") { subtitleColor = .white }
+                                .buttonStyle(.bordered)
+                                .controlSize(.mini)
+                                .foregroundColor(.white)
+                            Button("Cyan") { subtitleColor = .cyan }
+                                .buttonStyle(.bordered)
+                                .controlSize(.mini)
+                                .foregroundColor(.cyan)
+                        }
+                    }
+
+                    Divider()
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(subtitles) { track in
+                                Button(action: {
+                                    selectSubtitleTrack(track)
+                                    showSubtitlePopover = false
+                                }) {
+                                    HStack {
+                                        Text(track.displayName)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        if selectedSubtitle?.id == track.id {
+                                            Image(systemName: "checkmark")
+                                                .foregroundColor(.blue)
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 200)
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 300)
     }
 
     private var externalPlayersMenu: some View {
@@ -2176,8 +2044,8 @@ struct PlayerView: View {
                                 .font(.caption.bold())
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 7)
-                                .background(selectedSeasonNumber == sNum ? Color.blue : Color.white.opacity(0.1))
-                                .foregroundColor(selectedSeasonNumber == sNum ? .white : .gray)
+                                .background(selectedSeasonNumber == sNum ? Color.white : Color.white.opacity(0.08))
+                                .foregroundColor(selectedSeasonNumber == sNum ? .black : .white.opacity(0.7))
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
@@ -2214,15 +2082,11 @@ struct PlayerView: View {
                                 HStack(spacing: 12) {
                                     Text("\(ep.episodeNumber)")
                                         .font(.headline.monospacedDigit())
-                                        .foregroundColor(isCurrent ? .green : .gray)
+                                        .foregroundColor(isCurrent ? .white : .white.opacity(0.4))
                                         .frame(width: 24)
 
                                     if let still = ep.stillURL {
-                                        AsyncImage(url: still) { img in
-                                            img.resizable().aspectRatio(contentMode: .fill)
-                                        } placeholder: {
-                                            Rectangle().fill(Color.white.opacity(0.1))
-                                        }
+                                        CachedImage(url: still, maxPixel: 240)
                                         .frame(width: 90, height: 52)
                                         .clipShape(RoundedRectangle(cornerRadius: 8))
                                     } else {
@@ -2240,13 +2104,7 @@ struct PlayerView: View {
                                                 .lineLimit(1)
 
                                             if isCurrent {
-                                                Text("NOW PLAYING")
-                                                    .font(.system(size: 9, weight: .bold))
-                                                    .padding(.horizontal, 6)
-                                                    .padding(.vertical, 2)
-                                                    .background(Color.green.opacity(0.3))
-                                                    .foregroundColor(.green)
-                                                    .cornerRadius(4)
+                                                SoftBadge(text: "Playing", tone: .sage)
                                             }
                                         }
 
@@ -2261,11 +2119,11 @@ struct PlayerView: View {
                                     Spacer()
                                 }
                                 .padding(10)
-                                .background(isCurrent ? Color.green.opacity(0.1) : Color.white.opacity(0.06))
+                                .background(isCurrent ? Color.white.opacity(0.10) : Color.white.opacity(0.04))
                                 .cornerRadius(12)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 12)
-                                        .stroke(isCurrent ? Color.green.opacity(0.5) : Color.clear, lineWidth: 1)
+                                        .stroke(isCurrent ? Color.white.opacity(0.2) : Color.clear, lineWidth: 1)
                                 )
                             }
                             .buttonStyle(.plain)
@@ -2284,7 +2142,7 @@ struct PlayerView: View {
     private func loadTVShowData() {
         guard let media = mediaItem, media.type == .series else { return }
         Task {
-            let count = await tmdbService.fetchTVSeasonsCount(tvID: media.id)
+            let count = await tmdbService.fetchTVSeasonsCount(tvID: media.id, imdbID: media.imdbID, title: media.title)
             await MainActor.run {
                 self.totalSeasonsCount = count
                 self.loadSeasonEpisodes(selectedSeasonNumber)
@@ -2296,7 +2154,7 @@ struct PlayerView: View {
         guard let media = mediaItem else { return }
         isLoadingEpisodes = true
         Task {
-            let eps = await tmdbService.fetchSeasonEpisodes(tvID: media.id, seasonNumber: sNum)
+            let eps = await tmdbService.fetchSeasonEpisodes(tvID: media.id, imdbID: media.imdbID, seasonNumber: sNum, title: media.title)
             await MainActor.run {
                 self.episodesList = eps
                 self.isLoadingEpisodes = false

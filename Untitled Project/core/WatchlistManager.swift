@@ -27,7 +27,9 @@ class WatchlistManager: ObservableObject {
     private let favoritesKey = "User_Favorites_Items_V2"
     private let historyKey = "User_WatchHistory_Items_V2"
     private let episodeProgressKey = "User_EpisodeProgress_Map_V1"
+    private let watchedEpisodesKey = "User_Watched_Episodes_V1"
 
+    @Published private(set) var watchedEpisodes: Set<String> = []
     private var episodeProgressMap: [String: Double] = [:]
 
     init() {
@@ -37,6 +39,9 @@ class WatchlistManager: ObservableObject {
     private func loadData() {
         if let map = UserDefaults.standard.dictionary(forKey: episodeProgressKey) as? [String: Double] {
             self.episodeProgressMap = map
+        }
+        if let saved = UserDefaults.standard.stringArray(forKey: watchedEpisodesKey) {
+            self.watchedEpisodes = Set(saved)
         }
 
         let decoder = JSONDecoder()
@@ -80,6 +85,75 @@ class WatchlistManager: ObservableObject {
             UserDefaults.standard.set(data, forKey: historyKey)
         }
         UserDefaults.standard.set(episodeProgressMap, forKey: episodeProgressKey)
+        UserDefaults.standard.set(Array(watchedEpisodes), forKey: watchedEpisodesKey)
+    }
+
+    // MARK: - Episode Watched Tracking
+    func episodeKey(showID: String, season: Int, episode: Int) -> String {
+        return "\(showID)_s\(season)_e\(episode)"
+    }
+
+    func isEpisodeWatched(showID: String, season: Int, episode: Int) -> Bool {
+        watchedEpisodes.contains(episodeKey(showID: showID, season: season, episode: episode))
+    }
+
+    func toggleEpisodeWatched(showID: String, season: Int, episode: Int) {
+        let key = episodeKey(showID: showID, season: season, episode: episode)
+        if watchedEpisodes.contains(key) {
+            watchedEpisodes.remove(key)
+        } else {
+            watchedEpisodes.insert(key)
+        }
+        saveData()
+    }
+
+    func markEpisodeWatched(showID: String, season: Int, episode: Int, watched: Bool) {
+        let key = episodeKey(showID: showID, season: season, episode: episode)
+        if watched {
+            watchedEpisodes.insert(key)
+        } else {
+            watchedEpisodes.remove(key)
+        }
+        saveData()
+    }
+
+    func markSeasonWatched(showID: String, season: Int, episodeNumbers: [Int], watched: Bool = true) {
+        for ep in episodeNumbers {
+            let key = episodeKey(showID: showID, season: season, episode: ep)
+            if watched {
+                watchedEpisodes.insert(key)
+            } else {
+                watchedEpisodes.remove(key)
+            }
+        }
+        saveData()
+    }
+
+    func isSeasonFullyWatched(showID: String, season: Int, episodeNumbers: [Int]) -> Bool {
+        guard !episodeNumbers.isEmpty else { return false }
+        return episodeNumbers.allSatisfy { isEpisodeWatched(showID: showID, season: season, episode: $0) }
+    }
+
+    func watchedCount(showID: String) -> Int {
+        let prefix = "\(showID)_s"
+        return watchedEpisodes.filter { $0.hasPrefix(prefix) }.count
+    }
+
+    // MARK: - Movie Watched Tracking
+    private func movieWatchedKey(_ id: String) -> String { "\(id)_movie_watched" }
+
+    func isMovieWatched(id: String) -> Bool {
+        watchedEpisodes.contains(movieWatchedKey(id))
+    }
+
+    func toggleMovieWatched(id: String) {
+        let key = movieWatchedKey(id)
+        if watchedEpisodes.contains(key) {
+            watchedEpisodes.remove(key)
+        } else {
+            watchedEpisodes.insert(key)
+        }
+        saveData()
     }
 
     func isWatchlisted(id: String) -> Bool {
@@ -120,8 +194,13 @@ class WatchlistManager: ObservableObject {
             granularKey = "\(item.id)_movie"
         }
 
-        if duration > 0 && (progress / duration) >= 0.92 {
+        if duration > 0 && (progress / duration) >= 0.90 {
             episodeProgressMap.removeValue(forKey: granularKey)
+            if let sNum = s, let eNum = e {
+                watchedEpisodes.insert(episodeKey(showID: item.id, season: sNum, episode: eNum))
+            } else if item.type == .movie {
+                watchedEpisodes.insert("\(item.id)_movie_watched")
+            }
         } else if progress > 5 {
             episodeProgressMap[granularKey] = progress
         }

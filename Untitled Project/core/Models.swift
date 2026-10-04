@@ -4,6 +4,7 @@ struct AggregatedLink: Identifiable, Codable {
     let id: String
     let title: String
     let rawTitle: String
+    let fileName: String
     let url: URL?
     let infoHash: String?
     let quality: String
@@ -16,11 +17,13 @@ struct AggregatedLink: Identifiable, Codable {
     var isCached: Bool
     var isBestInCategory: Bool = false
     let sizeString: String?
+    let seeds: Int?
 
-    init(id: String = UUID().uuidString, title: String, rawTitle: String, url: URL?, infoHash: String?, quality: String, resolutionBadge: String, hdrTag: String?, audioTag: String?, codecTag: String?, source: String, score: Int, isCached: Bool, isBestInCategory: Bool = false, sizeString: String? = nil) {
+    init(id: String = UUID().uuidString, title: String, rawTitle: String, fileName: String? = nil, url: URL?, infoHash: String?, quality: String, resolutionBadge: String, hdrTag: String?, audioTag: String?, codecTag: String?, source: String, score: Int, isCached: Bool, isBestInCategory: Bool = false, sizeString: String? = nil, seeds: Int? = nil) {
         self.id = id
         self.title = title
         self.rawTitle = rawTitle
+        self.fileName = fileName ?? title
         self.url = url
         self.infoHash = infoHash
         self.quality = quality
@@ -33,6 +36,7 @@ struct AggregatedLink: Identifiable, Codable {
         self.isCached = isCached
         self.isBestInCategory = isBestInCategory
         self.sizeString = sizeString
+        self.seeds = seeds
     }
 
     static func cleanQuality(from title: String) -> String {
@@ -84,37 +88,15 @@ struct StreamParser {
 
         if upper.contains("2160P") || upper.contains("4K") || upper.contains("UHD") {
             quality = "4K"
-            if upper.contains("REMUX") {
-                resBadge = "4K Remux"
-                baseScore = 100
-            } else if upper.contains("BLURAY") || upper.contains("BDREMUX") {
-                resBadge = "4K BluRay"
-                baseScore = 90
-            } else if upper.contains("WEB-DL") || upper.contains("WEBDL") {
-                resBadge = "4K Web-DL"
-                baseScore = 80
-            } else {
-                resBadge = "4K UHD"
-                baseScore = 75
-            }
+            resBadge = "UHD"
+            baseScore = upper.contains("REMUX") ? 100 : (upper.contains("BLURAY") ? 90 : 80)
         } else if upper.contains("1080P") || upper.contains("FHD") {
             quality = "FHD"
-            if upper.contains("REMUX") {
-                resBadge = "1080p Remux"
-                baseScore = 70
-            } else if upper.contains("BLURAY") || upper.contains("BDRIP") {
-                resBadge = "1080p BluRay"
-                baseScore = 65
-            } else if upper.contains("WEB-DL") || upper.contains("WEBDL") {
-                resBadge = "1080p Web-DL"
-                baseScore = 60
-            } else {
-                resBadge = "1080p FHD"
-                baseScore = 55
-            }
+            resBadge = "FHD"
+            baseScore = upper.contains("REMUX") ? 70 : (upper.contains("BLURAY") ? 65 : 55)
         } else if upper.contains("720P") || upper.contains("HD") {
             quality = "HD"
-            resBadge = "720p HD"
+            resBadge = "HD"
             baseScore = 30
         }
 
@@ -131,13 +113,16 @@ struct StreamParser {
         // 3. HDR / Dolby Vision Tag
         var hdrTag: String? = nil
         if upper.contains("DV") || upper.contains("DOLBY VISION") || upper.contains("DOLBY-VISION") {
-            hdrTag = "Dolby Vision"
+            hdrTag = "DV"
             baseScore += 12
         } else if upper.contains("HDR10+") || upper.contains("HDR10PLUS") {
             hdrTag = "HDR10+"
             baseScore += 10
-        } else if upper.contains("HDR") {
+        } else if upper.contains("HDR10") {
             hdrTag = "HDR10"
+            baseScore += 8
+        } else if upper.contains("HDR") {
+            hdrTag = "HDR"
             baseScore += 6
         }
 
@@ -199,12 +184,19 @@ struct StreamParser {
             baseScore += 40
         }
 
-        // 8. Clean title
-        let clean = cleanTorrentTitle(rawTitle)
+        // 8. Extract real file name and seeds
+        let cleanFile = extractFileName(from: rawTitle)
+        let seeds = extractSeeds(from: rawTitle)
+
+        // Seed bonus for non-debrid fast peers
+        if let s = seeds, s > 0 {
+            baseScore += min(30, s / 5)
+        }
 
         return AggregatedLink(
-            title: clean,
+            title: cleanFile,
             rawTitle: rawTitle,
+            fileName: cleanFile,
             url: finalURL,
             infoHash: infoHash,
             quality: quality,
@@ -215,7 +207,8 @@ struct StreamParser {
             source: source,
             score: baseScore,
             isCached: isCached,
-            sizeString: sizeString
+            sizeString: sizeString,
+            seeds: seeds
         )
     }
 
@@ -229,30 +222,72 @@ struct StreamParser {
         return String(title[range]).uppercased()
     }
 
-    private static func cleanTorrentTitle(_ title: String) -> String {
-        var result = title
-        result = result.replacingOccurrences(of: ".", with: " ")
-        result = result.replacingOccurrences(of: "_", with: " ")
+    private static func extractSeeds(from rawTitle: String) -> Int? {
+        let pattern = #"(?:👤|seeds?:\s*|peers?:\s*|\[)(\d+)(?:\s*seeds?|\s*peers?|\])"#
+        if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+           let match = regex.firstMatch(in: rawTitle, range: NSRange(rawTitle.startIndex..., in: rawTitle)),
+           let range = Range(match.range(at: 1), in: rawTitle) {
+            return Int(rawTitle[range])
+        }
+        return nil
+    }
 
-        let components = result.components(separatedBy: " ")
-        var cleanedWords: [String] = []
+    private static func extractFileName(from rawTitle: String) -> String {
+        let lines = rawTitle.components(separatedBy: CharacterSet.newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
 
-        let stopWords: Set<String> = [
-            "2160p", "1080p", "720p", "480p", "4k", "uhd", "fhd", "hdr", "bluray", "remux",
-            "web-dl", "webdl", "webrip", "x265", "x264", "hevc", "avc", "dts", "atmos",
-            "truehd", "aac", "dual", "multi", "rd+", "realdebrid", "torrentio", "comet"
-        ]
+        let providerKeywords = ["torrentio", "comet", "knightcrawler", "mediafusion", "zilean", "cyberflix", "piratebay", "stremio", "elfhosted", "strem.fun"]
+        let releaseKeywords = ["2160p", "1080p", "720p", "480p", "remux", "bluray", "bdrip", "web-dl", "webdl", "webrip", "hevc", "x265", "x264", "h.264", "h.265", "dvdrip"]
 
-        for word in components {
-            let lower = word.lowercased()
-            if stopWords.contains(lower) {
-                break
+        // 1. Look for line with video file extension (.mkv, .mp4, .avi, .ts)
+        for line in lines {
+            let lower = line.lowercased()
+            if lower.contains(".mkv") || lower.contains(".mp4") || lower.contains(".avi") || lower.contains(".ts") {
+                return cleanRawLine(line)
             }
-            cleanedWords.append(word)
         }
 
-        let cleaned = cleanedWords.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleaned.isEmpty ? title : cleaned
+        // 2. Look for line with typical release resolution/codec keywords
+        for line in lines {
+            let lower = line.lowercased()
+            let isAddonOnly = providerKeywords.contains { lower.contains($0) } && !releaseKeywords.contains { lower.contains($0) }
+            let isShortRes = lower == "4k" || lower == "1080p" || lower == "720p" || lower == "uhd" || lower == "fhd" || lower == "sd"
+            let isStatsOnly = lower.contains("💾") || lower.contains("👤") || lower.hasPrefix("seeds:") || lower.hasPrefix("peers:")
+
+            if !isAddonOnly && !isShortRes && !isStatsOnly {
+                if releaseKeywords.contains(where: { lower.contains($0) }) {
+                    return cleanRawLine(line)
+                }
+            }
+        }
+
+        // 3. Fallback: longest candidate line that doesn't start with emoji or pure addon header
+        let candidates = lines.filter { line in
+            let lower = line.lowercased()
+            return !lower.contains("💾") && !lower.contains("👤") && !providerKeywords.contains(where: { lower == $0 || lower == "[\($0)]" })
+        }
+
+        if let best = candidates.max(by: { $0.count < $1.count }) {
+            return cleanRawLine(best)
+        }
+
+        return cleanRawLine(rawTitle)
+    }
+
+    private static func cleanRawLine(_ line: String) -> String {
+        var str = line
+        let prefixesToRemove = [
+            "[RD+] Torrentio", "[RD+] Comet", "[RD+] Knightcrawler", "[RD+] Cyberflix", "[RD+] MediaFusion",
+            "[Torrentio]", "[Comet]", "[Knightcrawler]", "[Cyberflix]", "[MediaFusion]",
+            "Torrentio", "Comet", "Knightcrawler", "Cyberflix", "MediaFusion", "PirateBay"
+        ]
+        for p in prefixesToRemove {
+            if str.hasPrefix(p) {
+                str = String(str.dropFirst(p.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return str.trimmingCharacters(in: CharacterSet(charactersIn: " -|/\\ \n\r\t"))
     }
 }
 
@@ -267,8 +302,51 @@ struct MediaItem: Identifiable, Codable, Hashable {
     let type: MediaType
     let imdbID: String?
 
-    var posterUrl: URL? { posterURL }
-    var backdropUrl: URL? { backdropURL }
+    var resolvedIMDbID: String? {
+        if let imdb = imdbID, imdb.hasPrefix("tt") { return imdb }
+        if id.hasPrefix("tt") { return id }
+        if let pStr = posterURL?.absoluteString, let range = pStr.range(of: "tt\\d{7,8}", options: .regularExpression) {
+            return String(pStr[range])
+        }
+        return nil
+    }
+
+    var initialLogoURL: URL? {
+        if let imdb = resolvedIMDbID, !imdb.isEmpty {
+            return URL(string: "https://images.metahub.space/logo/medium/\(imdb)/img.png")
+        }
+        return nil
+    }
+
+    var posterUrl: URL? {
+        if let imdb = resolvedIMDbID, !imdb.isEmpty {
+            return URL(string: "https://btttr.cc/poster-rq/imdb/poster-default/\(imdb).jpg?rs=IM")
+        }
+        if let pURL = posterURL {
+            let pStr = pURL.absoluteString
+            if pStr.contains("btttr.cc/poster/") {
+                let updated = pStr.replacingOccurrences(of: "btttr.cc/poster/", with: "btttr.cc/poster-rq/").replacingOccurrences(of: "?tag=none", with: "?rs=IM")
+                return URL(string: updated)
+            }
+            return pURL
+        }
+        return nil
+    }
+    var backdropUrl: URL? {
+        if let bURL = backdropURL {
+            let str = bURL.absoluteString
+            if str.contains("image.tmdb.org/t/p/w1280") {
+                return URL(string: str.replacingOccurrences(of: "/t/p/w1280", with: "/t/p/original"))
+            } else if str.contains("image.tmdb.org/t/p/w500") {
+                return URL(string: str.replacingOccurrences(of: "/t/p/w500", with: "/t/p/original"))
+            }
+            return bURL
+        }
+        if let imdb = resolvedIMDbID, !imdb.isEmpty {
+            return URL(string: "https://images.metahub.space/background/original/\(imdb)/img.jpg")
+        }
+        return nil
+    }
 
     enum MediaType: String, Codable {
         case movie
@@ -296,7 +374,24 @@ struct Series: Identifiable, Codable {
     let backdropURL: URL?
     let releaseDate: Date?
 
-    var posterUrl: URL? { posterURL }
+    var posterUrl: URL? {
+        if id.hasPrefix("tt") {
+            return URL(string: "https://btttr.cc/poster-rq/imdb/poster-default/\(id).jpg?rs=IM")
+        }
+        if let pURL = posterURL {
+            let pStr = pURL.absoluteString
+            if let range = pStr.range(of: "tt\\d{7,8}", options: .regularExpression) {
+                let imdb = String(pStr[range])
+                return URL(string: "https://btttr.cc/poster-rq/imdb/poster-default/\(imdb).jpg?rs=IM")
+            }
+            if pStr.contains("btttr.cc/poster/") {
+                let updated = pStr.replacingOccurrences(of: "btttr.cc/poster/", with: "btttr.cc/poster-rq/").replacingOccurrences(of: "?tag=none", with: "?rs=IM")
+                return URL(string: updated)
+            }
+            return pURL
+        }
+        return nil
+    }
     var backdropUrl: URL? { backdropURL }
 }
 
@@ -352,6 +447,48 @@ struct TVEpisodeItem: Identifiable, Codable {
     let runtime: Int?
 
     var stillURL: URL? {
-        stillPath.flatMap { URL(string: "https://image.tmdb.org/t/p/w500\($0)") }
+        guard let path = stillPath, !path.isEmpty else { return nil }
+        if path.hasPrefix("http://") || path.hasPrefix("https://") {
+            return URL(string: path)
+        }
+        return URL(string: "https://image.tmdb.org/t/p/w500\(path)")
     }
+}
+
+// MARK: - Cast, Crew & Credits Models
+struct CastMember: Identifiable, Codable, Hashable {
+    let id: Int
+    let name: String
+    let character: String?
+    let profilePath: String?
+    let order: Int?
+
+    var profileURL: URL? {
+        guard let path = profilePath, !path.isEmpty else { return nil }
+        if path.hasPrefix("http://") || path.hasPrefix("https://") {
+            return URL(string: path)
+        }
+        return URL(string: "https://image.tmdb.org/t/p/w300\(path)")
+    }
+}
+
+struct CrewMember: Identifiable, Codable, Hashable {
+    let id: Int
+    let name: String
+    let job: String?
+    let department: String?
+    let profilePath: String?
+
+    var profileURL: URL? {
+        guard let path = profilePath, !path.isEmpty else { return nil }
+        if path.hasPrefix("http://") || path.hasPrefix("https://") {
+            return URL(string: path)
+        }
+        return URL(string: "https://image.tmdb.org/t/p/w300\(path)")
+    }
+}
+
+struct MediaCredits: Codable {
+    let directors: [CrewMember]
+    let cast: [CastMember]
 }
