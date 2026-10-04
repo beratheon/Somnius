@@ -119,64 +119,20 @@ class StremioAddonManager: ObservableObject {
     @Published var isInstalling: Bool = false
     @Published var lastErrorMessage: String?
 
-    // Popular community templates available for 1-click user installation
+    // Official / Community add-on template pointing to user's GitHub addon repository
     let communityTemplates: [CommunityAddonTemplate] = [
         CommunityAddonTemplate(
             id: "community.somnius.official",
-            name: "Somnius Official Add-on",
-            description: "Curated community scraper engine designed specifically for Somnius.",
-            manifestUrl: "https://raw.githubusercontent.com/beratheon/Somnius/main/addon/manifest.json",
+            name: "Somnius Community Add-on",
+            description: "Decoupled community stream scraper engine hosted on GitHub.",
+            manifestUrl: "https://raw.githubusercontent.com/beratheon/Somnius/main/addon-repository/manifest.json",
             icon: "sparkles.tv",
-            isDebridConfigurable: true
-        ),
-        CommunityAddonTemplate(
-            id: "community.torrentio",
-            name: "Torrentio",
-            description: "High-speed stream provider with RealDebrid multi-hoster support.",
-            manifestUrl: "https://torrentio.strem.fun/manifest.json",
-            icon: "bolt.horizontal.fill",
-            isDebridConfigurable: true
-        ),
-        CommunityAddonTemplate(
-            id: "community.comet",
-            name: "Comet",
-            description: "Fast Prowlarr/Zilean stream resolver with instant debrid cache checking.",
-            manifestUrl: "https://comet.elfhosted.com/manifest.json",
-            icon: "sparkles",
-            isDebridConfigurable: true
-        ),
-        CommunityAddonTemplate(
-            id: "community.mediafusion",
-            name: "MediaFusion",
-            description: "Multi-language and global torrent scraper supporting movies, series & sports.",
-            manifestUrl: "https://mediafusion.elfhosted.com/manifest.json",
-            icon: "film.stack.fill",
-            isDebridConfigurable: true
-        ),
-        CommunityAddonTemplate(
-            id: "community.knightcrawler",
-            name: "Knightcrawler",
-            description: "Torrentio alternative powered by ElfHosted indexers and cached debrid.",
-            manifestUrl: "https://knightcrawler.elfhosted.com/manifest.json",
-            icon: "shield.lefthalf.filled",
-            isDebridConfigurable: true
-        ),
-        CommunityAddonTemplate(
-            id: "community.cyberflix",
-            name: "Cyberflix Catalog",
-            description: "Catalog and stream bridge for streaming platforms and popular media.",
-            manifestUrl: "https://cyberflix.elfhosted.com/manifest.json",
-            icon: "globe.americas.fill",
             isDebridConfigurable: true
         )
     ]
 
     private init() {
         loadAddons()
-        // If first launch, seed default templates locally for instant out-of-the-box experience
-        if installedAddons.isEmpty {
-            seedDefaultAddons()
-        }
     }
 
     // MARK: - Persistence

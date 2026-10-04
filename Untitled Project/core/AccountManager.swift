@@ -83,22 +83,6 @@ public class AccountManager: ObservableObject {
 
     private init() {
         loadAccounts()
-        // If an existing debrid key or settings exist but no accounts yet, migrate seamlessly
-        if accounts.isEmpty && !Config.realDebridApiKey.isEmpty {
-            let migratedAccount = UserAccount(
-                username: "Default Profile",
-                avatarIcon: "person.fill",
-                avatarColor: "purple",
-                setupMode: Config.streamingSetupMode,
-                debridApiKey: Config.realDebridApiKey,
-                preferredQuality: Config.preferredStreamQuality,
-                preferredLanguage: Config.preferredSubtitleLanguage,
-                isGuest: false
-            )
-            accounts.append(migratedAccount)
-            activeAccount = migratedAccount
-            saveAccounts()
-        }
     }
 
     // MARK: - Persistence

@@ -80,7 +80,7 @@ struct AccountSetupView: View {
                     .foregroundColor(.white)
 
                 Text("Select your profile to continue with your personal watch history and preferences.")
-                    .font(.subheadline)
+                    .font(.custom("Helvetica", size: 14))
                     .foregroundColor(.white.opacity(0.6))
             }
 
@@ -110,11 +110,11 @@ struct AccountSetupView: View {
 
                                 VStack(spacing: 4) {
                                     Text(account.username)
-                                        .font(.headline.weight(.semibold))
+                                        .font(.custom("Helvetica", size: 15).weight(.semibold))
                                         .foregroundColor(.white)
 
                                     Text(account.setupMode == "debrid" ? "Real-Debrid" : "Classic P2P")
-                                        .font(.caption2)
+                                        .font(.custom("Helvetica", size: 11))
                                         .foregroundColor(.white.opacity(0.5))
                                 }
                             }
@@ -139,7 +139,7 @@ struct AccountSetupView: View {
                             }
 
                             Text("Add Profile")
-                                .font(.headline.weight(.medium))
+                                .font(.custom("Helvetica", size: 14).weight(.medium))
                                 .foregroundColor(.white.opacity(0.7))
                         }
                     }
@@ -166,7 +166,7 @@ struct AccountSetupView: View {
                     Image(systemName: "person.fill.badge.plus")
                     Text("Continue as Quick Guest")
                 }
-                .font(.subheadline)
+                .font(.custom("Helvetica", size: 13))
                 .foregroundColor(.white.opacity(0.6))
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
@@ -233,7 +233,7 @@ struct AccountSetupView: View {
                     Button("Back") {
                         withAnimation { step -= 1 }
                     }
-                    .font(.subheadline.bold())
+                    .font(.custom("Helvetica", size: 14).weight(.bold))
                     .padding(.horizontal, 24)
                     .padding(.vertical, 10)
                     .background(Color.white.opacity(0.1))
@@ -248,7 +248,7 @@ struct AccountSetupView: View {
                     Button("Continue") {
                         withAnimation { step += 1 }
                     }
-                    .font(.subheadline.bold())
+                    .font(.custom("Helvetica", size: 14).weight(.bold))
                     .padding(.horizontal, 30)
                     .padding(.vertical, 10)
                     .background(profileName.isEmpty ? Color.gray.opacity(0.3) : Color.blue)
@@ -260,7 +260,7 @@ struct AccountSetupView: View {
                     // Optional Add-ons step - Clear choices
                     Button(action: finalizeAccountCreation) {
                         Text("Skip / Setup Later")
-                            .font(.subheadline)
+                            .font(.custom("Helvetica", size: 13))
                             .foregroundColor(.white.opacity(0.6))
                             .padding(.horizontal, 16)
                             .padding(.vertical, 10)
@@ -272,7 +272,7 @@ struct AccountSetupView: View {
                             Image(systemName: "sparkles")
                             Text("Complete & Launch Somnius")
                         }
-                        .font(.headline.bold())
+                        .font(.custom("Helvetica", size: 14).weight(.bold))
                         .padding(.horizontal, 28)
                         .padding(.vertical, 12)
                         .background(
@@ -295,10 +295,10 @@ struct AccountSetupView: View {
         VStack(spacing: 24) {
             VStack(spacing: 6) {
                 Text("Create Your Somnius Profile")
-                    .font(.title2.bold())
+                    .font(.custom("Baskerville", size: 28))
                     .foregroundColor(.white)
                 Text("Customize your avatar and display name.")
-                    .font(.subheadline)
+                    .font(.custom("Helvetica", size: 14))
                     .foregroundColor(.white.opacity(0.6))
             }
 
@@ -321,12 +321,12 @@ struct AccountSetupView: View {
             // Profile Name Field
             VStack(alignment: .leading, spacing: 6) {
                 Text("Profile Name")
-                    .font(.caption.bold())
+                    .font(.custom("Helvetica", size: 12).weight(.bold))
                     .foregroundColor(.white.opacity(0.8))
 
                 TextField("e.g. Umut, Cinema Room, Living Room", text: $profileName)
                     .textFieldStyle(PlainTextFieldStyle())
-                    .font(.system(size: 15))
+                    .font(.custom("Helvetica", size: 15))
                     .padding(12)
                     .background(Color.white.opacity(0.06))
                     .cornerRadius(10)
@@ -336,7 +336,7 @@ struct AccountSetupView: View {
             // Avatar Icon Picker
             VStack(alignment: .leading, spacing: 8) {
                 Text("Choose Avatar Icon")
-                    .font(.caption.bold())
+                    .font(.custom("Helvetica", size: 12).weight(.bold))
                     .foregroundColor(.white.opacity(0.8))
 
                 HStack(spacing: 12) {
@@ -364,7 +364,7 @@ struct AccountSetupView: View {
             // Avatar Color Palette
             VStack(alignment: .leading, spacing: 8) {
                 Text("Choose Theme Color")
-                    .font(.caption.bold())
+                    .font(.custom("Helvetica", size: 12).weight(.bold))
                     .foregroundColor(.white.opacity(0.8))
 
                 HStack(spacing: 14) {
@@ -394,10 +394,10 @@ struct AccountSetupView: View {
         VStack(spacing: 20) {
             VStack(spacing: 6) {
                 Text("Choose How You Want to Stream")
-                    .font(.title2.bold())
+                    .font(.custom("Baskerville", size: 28))
                     .foregroundColor(.white)
                 Text("Select your streaming engine. Somnius is an agnostic player shell.")
-                    .font(.subheadline)
+                    .font(.custom("Helvetica", size: 14))
                     .foregroundColor(.white.opacity(0.6))
             }
 
@@ -423,16 +423,16 @@ struct AccountSetupView: View {
                         }
 
                         Text("Real-Debrid Cloud CDN")
-                            .font(.headline.bold())
+                            .font(.custom("Helvetica", size: 16).weight(.bold))
                             .foregroundColor(.white)
 
                         Text("Encrypted multi-gigabit streaming for massive 4K Remuxes & Dolby Atmos. Zero peer seeding or IP exposure.")
-                            .font(.caption)
+                            .font(.custom("Helvetica", size: 12))
                             .foregroundColor(.gray)
                             .lineLimit(3)
 
                         Text("Recommended for 4K UHD")
-                            .font(.caption2.bold())
+                            .font(.custom("Helvetica", size: 10).weight(.bold))
                             .foregroundColor(.purple)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
@@ -471,16 +471,16 @@ struct AccountSetupView: View {
                         }
 
                         Text("Classic Free Streaming")
-                            .font(.headline.bold())
+                            .font(.custom("Helvetica", size: 16).weight(.bold))
                             .foregroundColor(.white)
 
                         Text("Direct fast streaming from verified peers. Completely free with zero accounts or subscriptions required.")
-                            .font(.caption)
+                            .font(.custom("Helvetica", size: 12))
                             .foregroundColor(.gray)
                             .lineLimit(3)
 
                         Text("No Account Needed")
-                            .font(.caption2.bold())
+                            .font(.custom("Helvetica", size: 10).weight(.bold))
                             .foregroundColor(.blue)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
@@ -504,11 +504,11 @@ struct AccountSetupView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text("Enter Real-Debrid API Key")
-                            .font(.caption.bold())
+                            .font(.custom("Helvetica", size: 12).weight(.bold))
                             .foregroundColor(.white.opacity(0.8))
                         Spacer()
                         Link("Get Key from Real-Debrid ↗", destination: URL(string: "https://real-debrid.com/apitoken")!)
-                            .font(.caption)
+                            .font(.custom("Helvetica", size: 12))
                             .foregroundColor(.cyan)
                     }
 
@@ -528,7 +528,7 @@ struct AccountSetupView: View {
                                 }
                                 Text("Test Key")
                             }
-                            .font(.caption.bold())
+                            .font(.custom("Helvetica", size: 12).weight(.bold))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 9)
                             .background(Color.purple)
@@ -541,12 +541,12 @@ struct AccountSetupView: View {
 
                     if let succ = keyTestSuccessMessage {
                         Text(succ)
-                            .font(.caption)
+                            .font(.custom("Helvetica", size: 12))
                             .foregroundColor(.green)
                     }
                     if let err = keyTestErrorMessage {
                         Text(err)
-                            .font(.caption)
+                            .font(.custom("Helvetica", size: 12))
                             .foregroundColor(.red)
                     }
                 }
@@ -562,10 +562,10 @@ struct AccountSetupView: View {
         VStack(spacing: 22) {
             VStack(spacing: 6) {
                 Text("Set Playback Preferences")
-                    .font(.title2.bold())
+                    .font(.custom("Baskerville", size: 28))
                     .foregroundColor(.white)
                 Text("You can change these anytime in Settings.")
-                    .font(.subheadline)
+                    .font(.custom("Helvetica", size: 14))
                     .foregroundColor(.white.opacity(0.6))
             }
 
@@ -573,7 +573,7 @@ struct AccountSetupView: View {
                 // Preferred Quality
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Preferred Quality")
-                        .font(.caption.bold())
+                        .font(.custom("Helvetica", size: 12).weight(.bold))
                         .foregroundColor(.white.opacity(0.8))
 
                     Picker("", selection: $preferredQuality) {
@@ -587,7 +587,7 @@ struct AccountSetupView: View {
                 // Preferred Subtitle Language
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Default Subtitle & Audio Language")
-                        .font(.caption.bold())
+                        .font(.custom("Helvetica", size: 12).weight(.bold))
                         .foregroundColor(.white.opacity(0.8))
 
                     Picker("", selection: $preferredLanguage) {
@@ -607,115 +607,132 @@ struct AccountSetupView: View {
     }
 
     // MARK: - Step 4: Community Add-ons (Optional)
+    // MARK: - Step 4: Add-ons (Optional)
     private var step4AddonsView: some View {
-        VStack(spacing: 20) {
-            VStack(spacing: 6) {
+        VStack(spacing: 24) {
+            VStack(spacing: 8) {
                 HStack(spacing: 8) {
-                    Text("Community Add-ons")
-                        .font(.title2.bold())
+                    Text("Add-on Installation")
+                        .font(.custom("Baskerville", size: 28))
                         .foregroundColor(.white)
                     Text("Optional")
-                        .font(.caption.bold())
+                        .font(.custom("Helvetica", size: 11).weight(.bold))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
-                        .background(Color.cyan.opacity(0.2))
+                        .background(Color.cyan.opacity(0.18))
                         .foregroundColor(.cyan)
                         .cornerRadius(6)
                 }
 
-                Text("Somnius is an agnostic player shell. Add-ons enable community scraping manifests.")
-                    .font(.subheadline)
+                Text("Somnius is an agnostic media player. Add-ons allow external community indexing.")
+                    .font(.custom("Helvetica", size: 14))
                     .foregroundColor(.white.opacity(0.6))
             }
 
-            // Legal & Agnostic notice
-            HStack(spacing: 12) {
+            // Legal notice with GitHub Repository Link
+            HStack(spacing: 14) {
                 Image(systemName: "shield.lefthalf.filled")
                     .foregroundColor(.cyan)
                     .font(.title3)
 
-                Text("Zero tracking code is bundled inside Somnius. You can stream local files, install community add-ons now, or configure them later in Settings.")
-                    .font(.caption)
-                    .foregroundColor(.white.opacity(0.75))
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Zero scrapers or tracking code are bundled in this application.")
+                        .font(.custom("Helvetica", size: 13).weight(.medium))
+                        .foregroundColor(.white.opacity(0.9))
+                    Text("You can run Somnius purely as a local video player, or connect community add-ons from GitHub.")
+                        .font(.custom("Helvetica", size: 12))
+                        .foregroundColor(.white.opacity(0.55))
+                }
 
                 Spacer()
 
                 Link(destination: URL(string: "https://github.com/beratheon/Somnius")!) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 5) {
                         Image(systemName: "arrow.up.right.square")
-                        Text("Add-on Guide")
+                        Text("Browse Add-ons on GitHub ↗")
                     }
-                    .font(.caption.bold())
+                    .font(.custom("Helvetica", size: 12).weight(.semibold))
                     .foregroundColor(.cyan)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.cyan.opacity(0.12))
+                    .cornerRadius(8)
                 }
             }
-            .padding(14)
-            .background(Color.cyan.opacity(0.08))
+            .padding(16)
+            .background(Color.white.opacity(0.04))
             .cornerRadius(12)
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cyan.opacity(0.2), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
 
-            // Popular 1-Click Community Add-ons
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Popular Community Manifests")
-                    .font(.caption.bold())
-                    .foregroundColor(.white.opacity(0.8))
+            // Official Add-on Card
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Recommended Community Add-on")
+                    .font(.custom("Baskerville", size: 18))
+                    .foregroundColor(.white)
 
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    ForEach(addonManager.communityTemplates.prefix(4)) { template in
-                        let isInstalled = addonManager.installedAddons.contains(where: { $0.id == template.id || $0.manifestUrl == template.manifestUrl })
-                        HStack(spacing: 12) {
-                            Image(systemName: template.icon)
-                                .font(.title3)
-                                .foregroundColor(.purple)
-                                .frame(width: 28)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(template.name)
-                                    .font(.subheadline.bold())
-                                    .foregroundColor(.white)
-                                Text(template.description)
-                                    .font(.caption2)
-                                    .foregroundColor(.gray)
-                                    .lineLimit(2)
-                            }
-
-                            Spacer()
-
-                            Button(action: {
-                                Task {
-                                    try? await addonManager.installAddon(rawUrl: template.manifestUrl)
-                                }
-                            }) {
-                                Text(isInstalled ? "Installed" : "Add")
-                                    .font(.caption.bold())
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(isInstalled ? Color.white.opacity(0.08) : Color.blue.opacity(0.25))
-                                    .foregroundColor(isInstalled ? .gray : .cyan)
-                                    .cornerRadius(6)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .disabled(isInstalled)
-                        }
-                        .padding(12)
-                        .background(Color.white.opacity(0.04))
-                        .cornerRadius(10)
+                let isOfficialInstalled = addonManager.installedAddons.contains(where: { $0.id == "community.somnius.official" })
+                HStack(spacing: 14) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.purple.opacity(0.2))
+                            .frame(width: 44, height: 44)
+                        Image(systemName: "sparkles.tv")
+                            .font(.system(size: 20))
+                            .foregroundColor(.purple)
                     }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 8) {
+                            Text("Somnius Official Add-on")
+                                .font(.custom("Helvetica", size: 15).weight(.semibold))
+                                .foregroundColor(.white)
+                            Text("Open Source")
+                                .font(.custom("Helvetica", size: 10).weight(.bold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.white.opacity(0.1))
+                                .cornerRadius(4)
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+                        Text("Curated stream indexing engine maintained on GitHub (beratheon/Somnius).")
+                            .font(.custom("Helvetica", size: 12))
+                            .foregroundColor(.gray)
+                    }
+
+                    Spacer()
+
+                    Button(action: {
+                        Task {
+                            try? await addonManager.installAddon(rawUrl: "https://raw.githubusercontent.com/beratheon/Somnius/main/addon-repository/manifest.json")
+                        }
+                    }) {
+                        Text(isOfficialInstalled ? "✓ Installed" : "Install Add-on")
+                            .font(.custom("Helvetica", size: 12).weight(.bold))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(isOfficialInstalled ? Color.white.opacity(0.1) : Color.blue)
+                            .foregroundColor(isOfficialInstalled ? .gray : .white)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(isOfficialInstalled)
                 }
+                .padding(16)
+                .background(Color.white.opacity(0.04))
+                .cornerRadius(12)
             }
 
-            // Custom Manifest URL Input
+            // Custom Add-on URL Input
             VStack(alignment: .leading, spacing: 8) {
-                Text("Or Paste Custom Add-on URL")
-                    .font(.caption.bold())
-                    .foregroundColor(.white.opacity(0.8))
+                Text("Or Install via Manifest URL")
+                    .font(.custom("Baskerville", size: 16))
+                    .foregroundColor(.white.opacity(0.85))
 
                 HStack(spacing: 10) {
-                    TextField("https://.../manifest.json", text: $customAddonUrlInput)
+                    TextField("Enter manifest.json URL", text: $customAddonUrlInput)
                         .textFieldStyle(PlainTextFieldStyle())
                         .font(.system(size: 13, design: .monospaced))
-                        .padding(9)
+                        .padding(10)
                         .background(Color.white.opacity(0.06))
                         .cornerRadius(8)
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
@@ -738,9 +755,9 @@ struct AccountSetupView: View {
                             }
                             Text("Install")
                         }
-                        .font(.caption.bold())
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
+                        .font(.custom("Helvetica", size: 13).weight(.bold))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 9)
                         .background(Color.blue)
                         .foregroundColor(.white)
                         .cornerRadius(8)
@@ -751,11 +768,11 @@ struct AccountSetupView: View {
 
                 if let err = addonInstallError {
                     Text(err)
-                        .font(.caption)
+                        .font(.custom("Helvetica", size: 12))
                         .foregroundColor(.red)
                 }
             }
-            .padding(14)
+            .padding(16)
             .background(Color.white.opacity(0.03))
             .cornerRadius(12)
         }

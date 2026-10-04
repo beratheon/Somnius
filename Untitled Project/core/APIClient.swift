@@ -98,10 +98,7 @@ struct Config {
 
     static var hasCompletedOnboarding: Bool {
         get {
-            if UserDefaults.standard.object(forKey: onboardingKey) != nil {
-                return UserDefaults.standard.bool(forKey: onboardingKey)
-            }
-            return !realDebridApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            UserDefaults.standard.bool(forKey: onboardingKey)
         }
         set { UserDefaults.standard.set(newValue, forKey: onboardingKey) }
     }
