@@ -2,7 +2,7 @@
 set -e
 
 # ==============================================================================
-# Somnus Release & Sparkle Update Generator
+# Somnius Release & Sparkle Update Generator
 # Usage: ./scripts/build_release.sh [version, e.g. 1.0.1]
 # ==============================================================================
 
@@ -44,11 +44,18 @@ echo "🗜️ Packaging into $ZIP_PATH..."
 rm -f "$ZIP_PATH"
 (cd "$BUILD_DIR" && ditto -c -k --sequesterRsrc --keepParent "$APP_NAME.app" "$ZIP_PATH")
 
+# 5. Create PKG installer (One-click native macOS installer with all bundled dependencies)
+PKG_PATH="$BUILD_DIR/$APP_NAME-$VERSION.pkg"
+echo "📦 Packaging into $PKG_PATH..."
+rm -f "$PKG_PATH"
+pkgbuild --component "$APP_PATH" --install-location /Applications "$PKG_PATH"
+
 echo "✅ Successfully built release artifacts:"
-echo "   💿 DMG: $DMG_PATH"
-echo "   📦 ZIP: $ZIP_PATH"
+echo "   📦 PKG: $PKG_PATH (Native macOS installer)"
+echo "   💿 DMG: $DMG_PATH (Disk Image)"
+echo "   🗜️ ZIP: $ZIP_PATH (Portable bundle)"
 echo "👉 When ready to publish your release to GitHub:"
 echo "   1. Go to github.com/beratheon/Somnius/releases/new"
 echo "   2. Tag: v$VERSION, Title: Somnius $VERSION"
-echo "   3. Attach $APP_NAME-$VERSION.dmg and $APP_NAME-$VERSION-macOS.zip"
+echo "   3. Attach $APP_NAME-$VERSION.pkg, $APP_NAME-$VERSION.dmg, and $APP_NAME-$VERSION-macOS.zip"
 

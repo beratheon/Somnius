@@ -125,11 +125,11 @@ public class KSPlayerEngine: ObservableObject {
     }
 
     public static func savedLipSyncOffset(for imdbID: String) -> Double {
-        return UserDefaults.standard.double(forKey: "Somnus_LipSync_\(imdbID)")
+        return UserDefaults.standard.double(forKey: "Somnius_LipSync_\(imdbID)")
     }
 
     public static func saveLipSyncOffset(_ offset: Double, for imdbID: String) {
-        UserDefaults.standard.set(offset, forKey: "Somnus_LipSync_\(imdbID)")
+        UserDefaults.standard.set(offset, forKey: "Somnius_LipSync_\(imdbID)")
     }
 
     public func loadStream(url: URL, startTime: Double = 0, imdbID: String? = nil, isExternalAudio: Bool = false) {

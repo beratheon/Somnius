@@ -256,4 +256,23 @@ class WatchlistManager: ObservableObject {
         history.removeAll()
         saveData()
     }
+
+    func removeFromWatchlist(id: String) {
+        watchlist.removeAll(where: { $0.id == id })
+        saveData()
+    }
+
+    func clearWatchlist() {
+        watchlist.removeAll()
+        saveData()
+    }
+
+    func clearAllUserData() {
+        watchlist.removeAll()
+        favorites.removeAll()
+        history.removeAll()
+        watchedEpisodes.removeAll()
+        episodeProgressMap.removeAll()
+        saveData()
+    }
 }

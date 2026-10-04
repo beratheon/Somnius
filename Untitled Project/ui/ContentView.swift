@@ -18,6 +18,15 @@ struct ContentView: View {
     @State private var errorMessage: String? = nil
     @State private var hasCompletedOnboarding: Bool = Config.hasCompletedOnboarding
 
+    enum MainNavigationTab: String, CaseIterable {
+        case home = "Home"
+        case movies = "Movies"
+        case series = "Series"
+        case watchlist = "Watchlist"
+    }
+
+    @State private var currentTab: MainNavigationTab = .home
+
     var body: some View {
         ZStack {
             if accountManager.activeAccount == nil || !hasCompletedOnboarding {
@@ -37,7 +46,7 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     // Header Bar (Apple TV+ / macOS Native Aesthetic)
                     HStack(spacing: 16) {
-                        // Somnus Branding (25% Larger, positioned cleanly under macOS traffic lights)
+                        // Somnius Branding & Top Nav Tabs
                         HStack(spacing: 12) {
                             // Claude-like minimalist full moon icon (no emoji) - 25% larger
                             ZStack {
@@ -54,11 +63,40 @@ struct ContentView: View {
                                     .shadow(color: Color.white.opacity(0.45), radius: 6, x: 0, y: 0)
                             }
 
-                            Text("Somnus")
+                            Text("Somnius")
                                 .font(.custom("Baskerville", size: 26))
                                 .foregroundColor(.white)
                                 .tracking(0.6)
                         }
+
+                        // Top Navigation Links (Real Streaming Service Aesthetic)
+                        HStack(spacing: 22) {
+                            ForEach(MainNavigationTab.allCases, id: \.self) { tab in
+                                Button(action: {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        currentTab = tab
+                                    }
+                                }) {
+                                    VStack(spacing: 4) {
+                                        Text(tab.rawValue)
+                                            .font(.system(size: 13, weight: currentTab == tab ? .bold : .medium))
+                                            .foregroundColor(currentTab == tab ? .white : .white.opacity(0.55))
+
+                                        if currentTab == tab {
+                                            Capsule()
+                                                .fill(Color.white)
+                                                .frame(width: 18, height: 2)
+                                        } else {
+                                            Capsule()
+                                                .fill(Color.clear)
+                                                .frame(width: 18, height: 2)
+                                        }
+                                    }
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                        .padding(.leading, 10)
 
                         Spacer()
 
@@ -152,18 +190,27 @@ struct ContentView: View {
                         }
                     )
 
-                    // Discovery View
-                    ContentDiscoveryView(
-                        viewModel: viewModel,
-                        onMediaSelected: { item in
+                    // Main Content based on Tab (Home, Movies, Series, Watchlist)
+                    if currentTab == .watchlist {
+                        WatchlistView(onMediaSelected: { item in
                             withAnimation {
                                 detailMediaItem = item
                             }
-                        },
-                        onOpenProfile: {
-                            showProfileModal = true
-                        }
-                    )
+                        })
+                    } else {
+                        ContentDiscoveryView(
+                            viewModel: viewModel,
+                            filterCategory: currentTab == .movies ? "Movies" : (currentTab == .series ? "TV Shows" : "All"),
+                            onMediaSelected: { item in
+                                withAnimation {
+                                    detailMediaItem = item
+                                }
+                            },
+                            onOpenProfile: {
+                                showProfileModal = true
+                            }
+                        )
+                    }
                 }
             }
 

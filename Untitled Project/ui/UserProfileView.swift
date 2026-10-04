@@ -36,6 +36,7 @@ struct UserProfileView: View {
     @State private var showImportSheet: Bool = false
     @State private var importJsonText: String = ""
     @State private var showExportAlert: Bool = false
+    @State private var showResetConfirm: Bool = false
 
     var onSelectMediaItem: (MediaItem) -> Void
     var onSelectTorrentLink: (String) -> Void
@@ -77,7 +78,7 @@ struct UserProfileView: View {
             VStack(alignment: .leading, spacing: 6) {
                 // Window Header
                 HStack(spacing: 12) {
-                    // Claude-like minimalist full moon icon (matching Somnus aesthetic)
+                    // Claude-like minimalist full moon icon (matching Somnius aesthetic)
                     ZStack {
                         Circle()
                             .fill(
@@ -1201,38 +1202,199 @@ struct UserProfileView: View {
 
     // MARK: - 8. Watchlist & History View
     private var watchlistHistoryView: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Watchlist (\(watchlistManager.watchlist.count) saved) & History (\(watchlistManager.history.count) items)")
-                .font(.headline.bold())
-                .foregroundColor(.white)
+        VStack(alignment: .leading, spacing: 20) {
+            // Header with Clear controls
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Watchlist & History Management")
+                        .font(.headline.bold())
+                        .foregroundColor(.white)
+                    Text("\(watchlistManager.watchlist.count) saved titles • \(watchlistManager.history.count) items in history")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
 
+                Spacer()
+
+                if !watchlistManager.history.isEmpty {
+                    Button(action: {
+                        withAnimation { watchlistManager.clearHistory() }
+                    }) {
+                        Text("Clear History")
+                            .font(.caption.bold())
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.white.opacity(0.08))
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+
+                if !watchlistManager.watchlist.isEmpty {
+                    Button(action: {
+                        withAnimation { watchlistManager.clearWatchlist() }
+                    }) {
+                        Text("Clear Watchlist")
+                            .font(.caption.bold())
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.red.opacity(0.15))
+                            .foregroundColor(.red)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+
+            // Continue Watching Section
+            if !watchlistManager.history.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Continue Watching")
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(watchlistManager.history) { historyItem in
+                                HStack(spacing: 8) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(historyItem.mediaItem.title)
+                                            .font(.caption.bold())
+                                            .foregroundColor(.white)
+                                            .lineLimit(1)
+                                        if let s = historyItem.seasonNumber, let e = historyItem.episodeNumber {
+                                            Text("S\(s):E\(e)")
+                                                .font(.caption2)
+                                                .foregroundColor(.gray)
+                                        }
+                                        Text("\(Int(historyItem.progressFraction * 100))% completed")
+                                            .font(.caption2)
+                                            .foregroundColor(.cyan)
+                                    }
+
+                                    Button(action: {
+                                        withAnimation {
+                                            watchlistManager.removeHistory(id: historyItem.mediaItem.id)
+                                        }
+                                    }) {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.caption)
+                                            .foregroundColor(.gray)
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                }
+                                .padding(10)
+                                .background(Color.white.opacity(0.05))
+                                .cornerRadius(8)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Watchlist Grid with Individual Delete Buttons
             if watchlistManager.watchlist.isEmpty && watchlistManager.history.isEmpty {
                 Text("No items saved or watched yet.")
                     .foregroundColor(.gray)
                     .padding(.vertical, 20)
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 140), spacing: 14)], spacing: 16) {
-                    ForEach(watchlistManager.watchlist) { item in
-                        VStack(alignment: .leading, spacing: 6) {
-                            if let poster = item.posterUrl {
-                                AsyncImage(url: poster) { img in
-                                    img.resizable().aspectRatio(contentMode: .fill)
-                                } placeholder: {
-                                    Rectangle().fill(Color.white.opacity(0.1))
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Saved to Watchlist")
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
+
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 140), spacing: 14)], spacing: 16) {
+                        ForEach(watchlistManager.watchlist) { item in
+                            ZStack(alignment: .topTrailing) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    if let poster = item.posterUrl {
+                                        AsyncImage(url: poster) { img in
+                                            img.resizable().aspectRatio(contentMode: .fill)
+                                        } placeholder: {
+                                            Rectangle().fill(Color.white.opacity(0.1))
+                                        }
+                                        .frame(height: 180)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    }
                                 }
-                                .frame(height: 180)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .help(item.title)
+                                .onTapGesture {
+                                    dismiss()
+                                    onSelectMediaItem(item)
+                                }
+
+                                // Delete button
+                                Button(action: {
+                                    withAnimation {
+                                        watchlistManager.removeFromWatchlist(id: item.id)
+                                    }
+                                }) {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .padding(6)
+                                        .background(Color.black.opacity(0.75))
+                                        .clipShape(Circle())
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .padding(6)
                             }
-                        }
-                        .help(item.title)
-                        .onTapGesture {
-                            dismiss()
-                            onSelectMediaItem(item)
                         }
                     }
                 }
             }
+
+            Divider().background(Color.white.opacity(0.1)).padding(.vertical, 8)
+
+            // Factory Reset / Blank Slate Action
+            HStack(spacing: 14) {
+                Image(systemName: "arrow.counterclockwise.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(.red)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Reset App to Blank Slate (Fresh Install Mode)")
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
+                    Text("Clears all accounts, watch history, saved lists, and stored tokens so the app behaves as a brand-new install.")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+
+                Spacer()
+
+                Button(action: {
+                    showResetConfirm = true
+                }) {
+                    Text("Reset to Blank Slate")
+                        .font(.caption.bold())
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Color.red.opacity(0.2))
+                        .foregroundColor(.red)
+                        .cornerRadius(8)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(14)
+            .background(Color.red.opacity(0.05))
+            .cornerRadius(12)
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.2), lineWidth: 1))
         }
+        .confirmationDialog("Reset to Blank Slate", isPresented: $showResetConfirm, actions: {
+            Button("Reset Everything", role: .destructive) {
+                watchlistManager.clearAllUserData()
+                UserDefaults.standard.removeObject(forKey: "Somnius_User_Accounts_v2")
+                UserDefaults.standard.removeObject(forKey: "Somnius_Active_Account_ID_v2")
+                Config.realDebridApiKey = ""
+                Config.hasCompletedOnboarding = false
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        }, message: {
+            Text("This will purge all local watch data, accounts, and credentials, returning Somnius to the initial setup screen.")
+        })
     }
 
     // MARK: - 9. Updates & Beta View (Sparkle Integration)
@@ -1245,7 +1407,7 @@ struct UserProfileView: View {
                     .foregroundColor(.blue)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Somnus Auto-Updater")
+                    Text("Somnius Auto-Updater")
                         .font(.headline.bold())
                         .foregroundColor(.white)
                     Text("Powered by Sparkle. Automatically checks GitHub Releases for new builds.")
@@ -1308,7 +1470,7 @@ struct UserProfileView: View {
                 HStack {
                     Image(systemName: "link")
                         .foregroundColor(.gray)
-                    TextField("e.g. yourname/Somnus", text: Binding(
+                    TextField("e.g. yourname/Somnius", text: Binding(
                         get: { Config.updateRepository },
                         set: {
                             Config.updateRepository = $0

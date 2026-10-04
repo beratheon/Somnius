@@ -4,6 +4,7 @@ struct ContentDiscoveryView: View {
     @ObservedObject var viewModel: ContentViewModel
     @StateObject private var watchlistManager = WatchlistManager.shared
     @ObservedObject private var liveCatalogService = LiveCatalogService.shared
+    var filterCategory: String = "All"
     var onMediaSelected: (MediaItem) -> Void
     var onOpenProfile: () -> Void
 
@@ -331,14 +332,14 @@ struct ContentDiscoveryView: View {
                     .padding(.vertical, 40)
                 }
 
-                // MARK: - Main Page Aesthetic Footer (Somnus & TMDB Attribution)
+                // MARK: - Main Page Aesthetic Footer (Somnius & TMDB Attribution)
                 VStack(alignment: .leading, spacing: 14) {
                     Divider()
                         .background(Color.white.opacity(0.08))
                         .padding(.bottom, 6)
 
-                    // Somnus community tagline (No © icon)
-                    Text("2026 Somnus — built by the community, for the community.")
+                    // Somnius community tagline (No © icon)
+                    Text("2026 Somnius — built by the community, for the community.")
                         .font(.system(size: 13, weight: .regular))
                         .foregroundColor(.white.opacity(0.42))
                         .tracking(0.2)
@@ -375,6 +376,12 @@ struct ContentDiscoveryView: View {
         }
     }
     .background(Color(red: 0.07, green: 0.07, blue: 0.08).ignoresSafeArea())
+    .onAppear {
+        selectedCatalogCategory = filterCategory
+    }
+    .onChange(of: filterCategory) { _, newCat in
+        selectedCatalogCategory = newCat
+    }
 }
 
     private func matchesCategoryFilter(catalog: LiveCatalog, filter: String) -> Bool {
