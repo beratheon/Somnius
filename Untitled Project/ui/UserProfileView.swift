@@ -27,6 +27,10 @@ struct UserProfileView: View {
     @AppStorage("preferredAudioLanguage") var preferredAudioLanguage: String = "tr"
     @AppStorage("enablePALSpeedupCorrection") var enablePALSpeedupCorrection: Bool = true
 
+    @ObservedObject private var addonManager = StremioAddonManager.shared
+    @State private var newAddonUrlInput: String = ""
+    @State private var addonInstallError: String? = nil
+
     @State private var statusMessage: String?
     @State private var isRefreshingCloud: Bool = false
     @State private var showImportSheet: Bool = false
@@ -43,7 +47,8 @@ struct UserProfileView: View {
         case subtitles = "Subtitles"
         case audioLanguage = "Audio & Language"
         case streaming = "Sources & Quality"
-        case catalogs = "Catalogs & Addons"
+        case addons = "Add-ons (Stremio)"
+        case catalogs = "Catalogs"
         case cloud = "Debrid Cloud"
         case watchlist = "Watchlist & History"
         case updates = "Updates & Beta"
@@ -57,6 +62,7 @@ struct UserProfileView: View {
             case .subtitles: return "captions.bubble.fill"
             case .audioLanguage: return "waveform"
             case .streaming: return "sparkles.tv"
+            case .addons: return "puzzlepiece.extension.fill"
             case .catalogs: return "square.stack.3d.up.fill"
             case .cloud: return "icloud.fill"
             case .watchlist: return "bookmark.fill"
@@ -194,6 +200,8 @@ struct UserProfileView: View {
                         audioLanguageSettingsView
                     case .streaming:
                         sourcesQualityView
+                    case .addons:
+                        stremioAddonsView
                     case .catalogs:
                         catalogsManagementView
                     case .cloud:
@@ -232,8 +240,9 @@ struct UserProfileView: View {
         case .debridAccount: return "Configure and inspect your Real-Debrid API credentials"
         case .player: return "Tune hardware decoding, instant start, and buffer durations"
         case .subtitles: return "Static subtitle rendering, sizes, and default languages"
-        case .audioLanguage: return "External Turkish dubbing injection, PAL speedup correction, and lip-sync calibration"
+        case .audioLanguage: return "Audio stream settings, PAL speedup correction, and lip-sync calibration"
         case .streaming: return "Preferred resolutions, seed filters, and cache controls"
+        case .addons: return "Install external scraping add-ons via Stremio Add-on Protocol v3"
         case .catalogs: return "Manage live catalogs, import/export configurations, or remove sections"
         case .cloud: return "Manage active torrents in your Real-Debrid cloud storage"
         case .watchlist: return "Browse and organize your saved titles and continue watching history"
@@ -754,6 +763,216 @@ struct UserProfileView: View {
             .padding(14)
             .background(Color.white.opacity(0.04))
             .cornerRadius(10)
+        }
+    }
+
+    // MARK: - 6b. Stremio Add-ons Management View
+    private var stremioAddonsView: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            // Legal & Protocol Banner
+            HStack(spacing: 14) {
+                Image(systemName: "shield.lefthalf.filled")
+                    .font(.system(size: 24))
+                    .foregroundColor(.cyan)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Decoupled Add-on Architecture")
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
+                    Text("Somnius is an agnostic media player shell. Streaming scrapers run externally via the open Stremio Add-on Protocol (v3). You can install custom community manifests or configure Real-Debrid tokens securely on your local device.")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(14)
+            .background(Color.cyan.opacity(0.08))
+            .cornerRadius(12)
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cyan.opacity(0.2), lineWidth: 1))
+
+            // Add Custom Manifest URL
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Install Add-on from Manifest URL")
+                    .font(.subheadline.bold())
+                    .foregroundColor(.white)
+
+                HStack(spacing: 10) {
+                    TextField("Enter manifest URL (e.g. https://.../manifest.json or stremio://...)", text: $newAddonUrlInput)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .font(.system(size: 13, design: .monospaced))
+                        .padding(10)
+                        .background(Color.white.opacity(0.06))
+                        .cornerRadius(8)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
+
+                    Button(action: {
+                        guard !newAddonUrlInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                        addonInstallError = nil
+                        Task {
+                            do {
+                                _ = try await addonManager.installAddon(rawUrl: newAddonUrlInput)
+                                newAddonUrlInput = ""
+                            } catch {
+                                addonInstallError = error.localizedDescription
+                            }
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            if addonManager.isInstalling {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                            } else {
+                                Image(systemName: "plus.circle.fill")
+                            }
+                            Text("Install")
+                        }
+                        .font(.subheadline.bold())
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 9)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(addonManager.isInstalling || newAddonUrlInput.isEmpty)
+                }
+
+                if let err = addonInstallError {
+                    Text(err)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+            }
+            .padding(16)
+            .background(Color.white.opacity(0.03))
+            .cornerRadius(12)
+
+            // Installed Add-ons
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Installed Add-ons (\(addonManager.installedAddons.count))")
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
+                    Spacer()
+                }
+
+                if addonManager.installedAddons.isEmpty {
+                    Text("No add-ons installed. Install a community add-on below to enable stream aggregation.")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                        .padding(.vertical, 8)
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach(addonManager.installedAddons) { addon in
+                            HStack(spacing: 12) {
+                                Image(systemName: "puzzlepiece.fill")
+                                    .font(.title3)
+                                    .foregroundColor(addon.isEnabled ? .cyan : .gray)
+                                    .frame(width: 32)
+
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack(spacing: 8) {
+                                        Text(addon.name)
+                                            .font(.subheadline.bold())
+                                            .foregroundColor(.white)
+                                        Text("v\(addon.version)")
+                                            .font(.caption2.monospaced())
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.white.opacity(0.08))
+                                            .cornerRadius(4)
+                                            .foregroundColor(.gray)
+                                    }
+
+                                    Text(addon.description)
+                                        .font(.caption)
+                                        .foregroundColor(.white.opacity(0.6))
+                                        .lineLimit(1)
+
+                                    Text(addon.manifestUrl)
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundColor(.white.opacity(0.35))
+                                        .lineLimit(1)
+                                }
+
+                                Spacer()
+
+                                Toggle("", isOn: Binding(
+                                    get: { addon.isEnabled },
+                                    set: { _ in addonManager.toggleAddon(id: addon.id) }
+                                ))
+                                .toggleStyle(.switch)
+                                .scaleEffect(0.85)
+
+                                Button(action: {
+                                    addonManager.removeAddon(id: addon.id)
+                                }) {
+                                    Image(systemName: "trash")
+                                        .font(.caption)
+                                        .foregroundColor(.red.opacity(0.8))
+                                        .padding(8)
+                                        .background(Color.red.opacity(0.12))
+                                        .clipShape(Circle())
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                            .padding(14)
+                            .background(Color.white.opacity(0.04))
+                            .cornerRadius(10)
+                        }
+                    }
+                }
+            }
+
+            // Community Add-ons Catalog
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Popular Community Add-ons")
+                    .font(.subheadline.bold())
+                    .foregroundColor(.white)
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    ForEach(addonManager.communityTemplates) { template in
+                        let isInstalled = addonManager.installedAddons.contains(where: { $0.id == template.id || $0.manifestUrl == template.manifestUrl })
+                        HStack(spacing: 12) {
+                            Image(systemName: template.icon)
+                                .font(.title3)
+                                .foregroundColor(.purple)
+                                .frame(width: 28)
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(template.name)
+                                    .font(.subheadline.bold())
+                                    .foregroundColor(.white)
+                                Text(template.description)
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                                    .lineLimit(2)
+                            }
+
+                            Spacer()
+
+                            Button(action: {
+                                Task {
+                                    try? await addonManager.installAddon(rawUrl: template.manifestUrl)
+                                }
+                            }) {
+                                Text(isInstalled ? "Installed" : "Install")
+                                    .font(.caption.bold())
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(isInstalled ? Color.white.opacity(0.08) : Color.blue.opacity(0.25))
+                                    .foregroundColor(isInstalled ? .gray : .cyan)
+                                    .cornerRadius(6)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .disabled(isInstalled)
+                        }
+                        .padding(12)
+                        .background(Color.white.opacity(0.03))
+                        .cornerRadius(10)
+                    }
+                }
+            }
         }
     }
 

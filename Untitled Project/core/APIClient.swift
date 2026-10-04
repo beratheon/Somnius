@@ -166,7 +166,6 @@ struct Config {
 
     static let cometUrl = "http://localhost:8000"
     static let zileanUrl = "http://localhost:8181"
-    static let torrentioUrl = "https://torrentio.strem.fun"
     static let prowlarrUrl = "http://localhost:9696"
     static var prowlarrApiKey: String = ""
     static let stremthruUrl = "http://localhost:8080"
