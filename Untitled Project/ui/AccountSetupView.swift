@@ -456,28 +456,15 @@ struct AccountSetupView: View {
                     .font(.title3)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Modular Stremio Add-on Support")
+                    Text("Modular Add-on Architecture")
                         .font(.custom("Helvetica", size: 14).weight(.semibold))
                         .foregroundColor(.white.opacity(0.95))
-                    Text("Somnius is an agnostic media player shell. You can connect third-party community add-on manifests to browse catalogs or aggregate media.")
+                    Text("Somnius is an agnostic media player. You can connect third-party add-on manifests to browse catalogs or aggregate media.")
                         .font(.custom("Helvetica", size: 12))
                         .foregroundColor(.white.opacity(0.6))
                 }
 
                 Spacer()
-
-                Link(destination: URL(string: "https://github.com/beratheon/Somnius")!) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "arrow.up.right.square")
-                        Text("Browse Add-ons ↗")
-                    }
-                    .font(.custom("Helvetica", size: 12).weight(.semibold))
-                    .foregroundColor(.cyan)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(Color.cyan.opacity(0.12))
-                    .cornerRadius(8)
-                }
             }
             .padding(16)
             .background(Color.white.opacity(0.04))

@@ -119,17 +119,8 @@ class StremioAddonManager: ObservableObject {
     @Published var isInstalling: Bool = false
     @Published var lastErrorMessage: String?
 
-    // Community add-on template pointing to community repository
-    let communityTemplates: [CommunityAddonTemplate] = [
-        CommunityAddonTemplate(
-            id: "community.streams.resolver",
-            name: "Community Streams",
-            description: "External community stream metadata indexing.",
-            manifestUrl: "https://raw.githubusercontent.com/beratheon/Somnius/main/addon-repository/manifest.json",
-            icon: "sparkles.tv",
-            isDebridConfigurable: true
-        )
-    ]
+    // Extensible add-on templates (can be populated dynamically via remote registry or custom manifest)
+    let communityTemplates: [CommunityAddonTemplate] = []
 
     private init() {
         loadAddons()
@@ -218,7 +209,7 @@ class StremioAddonManager: ObservableObject {
         let newAddon = InstalledAddon(
             id: manifest.id,
             name: manifest.name,
-            description: manifest.description ?? "Community Stremio Addon",
+            description: manifest.description ?? "Community Add-on",
             manifestUrl: urlString,
             transportUrl: transportUrl,
             isEnabled: true,

@@ -50,7 +50,7 @@ struct UserProfileView: View {
         case subtitles = "Subtitles"
         case audioLanguage = "Audio & Language"
         case streaming = "Sources & Quality"
-        case addons = "Add-ons (Stremio)"
+        case addons = "Add-ons"
         case catalogs = "Catalogs"
         case cloud = "Debrid Cloud"
         case watchlist = "Watchlist & History"
@@ -261,7 +261,7 @@ struct UserProfileView: View {
         case .subtitles: return "Static subtitle rendering, sizes, and default languages"
         case .audioLanguage: return "Audio stream settings, PAL speedup correction, and lip-sync calibration"
         case .streaming: return "Preferred resolutions, seed filters, and cache controls"
-        case .addons: return "Install external scraping add-ons via Stremio Add-on Protocol v3"
+        case .addons: return "Manage external stream add-ons and manifest extensions"
         case .catalogs: return "Manage live catalogs, import/export configurations, or remove sections"
         case .cloud: return "Manage active torrents in your Real-Debrid cloud storage"
         case .watchlist: return "Browse and organize your saved titles and continue watching history"
@@ -771,7 +771,7 @@ struct UserProfileView: View {
                     Text("Decoupled Add-on Architecture")
                         .font(.subheadline.bold())
                         .foregroundColor(.white)
-                    Text("Somnius is an agnostic media player shell. Scrapers and stream indexers run externally via the open Stremio Add-on Protocol (v3). You can install custom community manifests or configure provider credentials directly inside each add-on.")
+                    Text("Somnius is an agnostic media player. Stream indexers and catalog sources run externally via standard web manifests. You can install custom community manifests or configure provider credentials directly inside each add-on.")
                         .font(.caption)
                         .foregroundColor(.gray)
                         .fixedSize(horizontal: false, vertical: true)
@@ -789,7 +789,7 @@ struct UserProfileView: View {
                     .foregroundColor(.white)
 
                 HStack(spacing: 10) {
-                    TextField("Enter manifest URL (e.g. https://.../manifest.json or stremio://...)", text: $newAddonUrlInput)
+                    TextField("Enter manifest URL (e.g. https://.../manifest.json)", text: $newAddonUrlInput)
                         .textFieldStyle(PlainTextFieldStyle())
                         .font(.system(size: 13, design: .monospaced))
                         .padding(10)
@@ -929,52 +929,54 @@ struct UserProfileView: View {
                 }
             }
 
-            // Community Add-ons Catalog
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Popular Community Add-ons")
-                    .font(.subheadline.bold())
-                    .foregroundColor(.white)
+            // Community Add-ons Catalog (if any public templates configured)
+            if !addonManager.communityTemplates.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Popular Community Add-ons")
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
 
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    ForEach(addonManager.communityTemplates) { template in
-                        let isInstalled = addonManager.installedAddons.contains(where: { $0.id == template.id || $0.manifestUrl == template.manifestUrl })
-                        HStack(spacing: 12) {
-                            Image(systemName: template.icon)
-                                .font(.title3)
-                                .foregroundColor(.purple)
-                                .frame(width: 28)
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                        ForEach(addonManager.communityTemplates) { template in
+                            let isInstalled = addonManager.installedAddons.contains(where: { $0.id == template.id || $0.manifestUrl == template.manifestUrl })
+                            HStack(spacing: 12) {
+                                Image(systemName: template.icon)
+                                    .font(.title3)
+                                    .foregroundColor(.purple)
+                                    .frame(width: 28)
 
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(template.name)
-                                    .font(.subheadline.bold())
-                                    .foregroundColor(.white)
-                                Text(template.description)
-                                    .font(.caption2)
-                                    .foregroundColor(.gray)
-                                    .lineLimit(2)
-                            }
-
-                            Spacer()
-
-                            Button(action: {
-                                Task {
-                                    try? await addonManager.installAddon(rawUrl: template.manifestUrl)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(template.name)
+                                        .font(.subheadline.bold())
+                                        .foregroundColor(.white)
+                                    Text(template.description)
+                                        .font(.caption2)
+                                        .foregroundColor(.gray)
+                                        .lineLimit(2)
                                 }
-                            }) {
-                                Text(isInstalled ? "Installed" : "Install")
-                                    .font(.caption.bold())
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(isInstalled ? Color.white.opacity(0.08) : Color.blue.opacity(0.25))
-                                    .foregroundColor(isInstalled ? .gray : .cyan)
-                                    .cornerRadius(6)
+
+                                Spacer()
+
+                                Button(action: {
+                                    Task {
+                                        try? await addonManager.installAddon(rawUrl: template.manifestUrl)
+                                    }
+                                }) {
+                                    Text(isInstalled ? "Installed" : "Install")
+                                        .font(.caption.bold())
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(isInstalled ? Color.white.opacity(0.08) : Color.blue.opacity(0.25))
+                                        .foregroundColor(isInstalled ? .gray : .cyan)
+                                        .cornerRadius(6)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .disabled(isInstalled)
                             }
-                            .buttonStyle(PlainButtonStyle())
-                            .disabled(isInstalled)
+                            .padding(12)
+                            .background(Color.white.opacity(0.03))
+                            .cornerRadius(10)
                         }
-                        .padding(12)
-                        .background(Color.white.opacity(0.03))
-                        .cornerRadius(10)
                     }
                 }
             }
@@ -1563,7 +1565,7 @@ struct UserProfileView: View {
         .background(Color(red: 0.1, green: 0.1, blue: 0.12))
     }
 
-    // MARK: - Add New Catalog Sheet (TMDB, TVDB & Custom Stremio Catalogs)
+    // MARK: - Add New Catalog Sheet (TMDB, TVDB & Custom Catalogs)
     private var addCatalogSheet: some View {
         AddCatalogModalView(isPresented: $showAddCatalogSheet)
     }
@@ -1573,7 +1575,7 @@ struct AddCatalogModalView: View {
     @Binding var isPresented: Bool
     @ObservedObject private var catalogService = LiveCatalogService.shared
 
-    @State private var selectedTab: Int = 0 // 0: TMDB Presets, 1: TVDB / Series Presets, 2: Custom Stremio / URL
+    @State private var selectedTab: Int = 0 // 0: TMDB Presets, 1: TVDB / Series Presets, 2: Custom Manifest Endpoint
     @State private var customName: String = ""
     @State private var customType: String = "movie"
     @State private var customCategory: String = "Custom Discovery"
@@ -1616,7 +1618,7 @@ struct AddCatalogModalView: View {
                     Text("Add New Discovery Catalog")
                         .font(.title3.bold())
                         .foregroundColor(.white)
-                    Text("Add curated TMDB, TVDB, Trakt, or custom Stremio manifest catalogs.")
+                    Text("Add curated TMDB, TVDB, Trakt, or custom manifest catalogs.")
                         .font(.caption)
                         .foregroundColor(.gray)
                 }
@@ -1636,7 +1638,7 @@ struct AddCatalogModalView: View {
             Picker("", selection: $selectedTab) {
                 Text("TMDB Movies").tag(0)
                 Text("TVDB & TV Shows").tag(1)
-                Text("Custom Stremio Endpoint").tag(2)
+                Text("Custom Manifest Endpoint").tag(2)
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 24)
@@ -1745,7 +1747,7 @@ struct AddCatalogModalView: View {
 
     private var customCatalogForm: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Add Custom Stremio v3 Catalog Endpoint")
+            Text("Add Custom Manifest Catalog Endpoint")
                 .font(.subheadline.bold())
                 .foregroundColor(.white)
 
