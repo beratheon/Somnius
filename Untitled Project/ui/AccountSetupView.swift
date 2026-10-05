@@ -594,7 +594,9 @@ struct AccountSetupView: View {
                 if let msg = debridStatusMessage {
                     Text(msg)
                         .font(.caption)
-                        .foregroundColor(msg.contains("✓") ? .green : .red)
+                        .foregroundColor(msg.contains("✓") ? .green : (msg.contains("⚠️") ? .yellow : .red))
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 // 3. Authentic Real-Debrid Affiliate Banner & Partner Card (ID: 10141263)
@@ -755,7 +757,16 @@ struct AccountSetupView: View {
                 hasInstalledCommunityPack = true
             } catch {
                 isVerifyingDebrid = false
-                debridStatusMessage = "Connection failed: \(error.localizedDescription)"
+                let desc = error.localizedDescription
+                let nsError = error as NSError
+                // Detect TLS / DPI ISP interception (common with local ISPs blocking api.real-debrid.com)
+                if desc.localizedCaseInsensitiveContains("TLS") || desc.localizedCaseInsensitiveContains("secure connection") || nsError.code == NSURLErrorSecureConnectionFailed {
+                    debridStatusMessage = "⚠️ ISP Block Detected: Your internet provider is blocking direct access to api.real-debrid.com. Please connect to a VPN or Cloudflare WARP. (Your token was saved to streaming add-ons anyway!)"
+                    await addonManager.updateDebridForInstalledAddons(debridKey: clean)
+                    hasInstalledCommunityPack = true
+                } else {
+                    debridStatusMessage = "Connection failed: \(desc)"
+                }
             }
         }
     }
