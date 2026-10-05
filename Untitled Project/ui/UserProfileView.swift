@@ -40,6 +40,7 @@ struct UserProfileView: View {
     @State private var showAddCatalogSheet: Bool = false
     @State private var configuredAddonForSheet: InstalledAddon? = nil
 
+    var isEmbeddedPage: Bool = false
     var onSelectMediaItem: (MediaItem) -> Void
     var onSelectTorrentLink: (String) -> Void
 
@@ -155,24 +156,26 @@ struct UserProfileView: View {
 
                 Spacer()
 
-                // Return / Close Button (Matching ≤ Back Aesthetic)
-                Button(action: { dismiss() }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 12, weight: .bold))
-                        Text("Back to App")
-                            .font(.system(size: 13, weight: .semibold))
+                // Return / Close Button (Only when presented as modal sheet)
+                if !isEmbeddedPage {
+                    Button(action: { dismiss() }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 12, weight: .bold))
+                            Text("Back to App")
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .foregroundColor(.white.opacity(0.9))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 9)
+                        .background(Color.white.opacity(0.08))
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 0.8))
                     }
-                    .foregroundColor(.white.opacity(0.9))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 9)
-                    .background(Color.white.opacity(0.08))
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 0.8))
+                    .buttonStyle(PlainButtonStyle())
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 20)
                 }
-                .buttonStyle(PlainButtonStyle())
-                .padding(.horizontal, 18)
-                .padding(.bottom, 20)
             }
             .frame(width: 250)
             .background(Color(red: 0.08, green: 0.08, blue: 0.09).opacity(0.95))
@@ -226,13 +229,24 @@ struct UserProfileView: View {
             }
             .background(Color(red: 0.07, green: 0.07, blue: 0.08))
         }
-        .frame(minWidth: 1100, idealWidth: 1400, maxWidth: 1400, minHeight: 720, idealHeight: 900, maxHeight: 900)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+        .frame(
+            minWidth: isEmbeddedPage ? nil : 1100,
+            idealWidth: isEmbeddedPage ? nil : 1400,
+            maxWidth: .infinity,
+            minHeight: isEmbeddedPage ? nil : 720,
+            idealHeight: isEmbeddedPage ? nil : 900,
+            maxHeight: .infinity
         )
-        .shadow(color: .black.opacity(0.85), radius: 36, x: 0, y: 18)
+        .clipShape(RoundedRectangle(cornerRadius: isEmbeddedPage ? 0 : 22, style: .continuous))
+        .overlay(
+            Group {
+                if !isEmbeddedPage {
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                }
+            }
+        )
+        .shadow(color: isEmbeddedPage ? .clear : .black.opacity(0.85), radius: isEmbeddedPage ? 0 : 36, x: 0, y: isEmbeddedPage ? 0 : 18)
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showImportSheet) {
             importCatalogsSheet
@@ -761,30 +775,69 @@ struct UserProfileView: View {
     // MARK: - 6b. Stremio Add-ons Management View
     private var stremioAddonsView: some View {
         VStack(alignment: .leading, spacing: 20) {
-            // Legal & Protocol Banner
-            HStack(spacing: 14) {
-                Image(systemName: "shield.lefthalf.filled")
-                    .font(.system(size: 24))
-                    .foregroundColor(.cyan)
+            // 1-Click Community Streaming Pack Banner
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    Image(systemName: "puzzlepiece.extension.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(.blue)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Decoupled Add-on Architecture")
-                        .font(.subheadline.bold())
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Community Add-ons Made for Streaming")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.white)
+                        Text("Decentralized, open community indexers (Torrentio, Zilean, Bitmagnet, OpenSubtitles).")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+
+                    Spacer()
+
+                    Button(action: {
+                        Task {
+                            await addonManager.installCommunityStreamingPack(debridKey: Config.realDebridApiKey)
+                            viewModel.fetchContent()
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            if addonManager.isInstalling {
+                                ProgressView().scaleEffect(0.6)
+                            } else {
+                                Image(systemName: addonManager.installedAddons.isEmpty ? "arrow.down.circle.fill" : "arrow.clockwise")
+                            }
+                            Text(addonManager.installedAddons.isEmpty ? "Install Pack (1-Click)" : "Update Streaming Pack")
+                        }
+                        .font(.caption.bold())
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Color.blue)
                         .foregroundColor(.white)
-                    Text("Somnius is an agnostic media player. Stream indexers and catalog sources run externally via standard web manifests. You can install custom community manifests or configure provider credentials directly inside each add-on.")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(addonManager.isInstalling)
+                }
+
+                HStack(spacing: 8) {
+                    Text(Config.isDebridMode ? "⚡ Connected to Debrid (Fast Cloud Streaming)" : "Standard Mode • (Optional Debrid available for faster 4K cloud playback)")
+                        .font(.caption2.weight(.medium))
+                        .foregroundColor(Config.isDebridMode ? .yellow : .white.opacity(0.6))
+
+                    Spacer()
+
+                    Text("\(addonManager.installedAddons.count) Add-ons Active")
+                        .font(.caption2.monospaced())
+                        .foregroundColor(.white.opacity(0.5))
                 }
             }
-            .padding(14)
-            .background(Color.cyan.opacity(0.08))
+            .padding(16)
+            .background(Color.white.opacity(0.04))
             .cornerRadius(12)
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cyan.opacity(0.2), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
 
             // Add Custom Manifest URL
             VStack(alignment: .leading, spacing: 8) {
-                Text("Install Add-on from Manifest URL")
+                Text("Install Custom Add-on Manifest URL")
                     .font(.subheadline.bold())
                     .foregroundColor(.white)
 

@@ -23,6 +23,7 @@ struct ContentView: View {
         case movies = "Movies"
         case series = "Series"
         case watchlist = "Watchlist"
+        case settings = "Settings"
     }
 
     @State private var currentTab: MainNavigationTab = .home
@@ -69,7 +70,7 @@ struct ContentView: View {
                                 .tracking(0.6)
                         }
 
-                        // Top Navigation Links (Real Streaming Service Aesthetic)
+                        // Top Navigation Links (Home, Movies, Series, Watchlist, Settings)
                         HStack(spacing: 22) {
                             ForEach(MainNavigationTab.allCases, id: \.self) { tab in
                                 Button(action: {
@@ -157,24 +158,6 @@ struct ContentView: View {
                             .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
                         }
                         .buttonStyle(PlainButtonStyle())
-
-                        Button(action: {
-                            showProfileModal = true
-                        }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "gearshape")
-                                    .font(.system(size: 13, weight: .medium))
-                                Text("Settings")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(.white.opacity(0.9))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.white.opacity(0.08))
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
-                        }
-                        .buttonStyle(PlainButtonStyle())
                     }
                     .padding(.leading, 28)
                     .padding(.trailing, 28)
@@ -190,13 +173,28 @@ struct ContentView: View {
                         }
                     )
 
-                    // Main Content based on Tab (Home, Movies, Series, Watchlist)
+                    // Main Content based on Tab (Home, Movies, Series, Watchlist, Settings)
                     if currentTab == .watchlist {
                         WatchlistView(onMediaSelected: { item in
                             withAnimation {
                                 detailMediaItem = item
                             }
                         })
+                    } else if currentTab == .settings {
+                        UserProfileView(
+                            viewModel: viewModel,
+                            isEmbeddedPage: true,
+                            onSelectMediaItem: { item in
+                                withAnimation {
+                                    detailMediaItem = item
+                                }
+                            },
+                            onSelectTorrentLink: { linkString in
+                                Task {
+                                    await playDirectLink(linkString)
+                                }
+                            }
+                        )
                     } else {
                         ContentDiscoveryView(
                             viewModel: viewModel,
@@ -207,7 +205,9 @@ struct ContentView: View {
                                 }
                             },
                             onOpenProfile: {
-                                showProfileModal = true
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    currentTab = .settings
+                                }
                             }
                         )
                     }
@@ -372,7 +372,9 @@ struct ContentView: View {
             viewModel.fetchContent()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenProfileSettings"))) { _ in
-            showProfileModal = true
+            withAnimation(.easeInOut(duration: 0.2)) {
+                currentTab = .settings
+            }
         }
     }
 

@@ -119,8 +119,41 @@ class StremioAddonManager: ObservableObject {
     @Published var isInstalling: Bool = false
     @Published var lastErrorMessage: String?
 
-    // Extensible add-on templates (can be populated dynamically via remote registry or custom manifest)
-    let communityTemplates: [CommunityAddonTemplate] = []
+    // Verified community streaming add-on templates
+    let communityTemplates: [CommunityAddonTemplate] = [
+        CommunityAddonTemplate(
+            id: "torrentio",
+            name: "Torrentio",
+            description: "High-speed multi-source indexer for movies & series with quality sorting",
+            manifestUrl: "https://torrentio.strem.fun/sort=qualitysize|qualityfilter=4k,1080p,720p,other/manifest.json",
+            icon: "bolt.fill",
+            isDebridConfigurable: true
+        ),
+        CommunityAddonTemplate(
+            id: "knightcrawler",
+            name: "KnightCrawler (Zilean)",
+            description: "Decentralized P2P scraper & caching indexer with fast metadata resolution",
+            manifestUrl: "https://knightcrawler.elfhosted.com/sort=qualitysize/manifest.json",
+            icon: "shield.fill",
+            isDebridConfigurable: true
+        ),
+        CommunityAddonTemplate(
+            id: "mediafusion",
+            name: "MediaFusion (Bitmagnet)",
+            description: "Decentralized DHT & bitmagnet indexer for global streaming sources",
+            manifestUrl: "https://mediafusion.elfhosted.com/manifest.json",
+            icon: "waveform.path.ecg",
+            isDebridConfigurable: true
+        ),
+        CommunityAddonTemplate(
+            id: "opensubtitles-v3",
+            name: "OpenSubtitles v3",
+            description: "Global multilingual subtitle synchronization service",
+            manifestUrl: "https://opensubtitles-v3.strem.io/manifest.json",
+            icon: "captions.bubble.fill",
+            isDebridConfigurable: false
+        )
+    ]
 
     private init() {
         loadAddons()
@@ -146,24 +179,60 @@ class StremioAddonManager: ObservableObject {
         }
     }
 
-    private func seedDefaultAddons() {
-        for template in communityTemplates.prefix(3) {
-            let cleanBase = template.manifestUrl.replacingOccurrences(of: "/manifest.json", with: "")
-            let addon = InstalledAddon(
-                id: template.id,
-                name: template.name,
-                description: template.description,
-                manifestUrl: template.manifestUrl,
-                transportUrl: cleanBase,
-                isEnabled: true,
-                iconUrl: nil,
-                version: "1.0.0",
-                supportedTypes: ["movie", "series"],
-                supportedResources: ["stream"]
-            )
-            installedAddons.append(addon)
+    // MARK: - 1-Click Community Streaming Pack
+    public func installCommunityStreamingPack(debridKey: String? = nil) async {
+        isInstalling = true
+        defer { isInstalling = false }
+
+        let cleanDebrid = debridKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !cleanDebrid.isEmpty {
+            Config.realDebridApiKey = cleanDebrid
+            Config.streamingSetupMode = "debrid"
         }
-        saveAddons()
+
+        for template in communityTemplates {
+            var targetManifest = template.manifestUrl
+
+            if !cleanDebrid.isEmpty && template.isDebridConfigurable {
+                if template.id == "torrentio" {
+                    targetManifest = "https://torrentio.strem.fun/realdebrid=\(cleanDebrid)|sort=qualitysize|qualityfilter=4k,1080p,720p,other/manifest.json"
+                } else if template.id == "knightcrawler" {
+                    targetManifest = "https://knightcrawler.elfhosted.com/realdebrid=\(cleanDebrid)|sort=qualitysize/manifest.json"
+                }
+            }
+
+            // Attempt installation from manifest; if network fails, add template fallback
+            do {
+                _ = try await installAddon(rawUrl: targetManifest)
+            } catch {
+                let cleanBase = targetManifest.replacingOccurrences(of: "/manifest.json", with: "")
+                let fallbackAddon = InstalledAddon(
+                    id: template.id,
+                    name: template.name,
+                    description: template.description,
+                    manifestUrl: targetManifest,
+                    transportUrl: cleanBase,
+                    isEnabled: true,
+                    iconUrl: nil,
+                    version: "1.0.0",
+                    supportedTypes: ["movie", "series"],
+                    supportedResources: ["stream"]
+                )
+                if let idx = installedAddons.firstIndex(where: { $0.id == fallbackAddon.id }) {
+                    installedAddons[idx] = fallbackAddon
+                } else {
+                    installedAddons.append(fallbackAddon)
+                }
+                saveAddons()
+            }
+        }
+    }
+
+    public func updateDebridForInstalledAddons(debridKey: String) async {
+        let clean = debridKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+
+        await installCommunityStreamingPack(debridKey: clean)
     }
 
     // MARK: - Install / Uninstall

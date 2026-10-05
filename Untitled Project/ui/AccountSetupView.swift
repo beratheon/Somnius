@@ -17,6 +17,11 @@ struct AccountSetupView: View {
     @State private var preferredLanguage: String = "en"
 
     // Addon install state in onboarding
+    @State private var isInstallingCommunityPack: Bool = false
+    @State private var hasInstalledCommunityPack: Bool = false
+    @State private var debridApiKeyInput: String = Config.realDebridApiKey
+    @State private var isVerifyingDebrid: Bool = false
+    @State private var debridStatusMessage: String? = nil
     @State private var customAddonUrlInput: String = ""
     @State private var addonInstallError: String? = nil
 
@@ -313,7 +318,7 @@ struct AccountSetupView: View {
                     .font(.custom("Helvetica", size: 12).weight(.bold))
                     .foregroundColor(.white.opacity(0.8))
 
-                TextField("e.g. Umut, Cinema Room, Living Room", text: $profileName)
+                TextField("e.g. Cinema Room, Living Room, Personal", text: $profileName)
                     .textFieldStyle(PlainTextFieldStyle())
                     .font(.custom("Helvetica", size: 15))
                     .padding(12)
@@ -427,103 +432,213 @@ struct AccountSetupView: View {
         }
     }
 
-    // MARK: - Step 3: Add-ons (Optional)
+    // MARK: - Step 3: Add-ons ("Community Add-ons Made for Streaming")
     private var step3AddonsView: some View {
-        VStack(spacing: 24) {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    Text("Add-on Installation")
-                        .font(.custom("Baskerville", size: 28))
-                        .foregroundColor(.white)
-                    Text("Optional")
-                        .font(.custom("Helvetica", size: 11).weight(.bold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Color.cyan.opacity(0.18))
-                        .foregroundColor(.cyan)
-                        .cornerRadius(6)
-                }
+        VStack(spacing: 20) {
+            VStack(spacing: 6) {
+                Text("Streaming Add-ons")
+                    .font(.custom("Baskerville", size: 28))
+                    .foregroundColor(.white)
 
-                Text("Somnius is an agnostic media player. Add-ons allow external community indexing.")
-                    .font(.custom("Helvetica", size: 14))
+                Text("Somnius is an agnostic media player shell. Community add-ons provide decentralized stream indexing.")
+                    .font(.custom("Helvetica", size: 13))
                     .foregroundColor(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
             }
 
-            // Agnostic Add-on Architecture Notice
-            HStack(spacing: 14) {
-                Image(systemName: "puzzlepiece.extension.fill")
-                    .foregroundColor(.cyan)
-                    .font(.title3)
+            // 1. One-Click Community Streaming Add-ons Card
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.blue.opacity(0.2))
+                            .frame(width: 44, height: 44)
+                        Image(systemName: "puzzlepiece.extension.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.blue)
+                    }
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Modular Add-on Architecture")
-                        .font(.custom("Helvetica", size: 14).weight(.semibold))
-                        .foregroundColor(.white.opacity(0.95))
-                    Text("Somnius is an agnostic media player. You can connect third-party add-on manifests to browse catalogs or aggregate media.")
-                        .font(.custom("Helvetica", size: 12))
-                        .foregroundColor(.white.opacity(0.6))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Community Add-ons Made for Streaming")
+                            .font(.custom("Helvetica", size: 15).weight(.bold))
+                            .foregroundColor(.white)
+                        Text("Torrentio, Zilean (KnightCrawler), Bitmagnet (MediaFusion), OpenSubtitles")
+                            .font(.custom("Helvetica", size: 12))
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+
+                    Spacer()
+
+                    if hasInstalledCommunityPack || !addonManager.installedAddons.isEmpty {
+                        HStack(spacing: 5) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("Ready")
+                                .font(.caption.bold())
+                                .foregroundColor(.green)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.green.opacity(0.12))
+                        .clipShape(Capsule())
+                    }
                 }
 
-                Spacer()
+                // Community Add-ons Badges
+                HStack(spacing: 8) {
+                    addonBadge(name: "Torrentio", icon: "bolt.fill")
+                    addonBadge(name: "Zilean", icon: "shield.fill")
+                    addonBadge(name: "Bitmagnet", icon: "waveform.path.ecg")
+                    addonBadge(name: "OpenSubtitles", icon: "captions.bubble.fill")
+                }
+
+                // 1-Click Install Button
+                Button(action: {
+                    Task {
+                        isInstallingCommunityPack = true
+                        await addonManager.installCommunityStreamingPack(debridKey: debridApiKeyInput)
+                        isInstallingCommunityPack = false
+                        hasInstalledCommunityPack = true
+                    }
+                }) {
+                    HStack(spacing: 8) {
+                        if isInstallingCommunityPack {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .tint(.black)
+                            Text("Installing Community Add-ons...")
+                        } else if hasInstalledCommunityPack || !addonManager.installedAddons.isEmpty {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Reinstall / Update Community Add-ons")
+                        } else {
+                            Image(systemName: "arrow.down.circle.fill")
+                            Text("Install Streaming Add-ons (1-Click)")
+                        }
+                    }
+                    .font(.custom("Helvetica", size: 13).weight(.bold))
+                    .foregroundColor(hasInstalledCommunityPack ? .white : .black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(hasInstalledCommunityPack ? Color.white.opacity(0.1) : Color.white)
+                    .cornerRadius(10)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(isInstallingCommunityPack)
             }
-            .padding(16)
+            .padding(18)
             .background(Color.white.opacity(0.04))
-            .cornerRadius(12)
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
+            .cornerRadius(14)
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.09), lineWidth: 1))
 
-            // Custom Add-on Manifest URL Input
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Install Add-on via Manifest URL")
-                    .font(.custom("Baskerville", size: 16))
-                    .foregroundColor(.white.opacity(0.85))
-
+            // 2. Faster Streaming Option (Connect Add-on to Debrid Account)
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
-                    TextField("Enter manifest.json URL", text: $customAddonUrlInput)
+                    Image(systemName: "bolt.badge.clock.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(.yellow)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Connect Add-on to a Debrid Account?")
+                            .font(.custom("Helvetica", size: 14).weight(.semibold))
+                            .foregroundColor(.white)
+                        Text("Faster streaming with instant 4K UHD Remux, Dolby Vision & zero buffering.")
+                            .font(.custom("Helvetica", size: 12))
+                            .foregroundColor(.white.opacity(0.55))
+                    }
+
+                    Spacer()
+                }
+
+                HStack(spacing: 8) {
+                    SecureField("Paste Real-Debrid API Key (Optional)", text: $debridApiKeyInput)
                         .textFieldStyle(PlainTextFieldStyle())
-                        .font(.system(size: 13, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .padding(10)
                         .background(Color.white.opacity(0.06))
                         .cornerRadius(8)
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
 
-                    Button(action: {
-                        guard !customAddonUrlInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                        addonInstallError = nil
-                        Task {
-                            do {
-                                _ = try await addonManager.installAddon(rawUrl: customAddonUrlInput)
-                                customAddonUrlInput = ""
-                            } catch {
-                                addonInstallError = error.localizedDescription
-                            }
+                    if let clipboard = NSPasteboard.general.string(forType: .string), !clipboard.isEmpty {
+                        Button("Paste") {
+                            debridApiKeyInput = clipboard.trimmingCharacters(in: .whitespacesAndNewlines)
                         }
+                        .font(.caption.bold())
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(Color.white.opacity(0.08))
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                        .buttonStyle(PlainButtonStyle())
+                    }
+
+                    Button(action: {
+                        verifyAndApplyDebridKey()
                     }) {
-                        HStack(spacing: 5) {
-                            if addonManager.isInstalling {
+                        HStack(spacing: 4) {
+                            if isVerifyingDebrid {
                                 ProgressView().scaleEffect(0.6)
                             }
-                            Text("Install")
+                            Text("Connect")
                         }
-                        .font(.custom("Helvetica", size: 13).weight(.bold))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 9)
-                        .background(Color.blue)
+                        .font(.custom("Helvetica", size: 12).weight(.bold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(debridApiKeyInput.isEmpty ? Color.gray.opacity(0.3) : Color.blue)
                         .foregroundColor(.white)
                         .cornerRadius(8)
                     }
                     .buttonStyle(PlainButtonStyle())
-                    .disabled(addonManager.isInstalling || customAddonUrlInput.isEmpty)
+                    .disabled(debridApiKeyInput.isEmpty || isVerifyingDebrid)
                 }
 
-                if let err = addonInstallError {
-                    Text(err)
-                        .font(.custom("Helvetica", size: 12))
-                        .foregroundColor(.red)
+                if let msg = debridStatusMessage {
+                    Text(msg)
+                        .font(.caption)
+                        .foregroundColor(msg.contains("✓") ? .green : .red)
                 }
             }
             .padding(16)
             .background(Color.white.opacity(0.03))
             .cornerRadius(12)
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.06), lineWidth: 1))
+        }
+    }
+
+    private func addonBadge(name: String, icon: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.7))
+            Text(name)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.85))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.white.opacity(0.06))
+        .clipShape(Capsule())
+    }
+
+    private func verifyAndApplyDebridKey() {
+        let clean = debridApiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+
+        isVerifyingDebrid = true
+        debridStatusMessage = nil
+
+        Task {
+            Config.realDebridApiKey = clean
+            let service = RealDebridService()
+            do {
+                let user = try await service.fetchUser()
+                isVerifyingDebrid = false
+                debridStatusMessage = "✓ Connected as \(user.username) (\(user.type.capitalized))"
+                await addonManager.updateDebridForInstalledAddons(debridKey: clean)
+                hasInstalledCommunityPack = true
+            } catch {
+                isVerifyingDebrid = false
+                debridStatusMessage = "Connection failed: \(error.localizedDescription)"
+            }
         }
     }
 
@@ -544,16 +659,30 @@ struct AccountSetupView: View {
     }
 
     private func finalizeAccountCreation() {
+        // Auto-install community pack if not yet installed
+        if addonManager.installedAddons.isEmpty {
+            Task {
+                await addonManager.installCommunityStreamingPack(debridKey: debridApiKeyInput)
+            }
+        }
+
+        let cleanDebrid = debridApiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mode = !cleanDebrid.isEmpty ? "debrid" : "classic"
+
         let account = accountManager.createAccount(
-            username: profileName,
+            username: profileName.isEmpty ? "Profile" : profileName,
             avatarIcon: selectedIcon,
             avatarColor: selectedColor,
-            setupMode: "classic",
-            debridApiKey: nil,
+            setupMode: mode,
+            debridApiKey: !cleanDebrid.isEmpty ? cleanDebrid : nil,
             preferredQuality: preferredQuality,
             preferredLanguage: preferredLanguage,
             isGuest: false
         )
+        if !cleanDebrid.isEmpty {
+            Config.realDebridApiKey = cleanDebrid
+            Config.streamingSetupMode = "debrid"
+        }
         accountManager.selectAccount(account)
         onComplete()
     }

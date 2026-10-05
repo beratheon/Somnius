@@ -68,21 +68,12 @@ class WatchlistManager: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: watchlistKey),
            let items = try? decoder.decode([MediaItem].self, from: data) {
             self.watchlist = items
-        } else if profileScopeId == "default",
-                  let legacyData = UserDefaults.standard.data(forKey: "User_Watchlist_Items_V2"),
-                  let items = try? decoder.decode([MediaItem].self, from: legacyData) {
-            // Seamless migration from legacy un-scoped key
-            self.watchlist = items
         } else {
             self.watchlist = []
         }
 
         if let data = UserDefaults.standard.data(forKey: favoritesKey),
            let items = try? decoder.decode([MediaItem].self, from: data) {
-            self.favorites = items
-        } else if profileScopeId == "default",
-                  let legacyData = UserDefaults.standard.data(forKey: "User_Favorites_Items_V2"),
-                  let items = try? decoder.decode([MediaItem].self, from: legacyData) {
             self.favorites = items
         } else {
             self.favorites = []
@@ -91,13 +82,25 @@ class WatchlistManager: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: historyKey),
            let items = try? decoder.decode([WatchHistoryItem].self, from: data) {
             self.history = sanitizeHistory(items)
-        } else if profileScopeId == "default",
-                  let legacyData = UserDefaults.standard.data(forKey: "User_WatchHistory_Items_V2"),
-                  let items = try? decoder.decode([WatchHistoryItem].self, from: legacyData) {
-            self.history = sanitizeHistory(items)
         } else {
             self.history = []
         }
+    }
+
+    public func clearAllPersonalizedData() {
+        self.watchlist = []
+        self.favorites = []
+        self.history = []
+        self.watchedEpisodes = []
+        self.episodeProgressMap = [:]
+        UserDefaults.standard.removeObject(forKey: watchlistKey)
+        UserDefaults.standard.removeObject(forKey: favoritesKey)
+        UserDefaults.standard.removeObject(forKey: historyKey)
+        UserDefaults.standard.removeObject(forKey: episodeProgressKey)
+        UserDefaults.standard.removeObject(forKey: watchedEpisodesKey)
+        UserDefaults.standard.removeObject(forKey: "User_Watchlist_Items_V2")
+        UserDefaults.standard.removeObject(forKey: "User_Favorites_Items_V2")
+        UserDefaults.standard.removeObject(forKey: "User_WatchHistory_Items_V2")
     }
 
     private func sanitizeHistory(_ items: [WatchHistoryItem]) -> [WatchHistoryItem] {
