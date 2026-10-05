@@ -29,9 +29,13 @@ struct Config {
     // Real-Debrid Affiliate & Referral Program Configuration
     private static let affiliateUrlKey = "Somnius_RealDebrid_Affiliate_URL"
     private static let affiliateIdKey = "Somnius_RealDebrid_Affiliate_ID"
+    public static let defaultAffiliateId = "10141263"
 
     static var realDebridAffiliateId: String {
-        get { UserDefaults.standard.string(forKey: affiliateIdKey) ?? "" }
+        get {
+            let saved = UserDefaults.standard.string(forKey: affiliateIdKey) ?? ""
+            return saved.isEmpty ? defaultAffiliateId : saved
+        }
         set { UserDefaults.standard.set(newValue, forKey: affiliateIdKey) }
     }
 
@@ -46,10 +50,8 @@ struct Config {
             return url
         }
         let cleanId = realDebridAffiliateId.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !cleanId.isEmpty {
-            return URL(string: "https://real-debrid.com/?id=\(cleanId)") ?? URL(string: "https://real-debrid.com/premium")!
-        }
-        return URL(string: "https://real-debrid.com/premium")!
+        let activeId = cleanId.isEmpty ? defaultAffiliateId : cleanId
+        return URL(string: "https://real-debrid.com/?id=\(activeId)") ?? URL(string: "https://real-debrid.com/?id=10141263")!
     }
 
     static let realDebridApiTokenUrl = URL(string: "https://real-debrid.com/apitoken")!
