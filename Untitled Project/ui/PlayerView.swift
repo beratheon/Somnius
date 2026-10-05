@@ -269,6 +269,7 @@ struct PlayerView: View {
     // Playback error detection
     @State private var playbackError: String? = nil
     @State private var showPlaybackErrorSheet: Bool = false
+    @ObservedObject private var adManager = AdPlacementManager.shared
 
     // Next episode auto-play countdown & pre-caching
     @State private var showNextEpisodeCard: Bool = false
@@ -375,11 +376,17 @@ struct PlayerView: View {
             if isBuffering && !isSwitchingEpisode && (currentTime == 0 || stallSecondsCount > 2) {
                 ZStack {
                     Color.black.opacity(0.35).ignoresSafeArea()
-                    VStack(spacing: 12) {
+                    VStack(spacing: 16) {
                         ProgressView()
                             .tint(.white)
                             .scaleEffect(1.3)
 
+                        // [SDK Integration Point]: Non-intrusive sponsor banner during stream buffering
+                        if let ad = adManager.activePlayerLoadingAd, adManager.isAdsEnabled {
+                            AdBannerCardView(ad: ad, placement: .playerLoading)
+                                .frame(maxWidth: 420)
+                                .transition(.opacity)
+                        }
                     }
                     .padding(24)
                     .background(.ultraThinMaterial)
@@ -394,6 +401,16 @@ struct PlayerView: View {
                 .ignoresSafeArea()
                 .transition(.opacity)
                 .zIndex(100)
+                .onAppear {
+                    // Request sponsor ad during initial stream loading
+                    if currentTime == 0 {
+                        Task { await adManager.maybeShowAd(for: .playerLoading) }
+                    }
+                }
+                .onDisappear {
+                    // Immediately dismiss sponsor ad when playback starts
+                    adManager.dismissAd(for: .playerLoading)
+                }
             }
 
             // 3. On-Screen Subtitle Text Overlay

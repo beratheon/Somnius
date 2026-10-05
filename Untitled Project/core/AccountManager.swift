@@ -130,21 +130,22 @@ public class AccountManager: ObservableObject {
         preferredLanguage: String = "en",
         isGuest: Bool = false
     ) -> UserAccount {
+        let trimmedKey = debridApiKey?.trimmingCharacters(in: .whitespacesAndNewlines)
         let account = UserAccount(
             username: username.trimmingCharacters(in: .whitespacesAndNewlines),
             email: email?.trimmingCharacters(in: .whitespacesAndNewlines),
             avatarIcon: avatarIcon,
             avatarColor: avatarColor,
             setupMode: setupMode,
-            debridApiKey: debridApiKey?.trimmingCharacters(in: .whitespacesAndNewlines),
+            debridApiKey: (trimmedKey?.isEmpty == false) ? trimmedKey : nil,
             preferredQuality: preferredQuality,
             preferredLanguage: preferredLanguage,
             isGuest: isGuest
         )
 
         accounts.append(account)
-        selectAccount(account)
         saveAccounts()
+        switchAccountWithTransition(account)
         return account
     }
 
@@ -162,10 +163,10 @@ public class AccountManager: ObservableObject {
         self.showAccountModal = false
 
         Task { @MainActor in
-            // Exactly 1 second elegant transition so user clearly notices profile switch
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            // Exactly 1.2 second elegant transition so user clearly notices profile switch
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
             self.selectAccount(account)
-            withAnimation(.easeInOut(duration: 0.3)) {
+            withAnimation(.easeInOut(duration: 0.35)) {
                 self.isSwitchingProfile = false
                 self.switchingProfileTarget = nil
             }
@@ -196,11 +197,15 @@ public class AccountManager: ObservableObject {
 
     private func applyAccountSettings(_ account: UserAccount) {
         Config.streamingSetupMode = account.setupMode
-        if let key = account.debridApiKey {
-            Config.realDebridApiKey = key
-        }
+        let key = account.debridApiKey ?? ""
+        Config.realDebridApiKey = key
         Config.preferredStreamQuality = account.preferredQuality
         Config.preferredSubtitleLanguage = account.preferredLanguage
+
+        // Update installed add-ons with this profile's key
+        Task { @MainActor in
+            await StremioAddonManager.shared.updateDebridForInstalledAddons(debridKey: key)
+        }
     }
 
     public static func colorForName(_ colorName: String) -> Color {

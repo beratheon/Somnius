@@ -333,6 +333,14 @@ struct ContentView: View {
         .sheet(isPresented: $accountManager.showAccountModal) {
             AccountSetupView {
                 accountManager.showAccountModal = false
+                WatchlistManager.shared.reloadForCurrentProfile()
+                viewModel.fetchContent()
+            }
+            .frame(minWidth: 880, idealWidth: 940, minHeight: 650, idealHeight: 720)
+        }
+        .onChange(of: accountManager.activeAccount?.id) { _, newId in
+            if newId != nil {
+                WatchlistManager.shared.reloadForCurrentProfile()
                 viewModel.fetchContent()
             }
         }
@@ -774,9 +782,13 @@ class ContentViewModel: ObservableObject {
         errorMessage = nil
 
         Task {
-            // 1. Fetch Real-Debrid User Status
-            if let user = try? await realDebridService.fetchUser() {
+            // 1. Fetch Real-Debrid User Status for active profile
+            if Config.realDebridApiKey.isEmpty {
+                self.realDebridUser = nil
+            } else if let user = try? await realDebridService.fetchUser() {
                 self.realDebridUser = user
+            } else {
+                self.realDebridUser = nil
             }
 
             // 2. Sync all Live Catalogs in parallel from live endpoints

@@ -42,6 +42,8 @@ struct UserProfileView: View {
     @State private var affiliateIdInput: String = Config.realDebridAffiliateId
     @State private var affiliateUrlInput: String = Config.realDebridAffiliateUrlString
     @State private var showAffiliateSettings: Bool = false
+    @ObservedObject private var adManager = AdPlacementManager.shared
+    @ObservedObject private var accountManager = AccountManager.shared
 
     var isEmbeddedPage: Bool = false
     var onSelectMediaItem: (MediaItem) -> Void
@@ -59,6 +61,7 @@ struct UserProfileView: View {
         case cloud = "Debrid Cloud"
         case watchlist = "Watchlist & History"
         case updates = "Updates & Beta"
+        case monetization = "Support & Ads"
 
         var id: String { rawValue }
         var icon: String {
@@ -74,6 +77,7 @@ struct UserProfileView: View {
             case .cloud: return "icloud.fill"
             case .watchlist: return "bookmark.fill"
             case .updates: return "arrow.triangle.2.circlepath.circle.fill"
+            case .monetization: return "heart.fill"
             }
         }
     }
@@ -226,6 +230,8 @@ struct UserProfileView: View {
                         watchlistHistoryView
                     case .updates:
                         updatesBetaView
+                    case .monetization:
+                        monetizationAdsSettingsView
                     }
                 }
                 .padding(26)
@@ -283,6 +289,7 @@ struct UserProfileView: View {
         case .cloud: return "Manage active torrents in your Real-Debrid cloud storage"
         case .watchlist: return "Browse and organize your saved titles and continue watching history"
         case .updates: return "Configure auto-updates via Sparkle, GitHub Releases, and opt into Beta channel"
+        case .monetization: return "Support Somnius development with non-intrusive sponsor ads, or configure referral links"
         }
     }
 
@@ -407,7 +414,12 @@ struct UserProfileView: View {
                         let clean = inputKey.trimmingCharacters(in: .whitespacesAndNewlines)
                         Config.realDebridApiKey = clean
                         inputKey = clean
-                        statusMessage = clean.isEmpty ? "API Key removed." : "API Key saved successfully."
+                        if var active = accountManager.activeAccount {
+                            active.debridApiKey = clean.isEmpty ? nil : clean
+                            active.setupMode = clean.isEmpty ? "classic" : "debrid"
+                            accountManager.updateAccount(active)
+                        }
+                        statusMessage = clean.isEmpty ? "API Key removed." : "API Key saved successfully for \(accountManager.activeAccount?.username ?? "profile")."
                         viewModel.fetchContent()
                     }
                     .buttonStyle(.borderedProminent)
@@ -417,6 +429,11 @@ struct UserProfileView: View {
                         Button("Clear") {
                             inputKey = ""
                             Config.realDebridApiKey = ""
+                            if var active = accountManager.activeAccount {
+                                active.debridApiKey = nil
+                                active.setupMode = "classic"
+                                accountManager.updateAccount(active)
+                            }
                             statusMessage = "API Key cleared."
                             viewModel.fetchContent()
                         }
@@ -1682,6 +1699,123 @@ struct UserProfileView: View {
                     .foregroundColor(AppUpdater.shared.receiveBetaUpdates ? .orange : .green)
             }
             .padding(.horizontal, 4)
+        }
+    }
+
+    // MARK: - 10. Support & Ads View (Ad SDK Integration)
+    private var monetizationAdsSettingsView: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            // Header Overview Card
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label("Support Somnius", systemImage: "heart.fill")
+                        .font(.headline.bold())
+                        .foregroundColor(.pink)
+                    Spacer()
+                    Text(adManager.isAdsEnabled ? "Ads Active" : "Ads Disabled")
+                        .font(.caption.bold())
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(adManager.isAdsEnabled ? Color.green.opacity(0.15) : Color.gray.opacity(0.2))
+                        .foregroundColor(adManager.isAdsEnabled ? .green : .gray)
+                        .clipShape(Capsule())
+                }
+
+                Text("Somnius is free, open, and client-side. We keep the platform completely unrestricted through non-intrusive sponsorships.")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.65))
+            }
+            .padding(16)
+            .background(Color.white.opacity(0.04))
+            .cornerRadius(12)
+
+            // Ads Toggle Card (Requirement 5)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Support Somnius with ads")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.white)
+                        Text("Displays non-blocking sponsor cards during setup and initial stream buffer loading. Ads never interrupt your playback or lock content.")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $adManager.isAdsEnabled)
+                        .toggleStyle(.switch)
+                }
+            }
+            .padding(16)
+            .background(Color.white.opacity(0.04))
+            .cornerRadius(12)
+
+            // Future Ad-Free Tier Placeholder (Requirement 5 Stub)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text("Somnius Ad-Free Supporter Pass")
+                                .font(.subheadline.bold())
+                                .foregroundColor(.white)
+                            Text("COMING SOON")
+                                .font(.system(size: 9, weight: .bold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.purple.opacity(0.2))
+                                .foregroundColor(Color.purple)
+                                .clipShape(Capsule())
+                        }
+                        Text("Permanent zero-ad experience across all devices plus early beta builds and supporter profile badge.")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    Spacer()
+                    Button("Unlock Ad-Free") {}
+                        .font(.caption.bold())
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.1))
+                        .foregroundColor(.white.opacity(0.5))
+                        .cornerRadius(6)
+                        .disabled(true)
+                }
+            }
+            .padding(16)
+            .background(Color.white.opacity(0.03))
+            .cornerRadius(12)
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.06), lineWidth: 1))
+
+            // Real-Debrid Affiliate Settings
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label("Real-Debrid Affiliate Referral Link", systemImage: "bolt.fill")
+                        .font(.subheadline.bold())
+                        .foregroundColor(Color(red: 0.22, green: 0.82, blue: 0.6))
+                    Spacer()
+                    Text("Partner ID: \(Config.realDebridAffiliateId)")
+                        .font(.caption.monospaced())
+                        .foregroundColor(.white.opacity(0.6))
+                }
+
+                Text("Users who tap 'Get Real-Debrid' in Setup will subscribe using your partner link, earning you Fidelity Points and free premium days.")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+
+                HStack(spacing: 10) {
+                    TextField("Affiliate ID (e.g. 10141263)", text: $affiliateIdInput)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .frame(maxWidth: 240)
+
+                    Button("Save Affiliate ID") {
+                        Config.realDebridAffiliateId = affiliateIdInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                    .font(.caption.bold())
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(16)
+            .background(Color.white.opacity(0.04))
+            .cornerRadius(12)
         }
     }
 

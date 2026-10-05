@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "provider": "mock",
+  "apiKey": "MOCK_ADEX_KEY_SOMNIUS_2026",
+  "cooldowns": {
+    "setup_screen": 5,
+    "player_loading": 2
+  },
+  "supportAdsToggleDefault": true
+}
