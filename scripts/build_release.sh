@@ -31,7 +31,18 @@ xcodebuild archive \
 # 2. Export .app
 echo "📂 Extracting $APP_NAME.app..."
 rm -rf "$APP_PATH"
-cp -R "$ARCHIVE_PATH/Products/Applications/Untitled Project.app" "$APP_PATH"
+if [ -d "$ARCHIVE_PATH/Products/Applications/Somnius.app" ]; then
+    cp -R "$ARCHIVE_PATH/Products/Applications/Somnius.app" "$APP_PATH"
+elif [ -d "$ARCHIVE_PATH/Products/Applications/Untitled Project.app" ]; then
+    cp -R "$ARCHIVE_PATH/Products/Applications/Untitled Project.app" "$APP_PATH"
+else
+    FOUND_APP=$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -name "*.app" | head -n 1)
+    cp -R "$FOUND_APP" "$APP_PATH"
+fi
+
+# Explicitly guarantee macOS Menu Bar reads Somnius
+plutil -replace CFBundleName -string "Somnius" "$APP_PATH/Contents/Info.plist"
+plutil -replace CFBundleDisplayName -string "Somnius" "$APP_PATH/Contents/Info.plist"
 
 # 3. Create Custom Styled DMG installer
 echo "💿 Generating DMG artwork and staging installer..."
