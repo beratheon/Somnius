@@ -205,7 +205,17 @@ struct CenteredKSVideoHost: NSViewRepresentable {
         coordinator.onStateChanged = onStateChanged
         coordinator.onFinish = onFinish
         if coordinator.playerLayer?.url != url {
-            _ = coordinator.makeView(url: url, options: options)
+            nsView.subviews.forEach { $0.removeFromSuperview() }
+            let playerView = coordinator.makeView(url: url, options: options)
+            playerView.wantsLayer = true
+            playerView.translatesAutoresizingMaskIntoConstraints = false
+            nsView.addSubview(playerView)
+            NSLayoutConstraint.activate([
+                playerView.leadingAnchor.constraint(equalTo: nsView.leadingAnchor),
+                playerView.trailingAnchor.constraint(equalTo: nsView.trailingAnchor),
+                playerView.topAnchor.constraint(equalTo: nsView.topAnchor),
+                playerView.bottomAnchor.constraint(equalTo: nsView.bottomAnchor),
+            ])
         }
     }
 
@@ -414,8 +424,10 @@ struct PlayerView: View {
                     togglePlayPause()
                 }
                 #if os(macOS)
-                .onContinuousHover { _ in
-                    userInteracted()
+                .onHover { isHovered in
+                    if isHovered && !showControls {
+                        userInteracted()
+                    }
                 }
                 #endif
 
@@ -1635,14 +1647,16 @@ struct PlayerView: View {
 
     // MARK: - Auto-Hide Controls & Inactivity
     private func userInteracted() {
-        showControls = true
+        if !showControls {
+            showControls = true
+        }
         #if os(macOS)
         NSCursor.unhide()
         #endif
         hideControlsWorkItem?.cancel()
 
         let workItem = DispatchWorkItem {
-            if isPlaying && !showEpisodesDrawer && !showSourcesDrawer && !showAudioPopover && !showSubtitlePopover && !showExternalPlayerPopover && !showEnginePopover {
+            if !showEpisodesDrawer && !showSourcesDrawer && !showAudioPopover && !showSubtitlePopover && !showExternalPlayerPopover && !showEnginePopover {
                 withAnimation {
                     showControls = false
                 }

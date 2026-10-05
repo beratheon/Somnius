@@ -59,32 +59,26 @@ public class KSPlayerEngine: ObservableObject {
     }
 
     private func configureEngineOptions() {
-        // Configure KSPlayer to use KSMEPlayer (FFmpeg + Metal hardware decoding)
-        KSOptions.firstPlayerType = KSMEPlayer.self
-        KSOptions.secondPlayerType = KSAVPlayer.self
+        // Prioritize Apple native AVPlayer for buttery smooth 60/120fps hardware playback, with FFmpeg KSMEPlayer fallback
+        KSOptions.firstPlayerType = KSAVPlayer.self
+        KSOptions.secondPlayerType = KSMEPlayer.self
         KSOptions.hardwareDecode = true
         KSOptions.asynchronousDecompression = true
         KSOptions.isSecondOpen = true
-        KSOptions.isAccurateSeek = true
+        KSOptions.isAccurateSeek = false
         KSOptions.isSeekedAutoPlay = true
         KSOptions.canStartPictureInPictureAutomaticallyFromInline = true
-        // Set low playback start threshold (3s) so video starts immediately and never stutters waiting for huge buffers
-        KSOptions.preferredForwardBufferDuration = 3.0
+        KSOptions.preferredForwardBufferDuration = 2.0
         KSOptions.maxBufferDuration = max(60.0, Double(Config.bufferAheadSeconds) * 2)
 
         options.hardwareDecode = true
         options.asynchronousDecompression = true
         options.isSecondOpen = true
-        options.probesize = 1024 * 1024 * 4 // 4MB robust stream probe
-        options.maxAnalyzeDuration = 1_000_000 // 1s analyze duration
         options.formatContextOptions["tcp_nodelay"] = 1
-        options.formatContextOptions["reconnect"] = 1
-        options.formatContextOptions["reconnect_streamed"] = 1
-        options.formatContextOptions["reconnect_delay_max"] = 3
         options.decoderOptions["threads"] = "auto"
-        options.preferredForwardBufferDuration = 3.0
+        options.preferredForwardBufferDuration = 2.0
         options.maxBufferDuration = max(60.0, Double(Config.bufferAheadSeconds) * 2)
-        options.isAccurateSeek = true
+        options.isAccurateSeek = false
         options.isSeekedAutoPlay = true
         options.autoSelectEmbedSubtitle = true
     }
