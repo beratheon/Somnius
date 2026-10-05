@@ -39,6 +39,9 @@ struct UserProfileView: View {
     @State private var showResetConfirm: Bool = false
     @State private var showAddCatalogSheet: Bool = false
     @State private var configuredAddonForSheet: InstalledAddon? = nil
+    @State private var affiliateIdInput: String = Config.realDebridAffiliateId
+    @State private var affiliateUrlInput: String = Config.realDebridAffiliateUrlString
+    @State private var showAffiliateSettings: Bool = false
 
     var isEmbeddedPage: Bool = false
     var onSelectMediaItem: (MediaItem) -> Void
@@ -453,6 +456,111 @@ struct UserProfileView: View {
             .padding(16)
             .background(Color.white.opacity(0.04))
             .cornerRadius(12)
+
+            // Real-Debrid Affiliate & Partner Card
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.orange, Color.yellow],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 40, height: 40)
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(.black)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text("Real-Debrid Affiliate & Referral Program")
+                                .font(.headline.bold())
+                                .foregroundColor(.white)
+                            Text("Partner")
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.2))
+                                .foregroundColor(.orange)
+                                .clipShape(Capsule())
+                        }
+                        Text("Earn commissions and reward points by sharing Somnius with your referral link.")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+
+                    Spacer()
+
+                    Button(action: {
+                        NSWorkspace.shared.open(Config.realDebridAffiliateUrl)
+                    }) {
+                        HStack(spacing: 5) {
+                            Text("Open Affiliate Link")
+                            Image(systemName: "arrow.up.right")
+                        }
+                        .font(.caption.bold())
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(
+                            LinearGradient(
+                                colors: [Color.orange, Color.yellow],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .foregroundColor(.black)
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+
+                // Expandable Affiliate Settings
+                DisclosureGroup("Configure Affiliate Referral ID / URL", isExpanded: $showAffiliateSettings) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Enter your Real-Debrid Affiliate ID or full Referral URL. Users tapping 'Get Real-Debrid' in Setup will subscribe using your link.")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.6))
+
+                        HStack(spacing: 10) {
+                            TextField("Affiliate ID (e.g. 1234567)", text: $affiliateIdInput)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 12, design: .monospaced))
+
+                            Button("Save ID") {
+                                Config.realDebridAffiliateId = affiliateIdInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.orange)
+                        }
+
+                        HStack(spacing: 10) {
+                            TextField("Or Full Referral URL (e.g. https://real-debrid.com/?id=...)", text: $affiliateUrlInput)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 12, design: .monospaced))
+
+                            Button("Save URL") {
+                                Config.realDebridAffiliateUrlString = affiliateUrlInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
+                        Text("Current Active Link: \(Config.realDebridAffiliateUrl.absoluteString)")
+                            .font(.caption2.monospaced())
+                            .foregroundColor(.white.opacity(0.45))
+                    }
+                    .padding(.top, 8)
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundColor(.white.opacity(0.9))
+            }
+            .padding(16)
+            .background(Color.orange.opacity(0.05))
+            .cornerRadius(12)
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.orange.opacity(0.18), lineWidth: 1))
 
             // TheTVDB (TVDB) Metadata Engine Card
             VStack(alignment: .leading, spacing: 12) {

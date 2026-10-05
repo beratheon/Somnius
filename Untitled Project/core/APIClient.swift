@@ -26,6 +26,34 @@ struct Config {
         set { realDebridApiKey = newValue }
     }
 
+    // Real-Debrid Affiliate & Referral Program Configuration
+    private static let affiliateUrlKey = "Somnius_RealDebrid_Affiliate_URL"
+    private static let affiliateIdKey = "Somnius_RealDebrid_Affiliate_ID"
+
+    static var realDebridAffiliateId: String {
+        get { UserDefaults.standard.string(forKey: affiliateIdKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: affiliateIdKey) }
+    }
+
+    static var realDebridAffiliateUrlString: String {
+        get { UserDefaults.standard.string(forKey: affiliateUrlKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: affiliateUrlKey) }
+    }
+
+    static var realDebridAffiliateUrl: URL {
+        let customUrl = realDebridAffiliateUrlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !customUrl.isEmpty, let url = URL(string: customUrl) {
+            return url
+        }
+        let cleanId = realDebridAffiliateId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanId.isEmpty {
+            return URL(string: "https://real-debrid.com/?id=\(cleanId)") ?? URL(string: "https://real-debrid.com/premium")!
+        }
+        return URL(string: "https://real-debrid.com/premium")!
+    }
+
+    static let realDebridApiTokenUrl = URL(string: "https://real-debrid.com/apitoken")!
+
     private static let tvdbApiKeyKey = "TVDB_API_Key"
     static let defaultTVDBApiKey = "619b8175-6279-4345-afe1-67ffe08e2acf"
 

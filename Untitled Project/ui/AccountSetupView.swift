@@ -596,6 +596,99 @@ struct AccountSetupView: View {
                         .font(.caption)
                         .foregroundColor(msg.contains("✓") ? .green : .red)
                 }
+
+                // 3. Affiliate Program Card ("Don't have a Real-Debrid account?")
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color.orange, Color.yellow],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(width: 38, height: 38)
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(.black)
+                        }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text("Don't have a Real-Debrid account?")
+                                    .font(.custom("Helvetica", size: 13).weight(.bold))
+                                    .foregroundColor(.white)
+                                Text("From $3/mo")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.orange.opacity(0.2))
+                                    .foregroundColor(.orange)
+                                    .clipShape(Capsule())
+                            }
+                            Text("Unlock instant 4K UHD Remux, Dolby Vision & zero-buffering cloud caching.")
+                                .font(.custom("Helvetica", size: 11))
+                                .foregroundColor(.white.opacity(0.6))
+                        }
+
+                        Spacer()
+
+                        Button(action: {
+                            NSWorkspace.shared.open(Config.realDebridAffiliateUrl)
+                        }) {
+                            HStack(spacing: 5) {
+                                Text("Get Real-Debrid")
+                                Image(systemName: "arrow.up.right")
+                            }
+                            .font(.custom("Helvetica", size: 12).weight(.bold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(
+                                LinearGradient(
+                                    colors: [Color.orange, Color.yellow],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .foregroundColor(.black)
+                            .cornerRadius(8)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+
+                    HStack(spacing: 14) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill").font(.system(size: 10)).foregroundColor(.green)
+                            Text("1 Gbps Cloud Speed").font(.system(size: 11)).foregroundColor(.white.opacity(0.55))
+                        }
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill").font(.system(size: 10)).foregroundColor(.green)
+                            Text("Dolby Vision & 4K").font(.system(size: 11)).foregroundColor(.white.opacity(0.55))
+                        }
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill").font(.system(size: 10)).foregroundColor(.green)
+                            Text("No Torrent Seeding").font(.system(size: 11)).foregroundColor(.white.opacity(0.55))
+                        }
+
+                        Spacer()
+
+                        Button(action: {
+                            NSWorkspace.shared.open(Config.realDebridApiTokenUrl)
+                        }) {
+                            Text("Find API Token ↗")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.cyan)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                    .padding(.top, 2)
+                }
+                .padding(12)
+                .background(Color.orange.opacity(0.06))
+                .cornerRadius(10)
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.orange.opacity(0.18), lineWidth: 0.8))
             }
             .padding(16)
             .background(Color.white.opacity(0.03))
