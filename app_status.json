@@ -1,0 +1,8 @@
+{
+  "kill_switch": false,
+  "beta_active": true,
+  "min_version": "1.0.0",
+  "title": "Beta Preview Concluded",
+  "message": "This preview build is no longer supported or active. Please download the latest official release to continue.",
+  "download_url": "https://github.com/beratheon/Somnius/releases/latest"
+}

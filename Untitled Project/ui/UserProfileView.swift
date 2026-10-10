@@ -16,6 +16,12 @@ struct UserProfileView: View {
     @State private var defaultPlayer: String = Config.defaultPlayerSelection
     @State private var preferredSubLang: String = Config.preferredSubtitleLanguage
     @State private var autoPlayNext: Bool = Config.autoPlayNextEpisode
+    @State private var autoPlayMaxSize: Double = Config.autoPlayMaxGbSize
+    @State private var autoPlayQuality: String = Config.autoPlayPreferredQuality
+    @State private var autoPlayPreferHDR: Bool = Config.autoPlayPreferHDR
+    @State private var autoPlayPreferSurround: Bool = Config.autoPlayPreferSurround
+    @State private var autoPlayCachedOnly: Bool = Config.autoPlayCachedOnly
+    @State private var autoPlaySkipShortClips: Bool = Config.autoPlaySkipShortClips
     @State private var bufferSeconds: Double = Config.bufferAheadSeconds
     @State private var preferredQuality: String = Config.preferredStreamQuality
     @State private var subtitleColor: String = Config.subtitleColorPreference
@@ -366,6 +372,44 @@ struct UserProfileView: View {
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
+            }
+
+            if setupMode == "debrid" {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Turbo Engine (Real-Debrid) Configuration")
+                        .font(.headline.bold())
+                        .foregroundColor(.white)
+                    
+                    HStack(spacing: 10) {
+                        SecureField("Paste your Real-Debrid API token here...", text: $inputKey)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                        
+                        Button("Save Token") {
+                            let clean = inputKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                            Config.realDebridApiKey = clean
+                            inputKey = clean
+                            if var active = accountManager.activeAccount {
+                                active.debridApiKey = clean.isEmpty ? nil : clean
+                                active.setupMode = clean.isEmpty ? "classic" : "debrid"
+                                accountManager.updateAccount(active)
+                            }
+                            statusMessage = clean.isEmpty ? "API Key removed." : "API Key saved successfully for \(accountManager.activeAccount?.username ?? "profile")."
+                            viewModel.fetchContent()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.purple)
+                        
+                        if let url = URL(string: "https://real-debrid.com/apitoken") {
+                            Button("Get Token") {
+                                NSWorkspace.shared.open(url)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                }
+                .padding()
+                .background(Color.white.opacity(0.05))
+                .cornerRadius(12)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -889,6 +933,88 @@ struct UserProfileView: View {
                     .toggleStyle(.switch)
                     .onChange(of: autoPlayNext) { _, val in
                         Config.autoPlayNextEpisode = val
+                    }
+            }
+            .padding(14)
+            .background(Color.white.opacity(0.04))
+            .cornerRadius(10)
+
+            // Auto-Play Stream Rules & Bandwidth Limiter
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    Image(systemName: "bolt.fill")
+                        .foregroundColor(.yellow)
+                    Text("Auto-Play Rules & Bandwidth Limits")
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
+                }
+
+                // File Size Limiter
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Maximum Stream File Size")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white)
+                        Spacer()
+                        Text(autoPlayMaxSize == 0 ? "No Limit" : "\(Int(autoPlayMaxSize)) GB")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(Color(red: 1.0, green: 0.45, blue: 0.45))
+                    }
+                    Text("Caps candidate stream file sizes during Auto-Play to prevent buffering on moderate internet connections.")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+
+                    Picker("", selection: $autoPlayMaxSize) {
+                        Text("4 GB").tag(4.0)
+                        Text("8 GB").tag(8.0)
+                        Text("15 GB").tag(15.0)
+                        Text("25 GB").tag(25.0)
+                        Text("50 GB").tag(50.0)
+                        Text("Unlimited").tag(0.0)
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: autoPlayMaxSize) { _, val in
+                        Config.autoPlayMaxGbSize = val
+                    }
+                }
+
+                Divider().background(Color.white.opacity(0.08))
+
+                // Preferred Quality for Auto-Play
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Auto-Play Target Resolution")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                    Picker("", selection: $autoPlayQuality) {
+                        Text("4K UHD").tag("4k")
+                        Text("1080p FHD").tag("1080p")
+                        Text("720p HD").tag("720p")
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: autoPlayQuality) { _, val in
+                        Config.autoPlayPreferredQuality = val
+                    }
+                }
+
+                Divider().background(Color.white.opacity(0.08))
+
+                // Attributes & Filters
+                Toggle("Prefer Dolby Vision & HDR10 Releases", isOn: $autoPlayPreferHDR)
+                    .toggleStyle(.switch)
+                    .onChange(of: autoPlayPreferHDR) { _, val in
+                        Config.autoPlayPreferHDR = val
+                    }
+
+                Toggle("Prefer 5.1 / 7.1 / Dolby Atmos Surround Audio", isOn: $autoPlayPreferSurround)
+                    .toggleStyle(.switch)
+                    .onChange(of: autoPlayPreferSurround) { _, val in
+                        Config.autoPlayPreferSurround = val
+                    }
+
+                Toggle("Auto-Skip Hoster Notice Clips (< 90s Videos)", isOn: $autoPlaySkipShortClips)
+                    .toggleStyle(.switch)
+                    .onChange(of: autoPlaySkipShortClips) { _, val in
+                        Config.autoPlaySkipShortClips = val
                     }
             }
             .padding(14)

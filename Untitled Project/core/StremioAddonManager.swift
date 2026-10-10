@@ -130,11 +130,11 @@ class StremioAddonManager: ObservableObject {
             isDebridConfigurable: true
         ),
         CommunityAddonTemplate(
-            id: "knightcrawler",
-            name: "KnightCrawler (Zilean)",
-            description: "Decentralized P2P scraper & caching indexer with fast metadata resolution",
-            manifestUrl: "https://knightcrawler.elfhosted.com/sort=qualitysize/manifest.json",
-            icon: "shield.fill",
+            id: "comet",
+            name: "Comet (ElfHosted)",
+            description: "High-speed multi-indexer search engine with Real-Debrid streaming",
+            manifestUrl: "https://comet.elfhosted.com/manifest.json",
+            icon: "sparkles",
             isDebridConfigurable: true
         ),
         CommunityAddonTemplate(
@@ -304,6 +304,11 @@ class StremioAddonManager: ObservableObject {
         saveAddons()
     }
 
+    func removeAllAddons() {
+        installedAddons.removeAll()
+        saveAddons()
+    }
+
     func toggleAddon(id: String) {
         if let idx = installedAddons.firstIndex(where: { $0.id == id }) {
             installedAddons[idx].isEnabled.toggle()
@@ -312,7 +317,7 @@ class StremioAddonManager: ObservableObject {
     }
 
     // MARK: - Stream Fetching Protocol
-    func fetchStreams(imdbID: String, tmdbID: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async -> [AggregatedLink] {
+    func fetchStreams(imdbID: String, tmdbID: String, type: MediaItem.MediaType, title: String? = nil, season: Int?, episode: Int?) async -> [AggregatedLink] {
         let typeString = (type == .series) ? "series" : "movie"
         let targetID: String
         if type == .series {
@@ -323,23 +328,25 @@ class StremioAddonManager: ObservableObject {
             targetID = imdbID
         }
 
-        let activeStreamAddons = installedAddons.filter { addon in
-            addon.isEnabled &&
-            addon.supportedResources.contains("stream") &&
-            addon.supportedTypes.contains(typeString)
-        }
-
-        guard !activeStreamAddons.isEmpty else { return [] }
-
+        var allLinks: [AggregatedLink] = []
+        let isTurbo = Config.isDebridMode
         let rdKey = Config.realDebridApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let rdParam = !rdKey.isEmpty ? "realdebrid=\(rdKey)" : ""
 
-        var allLinks: [AggregatedLink] = []
-
         await withTaskGroup(of: [AggregatedLink].self) { group in
-            for addon in activeStreamAddons {
+            if isTurbo {
+                group.addTask { return await self.queryTorrentio(typeString: typeString, targetID: targetID, rdParam: rdParam) }
+                group.addTask { return await self.queryMeteor(typeString: typeString, targetID: targetID, rdParam: rdParam) }
+                group.addTask { return await self.queryComet(typeString: typeString, targetID: targetID, rdParam: rdParam) }
+                group.addTask { return await self.queryKnaben(typeString: typeString, targetID: targetID, rdParam: rdParam) }
+            } else {
+                group.addTask { return await self.queryTorrentio(typeString: typeString, targetID: targetID, rdParam: rdParam) }
+            }
+
+            // User-installed custom add-ons
+            for addon in self.installedAddons where addon.isEnabled && addon.supportedResources.contains("stream") {
                 group.addTask {
-                    return await self.queryAddonStreams(addon: addon, typeString: typeString, targetID: targetID, rdParam: rdParam)
+                    return await self.queryGenericAddon(addon: addon, typeString: typeString, targetID: targetID)
                 }
             }
 
@@ -404,4 +411,133 @@ class StremioAddonManager: ObservableObject {
 
         return []
     }
+
+    // MARK: - Raw Stremio Endpoint Scraper
+    private func queryRawStreamEndpoint(url: URL, source: String? = nil) async -> [AggregatedLink] {
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 9.0
+        req.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+
+        struct StreamItem: Decodable {
+            let name: String?
+            let title: String?
+            let description: String?
+            let url: String?
+            let infoHash: String?
+            let fileIdx: Int?
+        }
+        struct StreamResponse: Decodable {
+            let streams: [StreamItem]?
+        }
+
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return [] }
+
+            let decoded = try JSONDecoder().decode(StreamResponse.self, from: data)
+            guard let streams = decoded.streams, !streams.isEmpty else { return [] }
+
+            return streams.compactMap { stream -> AggregatedLink? in
+                let titleText = stream.title ?? stream.name ?? "Community Stream"
+                let descText = stream.description ?? ""
+                let nameText = stream.name ?? "Community Stream"
+                let combinedText = "\(nameText) \n \(titleText) \n \(descText)"
+
+                // Filter out provider notice/error banner streams
+                let lower = combinedText.lowercased()
+                if lower.contains("obsolete configuration") || lower.contains("please re-configure") || lower.contains("error") && stream.url == nil && stream.infoHash == nil {
+                    return nil
+                }
+
+                let streamURL = stream.url.flatMap { URL(string: $0) }
+                let finalSource = source ?? nameText
+
+                return StreamParser.parse(rawTitle: combinedText, source: finalSource, url: streamURL, infoHash: stream.infoHash)
+            }
+        } catch {
+            return []
+        }
+    }
+
+    private func queryGenericAddon(addon: InstalledAddon, typeString: String, targetID: String) async -> [AggregatedLink] {
+        let cleanBase = addon.transportUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let url = URL(string: "\(cleanBase)/stream/\(typeString)/\(targetID).json") else { return [] }
+        return await queryRawStreamEndpoint(url: url, source: addon.name)
+    }
+
+    private func urlSafeBase64(_ data: Data) -> String? {
+        let b64 = data.base64EncodedString()
+        return b64
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    // MARK: - 1. Torrentio Provider
+    private func queryTorrentio(typeString: String, targetID: String, rdParam: String) async -> [AggregatedLink] {
+        let base = rdParam.isEmpty ? "https://torrentio.strem.fun/stream" : "https://torrentio.strem.fun/\(rdParam)/stream"
+        guard let url = URL(string: "\(base)/\(typeString)/\(targetID).json") else { return [] }
+        return await queryRawStreamEndpoint(url: url, source: "Torrentio")
+    }
+
+    // MARK: - 2. Meteor Provider
+    private func queryMeteor(typeString: String, targetID: String, rdParam: String) async -> [AggregatedLink] {
+        let base = rdParam.isEmpty ? "https://meteor-v2.strem.fun/stream" : "https://meteor-v2.strem.fun/\(rdParam)/stream"
+        guard let url = URL(string: "\(base)/\(typeString)/\(targetID).json") else { return [] }
+        return await queryRawStreamEndpoint(url: url, source: "Meteor")
+    }
+
+    // MARK: - 3. Comet Provider (V2 Format with ElfHosted & Multi-Indexer Support)
+    private func queryComet(typeString: String, targetID: String, rdParam: String) async -> [AggregatedLink] {
+        let rdKey = Config.realDebridApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rdKey.isEmpty else { return [] }
+
+        // Comet v2 settings JSON
+        let cometConfig: [String: Any] = [
+            "maxResultsPerResolution": 0,
+            "maxSize": 0,
+            "cachedOnly": false,
+            "sortCachedUncachedTogether": false,
+            "removeTrash": false,
+            "resultFormat": ["all"],
+            "debridServices": [
+                ["service": "realdebrid", "apiKey": rdKey]
+            ],
+            "enableTorrent": true,
+            "deduplicateStreams": false,
+            "scrapeDebridAccountTorrents": false,
+            "debridStreamProxyPassword": "",
+            "languages": [
+                "required": [String](),
+                "allowed": [String](),
+                "exclude": [String](),
+                "preferred": [String]()
+            ],
+            "resolutions": [String: Bool](),
+            "options": [
+                "remove_ranks_under": -10000000000,
+                "allow_english_in_languages": true,
+                "remove_unknown_languages": false
+            ]
+        ]
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: cometConfig),
+              let b64 = jsonData.base64EncodedString() as String? else {
+            return []
+        }
+
+        let base = "https://comet.elfhosted.com/\(b64)"
+        guard let url = URL(string: "\(base)/stream/\(typeString)/\(targetID).json") else { return [] }
+        return await queryRawStreamEndpoint(url: url, source: "Comet")
+    }
+
+    // MARK: - 4. Knaben Provider
+    private func queryKnaben(typeString: String, targetID: String, rdParam: String) async -> [AggregatedLink] {
+        let configJSON = "{\"debridservice\":\"realdebrid\",\"debridapikey\":\"\(Config.realDebridApiKey)\",\"resolvesync\":true}"
+        let configBase64 = urlSafeBase64(configJSON.data(using: .utf8) ?? Data()) ?? ""
+        let base = rdParam.isEmpty ? "https://knaben-stremio.elfhosted.com/stream" : "https://knaben-stremio.elfhosted.com/\(configBase64)/stream"
+        guard let url = URL(string: "\(base)/\(typeString)/\(targetID).json") else { return [] }
+        return await queryRawStreamEndpoint(url: url, source: "Knaben")
+    }
 }
+

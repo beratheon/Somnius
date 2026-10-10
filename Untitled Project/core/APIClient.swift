@@ -16,6 +16,51 @@ struct Config {
     private static let subtitleColorKey = "Subtitle_Color_Preference"
     private static let subtitleSizeKey = "Subtitle_Size_Preference"
 
+    static var autoPlayMaxGbSize: Double {
+        get { 
+            if UserDefaults.standard.object(forKey: "Auto_Play_Max_GB") == nil { return 8.0 }
+            return UserDefaults.standard.double(forKey: "Auto_Play_Max_GB")
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "Auto_Play_Max_GB") }
+    }
+    
+    static var autoPlayPreferredQuality: String {
+        get { UserDefaults.standard.string(forKey: "Auto_Play_Quality") ?? "1080p" }
+        set { UserDefaults.standard.set(newValue, forKey: "Auto_Play_Quality") }
+    }
+
+    static var autoPlayPreferHDR: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: "Auto_Play_Prefer_HDR") == nil { return true }
+            return UserDefaults.standard.bool(forKey: "Auto_Play_Prefer_HDR")
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "Auto_Play_Prefer_HDR") }
+    }
+
+    static var autoPlayPreferSurround: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: "Auto_Play_Prefer_Surround") == nil { return true }
+            return UserDefaults.standard.bool(forKey: "Auto_Play_Prefer_Surround")
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "Auto_Play_Prefer_Surround") }
+    }
+
+    static var autoPlayCachedOnly: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: "Auto_Play_Cached_Only") == nil { return true }
+            return UserDefaults.standard.bool(forKey: "Auto_Play_Cached_Only")
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "Auto_Play_Cached_Only") }
+    }
+
+    static var autoPlaySkipShortClips: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: "Auto_Play_Skip_Short_Clips") == nil { return true }
+            return UserDefaults.standard.bool(forKey: "Auto_Play_Skip_Short_Clips")
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "Auto_Play_Skip_Short_Clips") }
+    }
+
     static var realDebridApiKey: String {
         get { UserDefaults.standard.string(forKey: apiKeyKey) ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: apiKeyKey) }
@@ -635,6 +680,7 @@ class TVDBService {
 
     // Resolves TVDB Series ID using IMDb ID, TMDB numeric ID, or title search
     func resolveTVDBSeriesID(id: String, imdbID: String? = nil, title: String? = nil) async -> Int? {
+        if id.hasPrefix("tvdb-") { return Int(id.replacingOccurrences(of: "tvdb-", with: "")) }
         let lookupKey = "\(id)_\(imdbID ?? "")_\(title ?? "")"
         lock.lock()
         if let cached = seriesIDCache[lookupKey] {
@@ -697,8 +743,13 @@ class TVDBService {
                 let data: [ResultItem]?
             }
             if let decoded = try? JSONDecoder().decode(RemoteResponse.self, from: data),
-               let items = decoded.data, let first = items.first {
-                return first.series?.id ?? first.id
+               let items = decoded.data {
+                if let seriesID = items.compactMap({ $0.series?.id }).first {
+                    return seriesID
+                }
+                if let firstID = items.compactMap({ $0.id }).first {
+                    return firstID
+                }
             }
         } catch {}
         return nil
@@ -735,6 +786,100 @@ class TVDBService {
             }
         } catch {}
         return nil
+    }
+
+    // Comprehensive TV Series & Docuseries search using TVDB API
+    func searchSeries(query: String) async -> [MediaItem] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        do {
+            let (data, response) = try await executeRequest(
+                endpoint: "/search",
+                queryItems: [
+                    URLQueryItem(name: "query", value: trimmed),
+                    URLQueryItem(name: "type", value: "series")
+                ]
+            )
+            guard response.statusCode == 200 else { return [] }
+
+            struct TVDBSearchResponse: Decodable {
+                struct SearchData: Decodable {
+                    let id: String?
+                    let tvdb_id: String?
+                    let name: String?
+                    let overview: String?
+                    let image_url: String?
+                    let year: String?
+                    struct RemoteID: Decodable {
+                        let id: String?
+                        let sourceName: String?
+                    }
+                    let remote_ids: [RemoteID]?
+                }
+                let data: [SearchData]?
+            }
+
+            guard let decoded = try? JSONDecoder().decode(TVDBSearchResponse.self, from: data),
+                  let items = decoded.data else { return [] }
+
+            let df = DateFormatter()
+            df.dateFormat = "yyyy"
+
+            return items.prefix(20).compactMap { item in
+                guard let name = item.name, !name.isEmpty else { return nil }
+
+                var imdbID: String? = nil
+                var tmdbID: String? = nil
+
+                if let remotes = item.remote_ids {
+                    for r in remotes {
+                        let src = (r.sourceName ?? "").lowercased()
+                        if let rId = r.id {
+                            if src.contains("imdb") || rId.hasPrefix("tt") {
+                                imdbID = rId
+                            } else if src.contains("themoviedb") || src.contains("tmdb") {
+                                tmdbID = rId
+                            }
+                        }
+                    }
+                }
+
+                let numericTVDB: Int? = {
+                    if let s = item.tvdb_id, let v = Int(s) { return v }
+                    if let raw = item.id {
+                        let stripped = raw.replacingOccurrences(of: "series-", with: "")
+                        return Int(stripped)
+                    }
+                    return nil
+                }()
+
+                let finalID = imdbID ?? (tmdbID ?? (numericTVDB.map { "\($0)" } ?? (item.id ?? UUID().uuidString)))
+
+                if let tid = numericTVDB {
+                    self.cacheSeriesID(key: finalID, id: tid)
+                    if let im = imdbID { self.cacheSeriesID(key: im, id: tid) }
+                    self.cacheSeriesID(key: "\(finalID)_\(imdbID ?? "")_\(name)", id: tid)
+                }
+
+                let pURL = item.image_url.flatMap { URL(string: $0) }
+                let relDate = item.year.flatMap { df.date(from: $0) }
+
+                return MediaItem(
+                    id: finalID,
+                    title: name,
+                    description: item.overview,
+                    releaseDate: relDate,
+                    rating: nil,
+                    type: .series,
+                    imdbID: imdbID,
+                    posterURL: pURL,
+                    backdropURL: nil,
+                    voteCount: nil
+                )
+            }
+        } catch {
+            return []
+        }
     }
 
     func fetchTVSeasons(tvdbID: Int) async -> [TMDBService.TVSeasonInfo] {
@@ -1124,8 +1269,9 @@ class TMDBService {
                             var imdbMap: [Int: String] = [:]
                             await withTaskGroup(of: (Int, String?).self) { group in
                                 for item in topCredits.prefix(12) {
+                                    let isTV = item.media_type == "tv"
                                     group.addTask {
-                                        let imdb = await self.resolveIMDbIDForMovie(tmdbID: item.id)
+                                        let imdb = await self.resolveIMDbID(tmdbID: item.id, type: isTV ? .series : .movie)
                                         return (item.id, imdb)
                                     }
                                 }
@@ -1152,7 +1298,8 @@ class TMDBService {
                                     type: isTV ? .series : .movie,
                                     imdbID: imdb,
                                     posterURL: pURL,
-                                    backdropURL: bURL
+                                    backdropURL: bURL,
+                                    voteCount: res.vote_count
                                 )
                             }
                         }
@@ -1194,12 +1341,13 @@ class TMDBService {
             let df = DateFormatter()
             df.dateFormat = "yyyy-MM-dd"
 
-            // Concurrently resolve IMDb IDs for top results
+            // Concurrently resolve IMDb IDs for top results using proper media type
             var imdbMap: [Int: String] = [:]
             await withTaskGroup(of: (Int, String?).self) { group in
-                for item in filtered.prefix(12) {
+                for item in filtered.prefix(20) {
+                    let isTV = item.media_type == "tv"
                     group.addTask {
-                        let imdb = await self.resolveIMDbIDForMovie(tmdbID: item.id)
+                        let imdb = await self.resolveIMDbID(tmdbID: item.id, type: isTV ? .series : .movie)
                         return (item.id, imdb)
                     }
                 }
@@ -1226,7 +1374,8 @@ class TMDBService {
                     type: type,
                     imdbID: imdb,
                     posterURL: pURL,
-                    backdropURL: bURL
+                    backdropURL: bURL,
+                    voteCount: res.vote_count
                 )
             }
         } catch {
@@ -1610,17 +1759,53 @@ class TMDBService {
         }
 
         let prefix = (type == .series) ? "/tv" : "/movie"
+        var rawItems: [MediaItem] = []
         if let (recData, _) = try? await executeRequest(endpoint: "\(prefix)/\(targetID)/recommendations") {
             let items = parseMediaItems(data: recData, type: type)
-            if !items.isEmpty { return items }
+            if !items.isEmpty { rawItems = items }
         }
 
-        if let (simData, _) = try? await executeRequest(endpoint: "\(prefix)/\(targetID)/similar") {
+        if rawItems.isEmpty, let (simData, _) = try? await executeRequest(endpoint: "\(prefix)/\(targetID)/similar") {
             let items = parseMediaItems(data: simData, type: type)
-            if !items.isEmpty { return items }
+            if !items.isEmpty { rawItems = items }
         }
 
-        return []
+        if rawItems.isEmpty { return [] }
+
+        // Concurrently resolve IMDb IDs for high-res BetterPosters & seamless playback
+        var imdbMap: [String: String] = [:]
+        await withTaskGroup(of: (String, String?).self) { group in
+            for item in rawItems.prefix(20) {
+                if let tmdbInt = Int(item.id) {
+                    group.addTask {
+                        let imdb = await self.resolveIMDbID(tmdbID: tmdbInt, type: type)
+                        return (item.id, imdb)
+                    }
+                }
+            }
+            for await (itemId, resolvedImdb) in group {
+                if let resolvedImdb = resolvedImdb {
+                    imdbMap[itemId] = resolvedImdb
+                }
+            }
+        }
+
+        return rawItems.map { item in
+            let resolvedImdb = imdbMap[item.id] ?? item.imdbID
+            return MediaItem(
+                id: resolvedImdb ?? item.id,
+                title: item.title,
+                description: item.description,
+                posterUrl: item.posterURL,
+                backdropUrl: item.backdropURL,
+                releaseDate: item.releaseDate,
+                rating: item.rating,
+                type: item.type,
+                imdbID: resolvedImdb,
+                posterURL: item.posterURL,
+                backdropURL: item.backdropURL
+            )
+        }
     }
 
     // MARK: - Title Logo & Extended Details
@@ -1943,14 +2128,16 @@ class TMDBService {
         let topProduced = deduplicateTop(rawProduced)
         let topActed = deduplicateTop(rawActed)
 
-        // Collect all IDs to resolve IMDb IDs concurrently
+        // Collect all IDs and their media types to resolve IMDb IDs concurrently
         var allTopIDs: [Int] = []
         var idSet = Set<Int>()
+        var idToType: [Int: MediaItem.MediaType] = [:]
         for list in [topDirected, topProduced, topActed] {
             for item in list {
                 if !idSet.contains(item.id) {
                     idSet.insert(item.id)
                     allTopIDs.append(item.id)
+                    idToType[item.id] = (item.media_type == "tv") ? .series : .movie
                 }
             }
         }
@@ -1958,8 +2145,9 @@ class TMDBService {
         var imdbMap: [Int: String] = [:]
         await withTaskGroup(of: (Int, String?).self) { group in
             for tmdbID in allTopIDs.prefix(24) {
+                let mType = idToType[tmdbID] ?? .movie
                 group.addTask {
-                    let imdb = await self.resolveIMDbIDForMovie(tmdbID: tmdbID)
+                    let imdb = await self.resolveIMDbID(tmdbID: tmdbID, type: mType)
                     return (tmdbID, imdb)
                 }
             }
@@ -2025,8 +2213,24 @@ class TMDBService {
         }
     }
 
+    func resolveIMDbID(tmdbID: Int, type: MediaItem.MediaType) async -> String? {
+        if type == .series {
+            return await resolveIMDbIDForTV(tmdbID: tmdbID)
+        } else {
+            return await resolveIMDbIDForMovie(tmdbID: tmdbID)
+        }
+    }
+
     private func resolveIMDbIDForMovie(tmdbID: Int) async -> String? {
         guard let (data, _) = try? await executeRequest(endpoint: "/movie/\(tmdbID)/external_ids") else { return nil }
+        struct ExtResponse: Decodable {
+            let imdb_id: String?
+        }
+        return (try? JSONDecoder().decode(ExtResponse.self, from: data))?.imdb_id
+    }
+
+    private func resolveIMDbIDForTV(tmdbID: Int) async -> String? {
+        guard let (data, _) = try? await executeRequest(endpoint: "/tv/\(tmdbID)/external_ids") else { return nil }
         struct ExtResponse: Decodable {
             let imdb_id: String?
         }

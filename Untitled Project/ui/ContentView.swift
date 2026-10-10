@@ -12,7 +12,9 @@ struct ContentView: View {
     @State private var selectedStreamURL: URL? = nil
     @State private var showPlayer: Bool = false
     @State private var isFetchingStreams: Bool = false
+    @State private var hasFinishedScraping: Bool = false
     @ObservedObject private var accountManager = AccountManager.shared
+    @ObservedObject private var remoteGatekeeper = RemoteGatekeeper.shared
     @State private var showStreamPicker: Bool = false
     @State private var showProfileModal: Bool = false
     @State private var errorMessage: String? = nil
@@ -23,6 +25,7 @@ struct ContentView: View {
         case movies = "Movies"
         case series = "Series"
         case watchlist = "Watchlist"
+        case downloads = "Downloads"
         case settings = "Settings"
     }
 
@@ -174,7 +177,13 @@ struct ContentView: View {
                     )
 
                     // Main Content based on Tab (Home, Movies, Series, Watchlist, Settings)
-                    if currentTab == .watchlist {
+                    if currentTab == .downloads {
+                        DownloadsView(onMediaSelected: { item in
+                            withAnimation {
+                                detailMediaItem = item
+                            }
+                        })
+                    } else if currentTab == .watchlist {
                         WatchlistView(onMediaSelected: { item in
                             withAnimation {
                                 detailMediaItem = item
@@ -291,14 +300,20 @@ struct ContentView: View {
                 .transition(.opacity)
                 .zIndex(500)
             }
+
+            // 13. Remote Gatekeeper & Beta Expiry Lockout Overlay
+            if remoteGatekeeper.isLocked {
+                RemoteGatekeeperLockView()
+            }
         }
         .preferredColorScheme(.dark)
         .ignoresSafeArea()
         .sheet(isPresented: $showStreamPicker) {
             StreamSelectionSheet(
                 mediaItem: selectedMediaItem,
-                links: scrapedLinks,
-                isLoading: isFetchingStreams,
+                links: $scrapedLinks,
+                isLoading: $isFetchingStreams,
+                hasFinished: $hasFinishedScraping,
                 onSelect: { link in
                     showStreamPicker = false
                     Task {
@@ -351,6 +366,7 @@ struct ContentView: View {
             Button("OK") { errorMessage = nil }
             Button("Choose Alternative Source") {
                 errorMessage = nil
+                hasFinishedScraping = true
                 showStreamPicker = true
             }
         } message: {
@@ -384,6 +400,12 @@ struct ContentView: View {
                 currentTab = .settings
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SwitchToDownloadsTab"))) { _ in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                currentTab = .downloads
+                detailMediaItem = nil // dismiss detail modal so downloads tab is immediately visible
+            }
+        }
     }
 
     @MainActor
@@ -392,6 +414,7 @@ struct ContentView: View {
         playingSeason = season
         playingEpisode = episode
         isFetchingStreams = true
+        hasFinishedScraping = false
         scrapedLinks = []
         showStreamPicker = true
 
@@ -399,8 +422,10 @@ struct ContentView: View {
             let links = try await AggregatorService().fetchBestLinks(tmdbID: item.id, imdbID: item.imdbID, type: item.type, season: season, episode: episode)
             scrapedLinks = links
             isFetchingStreams = false
+            hasFinishedScraping = true
         } catch {
             isFetchingStreams = false
+            hasFinishedScraping = true
             errorMessage = "Scraper error: \(error.localizedDescription)"
         }
     }
@@ -410,8 +435,53 @@ struct ContentView: View {
         guard !scrapedLinks.isEmpty else { return }
         isFetchingStreams = true
 
+        let maxSize = Config.autoPlayMaxGbSize
+        let prefQuality = Config.autoPlayPreferredQuality.lowercased()
+        let preferHDR = Config.autoPlayPreferHDR
+        let preferSurround = Config.autoPlayPreferSurround
+        let cachedOnly = Config.autoPlayCachedOnly
+
+        var candidates = scrapedLinks.filter { link in
+            if cachedOnly && !link.isCached { return false }
+            if maxSize > 0, let gb = link.sizeInGigabytes, gb > maxSize { return false }
+            return true
+        }
+
+        if candidates.isEmpty {
+            candidates = scrapedLinks
+        }
+
+        candidates.sort { a, b in
+            let aQuality = a.quality.lowercased()
+            let bQuality = b.quality.lowercased()
+            let aMatch = (aQuality == prefQuality || (prefQuality == "4k" && a.quality == "4K") || (prefQuality == "1080p" && a.quality == "FHD") || (prefQuality == "720p" && a.quality == "HD"))
+            let bMatch = (bQuality == prefQuality || (prefQuality == "4k" && b.quality == "4K") || (prefQuality == "1080p" && b.quality == "FHD") || (prefQuality == "720p" && b.quality == "HD"))
+            if aMatch != bMatch { return aMatch && !bMatch }
+
+            if a.isCached != b.isCached { return a.isCached && !b.isCached }
+
+            if preferHDR {
+                let aHDR = a.hdrTag != nil
+                let bHDR = b.hdrTag != nil
+                if aHDR != bHDR { return aHDR && !bHDR }
+            }
+
+            if preferSurround {
+                let aSurround = (a.audioTag?.contains("5.1") == true || a.audioTag?.contains("7.1") == true || a.audioTag?.contains("ATMOS") == true)
+                let bSurround = (b.audioTag?.contains("5.1") == true || b.audioTag?.contains("7.1") == true || b.audioTag?.contains("ATMOS") == true)
+                if aSurround != bSurround { return aSurround && !bSurround }
+            }
+
+            let sA = a.seeds ?? 0
+            let sB = b.seeds ?? 0
+            if sA != sB { return sA > sB }
+            return a.score > b.score
+        }
+
+        let bestLink = candidates.first ?? scrapedLinks[0]
+
         do {
-            let (url, resolvedLink) = try await AggregatorService().resolveStreamURLWithFallback(startingLink: scrapedLinks[0], allLinks: scrapedLinks)
+            let (url, resolvedLink) = try await AggregatorService().resolveStreamURLWithFallback(startingLink: bestLink, allLinks: candidates)
             isFetchingStreams = false
             print("Successfully resolved stream via fallback: \(resolvedLink.title)")
 
@@ -507,8 +577,9 @@ struct ContentView: View {
 // MARK: - Stream Selection Sheet
 struct StreamSelectionSheet: View {
     let mediaItem: MediaItem?
-    let links: [AggregatedLink]
-    let isLoading: Bool
+    @Binding var links: [AggregatedLink]
+    @Binding var isLoading: Bool
+    @Binding var hasFinished: Bool
     var onSelect: (AggregatedLink) -> Void
     var onAutoPlayBest: () -> Void
 
@@ -533,17 +604,23 @@ struct StreamSelectionSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if isLoading {
+                if isLoading || !hasFinished {
                     VStack(spacing: 16) {
                         Spacer()
                         ProgressView()
-                            .scaleEffect(1.3)
+                            .scaleEffect(1.4)
                             .tint(.white)
                         Text("Finding streams…")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.white.opacity(0.7))
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.white)
+                        Text(mediaItem != nil ? "Searching decentralized streaming indexers for \(mediaItem!.title)" : "Searching decentralized streaming indexers…")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.5))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
                         Spacer()
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if links.isEmpty {
                     VStack(spacing: 12) {
                         Spacer()
@@ -594,14 +671,48 @@ struct StreamSelectionSheet: View {
 
                             Spacer()
 
-                            Button(action: onAutoPlayBest) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "bolt.fill")
-                                    Text("Play Best")
+                            // Best UHD Button
+                            if let bestUHD = links.first(where: { $0.quality == "4K" && (!Config.showOnlyCachedResults || $0.isCached) }) {
+                                Button(action: { onSelect(bestUHD) }) {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "sparkles")
+                                        Text("Play Best UHD")
+                                    }
+                                    .font(.caption.weight(.bold))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
+                                    .background(Color.purple.opacity(0.85))
+                                    .foregroundColor(.white)
+                                    .clipShape(Capsule())
                                 }
-                                .font(.subheadline.weight(.bold))
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
+                                .buttonStyle(PlainButtonStyle())
+                            }
+
+                            // Best FHD Button
+                            if let bestFHD = links.first(where: { $0.quality == "FHD" && (!Config.showOnlyCachedResults || $0.isCached) }) {
+                                Button(action: { onSelect(bestFHD) }) {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "play.circle.fill")
+                                        Text("Play Best FHD")
+                                    }
+                                    .font(.caption.weight(.bold))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
+                                    .background(Color.blue.opacity(0.85))
+                                    .foregroundColor(.white)
+                                    .clipShape(Capsule())
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+
+                            Button(action: onAutoPlayBest) {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "bolt.fill")
+                                    Text("Auto Play")
+                                }
+                                .font(.system(size: 11, weight: .bold))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
                                 .background(Color.white)
                                 .foregroundColor(.black)
                                 .clipShape(Capsule())

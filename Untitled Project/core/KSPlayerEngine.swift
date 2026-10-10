@@ -59,26 +59,33 @@ public class KSPlayerEngine: ObservableObject {
     }
 
     private func configureEngineOptions() {
-        // Prioritize Apple native AVPlayer for buttery smooth 60/120fps hardware playback, with FFmpeg KSMEPlayer fallback
-        KSOptions.firstPlayerType = KSAVPlayer.self
-        KSOptions.secondPlayerType = KSMEPlayer.self
+        // KSMEPlayer (FFmpeg + Metal hardware acceleration) handles MKV, TS, Dolby Vision, HEVC and high-bitrate torrent streams reliably
+        KSOptions.firstPlayerType = KSMEPlayer.self
+        KSOptions.secondPlayerType = KSAVPlayer.self
         KSOptions.hardwareDecode = true
         KSOptions.asynchronousDecompression = true
         KSOptions.isSecondOpen = true
-        KSOptions.isAccurateSeek = false
+        KSOptions.isAccurateSeek = true
         KSOptions.isSeekedAutoPlay = true
         KSOptions.canStartPictureInPictureAutomaticallyFromInline = true
-        KSOptions.preferredForwardBufferDuration = 2.0
+        KSOptions.preferredForwardBufferDuration = 1.0
         KSOptions.maxBufferDuration = max(60.0, Double(Config.bufferAheadSeconds) * 2)
 
         options.hardwareDecode = true
         options.asynchronousDecompression = true
         options.isSecondOpen = true
+        options.syncDecodeAudio = true
+        options.probesize = 1024 * 1024 * 4 // 4MB robust stream probe
+        options.maxAnalyzeDuration = 1_000_000 // 1s analyze duration
         options.formatContextOptions["tcp_nodelay"] = 1
+        options.formatContextOptions["reconnect"] = 1
+        options.formatContextOptions["reconnect_streamed"] = 1
+        options.formatContextOptions["reconnect_delay_max"] = 3
+        options.formatContextOptions["flush_packets"] = 1
         options.decoderOptions["threads"] = "auto"
-        options.preferredForwardBufferDuration = 2.0
+        options.preferredForwardBufferDuration = 1.0
         options.maxBufferDuration = max(60.0, Double(Config.bufferAheadSeconds) * 2)
-        options.isAccurateSeek = false
+        options.isAccurateSeek = true
         options.isSeekedAutoPlay = true
         options.autoSelectEmbedSubtitle = true
     }
@@ -220,7 +227,9 @@ public class KSPlayerEngine: ObservableObject {
         if let target = tracks.first(where: { $0.trackID == id }) {
             player.select(track: target)
             selectedAudioTrackId = id
-            refreshTracks()
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshTracks()
+            }
         }
     }
 

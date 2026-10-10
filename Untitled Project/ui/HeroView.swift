@@ -9,6 +9,10 @@ struct HeroView: View {
     @State private var isHovering: Bool = false
     @State private var timer = Timer.publish(every: 7, on: .main, in: .common).autoconnect()
     @StateObject private var watchlistManager = WatchlistManager.shared
+    @State private var logoURL: URL? = nil
+    @State private var isLoadingLogo: Bool = false
+
+    private let tmdbService = TMDBService()
 
     var currentItem: MediaItem? {
         guard !items.isEmpty else { return nil }
@@ -17,14 +21,20 @@ struct HeroView: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // 1. Ambient Glow & Backdrop Layer
+            // 1. Ambient Glow & Backdrop Layer with Poster Hover Filter
             if let item = currentItem {
                 ZStack {
-                    CachedImage(url: item.backdropUrl ?? item.posterUrl, maxPixel: 1800)
+                    CachedImage(url: item.backdropUrl ?? item.posterUrl, maxPixel: 2400)
                         .id(item.id)
                         .transition(.opacity.animation(.easeInOut(duration: 0.6)))
+                        .grayscale(isHovering ? 0.0 : 0.45)
+                        .contrast(isHovering ? 1.0 : 1.08)
+                        .saturation(isHovering ? 1.0 : 0.88)
+                        .brightness(isHovering ? 0.0 : -0.02)
+                        .scaleEffect(isHovering ? 1.025 : 1.0)
+                        .animation(.easeInOut(duration: 0.35), value: isHovering)
                 }
-                .frame(maxWidth: .infinity, maxHeight: 440)
+                .frame(maxWidth: .infinity, maxHeight: 520)
                 .clipped()
             }
 
@@ -40,17 +50,17 @@ struct HeroView: View {
                 endPoint: .bottom
             )
 
-            // Leading vignette for text legibility
+            // Leading vignette for text & logo legibility
             LinearGradient(
                 colors: [
-                    Color(red: 0.05, green: 0.05, blue: 0.06).opacity(0.9),
-                    Color(red: 0.05, green: 0.05, blue: 0.06).opacity(0.6),
+                    Color(red: 0.05, green: 0.05, blue: 0.06).opacity(0.92),
+                    Color(red: 0.05, green: 0.05, blue: 0.06).opacity(0.65),
                     Color.clear
                 ],
                 startPoint: .leading,
                 endPoint: .trailing
             )
-            .frame(width: 600)
+            .frame(width: 720)
 
             // 3. Apple TV+ Metadata & Action Controls
             VStack(alignment: .leading, spacing: 14) {
@@ -77,36 +87,57 @@ struct HeroView: View {
                         }
                     }
 
-                    // Main Title
-                    Text(item.title)
-                        .font(.system(size: 38, weight: .heavy, design: .default))
-                        .foregroundColor(.white)
-                        .lineLimit(2)
-                        .shadow(color: .black.opacity(0.8), radius: 6, x: 0, y: 3)
+                    // Logo Art Header or Sleek Typographic Fallback
+                    Group {
+                        if let logo = logoURL {
+                            CachedImage(url: logo, maxPixel: 1200, contentMode: .fit, transparentBackground: true)
+                                .frame(maxWidth: 420, maxHeight: 95, alignment: .leading)
+                                .shadow(color: .black.opacity(0.85), radius: 10, x: 0, y: 4)
+                        } else if !isLoadingLogo {
+                            Text(item.title)
+                                .font(.system(size: 42, weight: .heavy, design: .default))
+                                .foregroundColor(.white)
+                                .lineLimit(2)
+                                .shadow(color: .black.opacity(0.8), radius: 6, x: 0, y: 3)
+                        } else {
+                            // Subtle placeholder preserving vertical metrics while fetching logo
+                            Text(item.title)
+                                .font(.system(size: 42, weight: .heavy, design: .default))
+                                .foregroundColor(.white)
+                                .lineLimit(2)
+                                .shadow(color: .black.opacity(0.8), radius: 6, x: 0, y: 3)
+                        }
+                    }
+                    .frame(height: 95, alignment: .bottomLeading)
 
                     // Synopsis / Description
                     if let desc = item.description, !desc.isEmpty {
                         Text(desc)
                             .font(.system(size: 13.5, weight: .regular))
                             .foregroundColor(.white.opacity(0.85))
-                            .lineLimit(2)
-                            .lineSpacing(3)
-                            .frame(maxWidth: 620, alignment: .leading)
+                            .lineLimit(3)
+                            .lineSpacing(3.5)
+                            .frame(maxWidth: 640, alignment: .leading)
                             .shadow(color: .black.opacity(0.7), radius: 4, x: 0, y: 2)
                     }
 
                     // Action Buttons Row
                     HStack(spacing: 14) {
-                        // Play Button (Solid Apple White)
+                        // Play / Continue Button
+                        let inWatchlist = currentItem != nil ? watchlistManager.isWatchlisted(id: currentItem!.id) : false
+                        let historyItem = currentItem != nil ? watchlistManager.history.first(where: { $0.mediaItem.id == currentItem!.id }) : nil
+                        let hasWatchedProgress = (historyItem != nil && historyItem!.progressSeconds > 10)
+                        let shouldShowContinue = inWatchlist && hasWatchedProgress
+
                         Button(action: {
                             if let item = currentItem {
                                 onPlayTap?(item)
                             }
                         }) {
                             HStack(spacing: 8) {
-                                Image(systemName: "play.fill")
+                                Image(systemName: shouldShowContinue ? "arrow.clockwise.circle.fill" : "play.fill")
                                     .font(.system(size: 14, weight: .bold))
-                                Text("Play")
+                                Text(shouldShowContinue ? "Continue" : "Play")
                                     .font(.system(size: 14, weight: .bold))
                             }
                             .foregroundColor(.black)
@@ -139,6 +170,7 @@ struct HeroView: View {
                         }
                         .buttonStyle(PlainButtonStyle())
 
+
                         Spacer()
 
                         // Apple TV+ Style Slide Capsule Indicators
@@ -165,8 +197,8 @@ struct HeroView: View {
                     .padding(.top, 4)
                 }
             }
-            .padding(.horizontal, 32)
-            .padding(.bottom, 28)
+            .padding(.horizontal, 36)
+            .padding(.bottom, 32)
 
             // Side Navigation Chevrons (Appear on Hover)
             if items.count > 1 && isHovering {
@@ -179,7 +211,7 @@ struct HeroView: View {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 15, weight: .bold))
                             .foregroundColor(.white)
-                            .frame(width: 36, height: 36)
+                            .frame(width: 38, height: 38)
                             .background(.ultraThinMaterial)
                             .clipShape(Circle())
                             .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.8))
@@ -196,7 +228,7 @@ struct HeroView: View {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 15, weight: .bold))
                             .foregroundColor(.white)
-                            .frame(width: 36, height: 36)
+                            .frame(width: 38, height: 38)
                             .background(.ultraThinMaterial)
                             .clipShape(Circle())
                             .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.8))
@@ -204,11 +236,11 @@ struct HeroView: View {
                     .buttonStyle(PlainButtonStyle())
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 150)
+                .padding(.bottom, 200)
                 .transition(.opacity.animation(.easeInOut(duration: 0.2)))
             }
         }
-        .frame(height: 440)
+        .frame(height: 520)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
@@ -222,6 +254,44 @@ struct HeroView: View {
             if items.count > 1 && !isHovering {
                 withAnimation(.easeInOut(duration: 0.6)) {
                     currentIndex = (currentIndex + 1) % items.count
+                }
+            }
+        }
+        .onAppear {
+            loadLogo(for: currentItem)
+        }
+        .onChange(of: currentIndex) { _ in
+            loadLogo(for: currentItem)
+        }
+    }
+
+    private func loadLogo(for item: MediaItem?) {
+        guard let item = item else {
+            self.logoURL = nil
+            self.isLoadingLogo = false
+            return
+        }
+
+        if let initial = item.initialLogoURL {
+            self.logoURL = initial
+            self.isLoadingLogo = false
+            return
+        }
+
+        self.isLoadingLogo = true
+        self.logoURL = nil
+
+        Task {
+            let details = await tmdbService.fetchMediaLogoAndDetails(
+                id: item.id,
+                imdbID: item.imdbID,
+                type: item.type,
+                title: item.title
+            )
+            await MainActor.run {
+                if currentItem?.id == item.id {
+                    self.logoURL = details.logoURL
+                    self.isLoadingLogo = false
                 }
             }
         }

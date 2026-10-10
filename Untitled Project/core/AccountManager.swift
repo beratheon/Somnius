@@ -185,14 +185,76 @@ public class AccountManager: ObservableObject {
     }
 
     public func deleteAccount(id: UUID) {
+        // Clean up all isolated UserDefaults keys associated with this profile
+        let idStr = id.uuidString
+        UserDefaults.standard.removeObject(forKey: "User_Watchlist_Items_\(idStr)")
+        UserDefaults.standard.removeObject(forKey: "User_Favorites_Items_\(idStr)")
+        UserDefaults.standard.removeObject(forKey: "User_WatchHistory_Items_\(idStr)")
+        UserDefaults.standard.removeObject(forKey: "User_EpisodeProgress_Map_\(idStr)")
+        UserDefaults.standard.removeObject(forKey: "User_Watched_Episodes_\(idStr)")
+
         accounts.removeAll { $0.id == id }
         if activeAccount?.id == id {
             activeAccount = accounts.first
             if let active = activeAccount {
                 applyAccountSettings(active)
+                WatchlistManager.shared.reloadForCurrentProfile()
+            } else {
+                Config.hasCompletedOnboarding = false
             }
         }
         saveAccounts()
+    }
+
+    /// Completely destroys all profiles, watchlists, history, credentials, and settings.
+    public func purgeEverythingAndReset() {
+        // 1. Clean individual profile data for all profiles
+        for acc in accounts {
+            let idStr = acc.id.uuidString
+            UserDefaults.standard.removeObject(forKey: "User_Watchlist_Items_\(idStr)")
+            UserDefaults.standard.removeObject(forKey: "User_Favorites_Items_\(idStr)")
+            UserDefaults.standard.removeObject(forKey: "User_WatchHistory_Items_\(idStr)")
+            UserDefaults.standard.removeObject(forKey: "User_EpisodeProgress_Map_\(idStr)")
+            UserDefaults.standard.removeObject(forKey: "User_Watched_Episodes_\(idStr)")
+        }
+
+        // 2. Clear current in-memory watchlists
+        WatchlistManager.shared.clearAllPersonalizedData()
+        WatchlistManager.shared.clearAllUserData()
+
+        // 3. Purge accounts
+        accounts.removeAll()
+        activeAccount = nil
+        UserDefaults.standard.removeObject(forKey: storageKey)
+        UserDefaults.standard.removeObject(forKey: activeAccountIdKey)
+
+        // 4. Wipe all Somnius, User, Streaming, and RealDebrid keys from UserDefaults
+        let allKeys = UserDefaults.standard.dictionaryRepresentation().keys
+        for key in allKeys {
+            if key.hasPrefix("Somnius_") ||
+               key.hasPrefix("User_") ||
+               key.hasPrefix("Streaming_") ||
+               key.hasPrefix("RealDebrid_") ||
+               key.hasPrefix("Preferred_") ||
+               key.hasPrefix("Subtitle_") ||
+               key.hasPrefix("Fast_Start_") ||
+               key.hasPrefix("Static_Subtitles_") ||
+               key.hasPrefix("Auto_Play_") ||
+               key.hasPrefix("Buffer_Ahead_") ||
+               key.hasPrefix("Show_Only_Cached_") ||
+               key.hasPrefix("Default_Player_") ||
+               key.hasPrefix("Stremio_Installed_Addons_") ||
+               key.hasPrefix("enableExternalAudio") ||
+               key.hasPrefix("preferredAudio") ||
+               key.hasPrefix("enablePAL") {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+
+        // 5. Reset Config and Addon state
+        Config.realDebridApiKey = ""
+        Config.hasCompletedOnboarding = false
+        StremioAddonManager.shared.removeAllAddons()
     }
 
     private func applyAccountSettings(_ account: UserAccount) {

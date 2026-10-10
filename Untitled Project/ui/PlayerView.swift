@@ -14,6 +14,7 @@ struct StreamingScrubberBar: View {
     let bufferedFraction: Double
     var onSeek: (Double) -> Void
     var onScrubbingChanged: (Bool) -> Void
+    var onHovering: (() -> Void)? = nil
 
     @State private var isHovering: Bool = false
     @State private var isDragging: Bool = false
@@ -95,6 +96,7 @@ struct StreamingScrubberBar: View {
                 case .active(let location):
                     isHovering = true
                     hoverFraction = max(0.0, min(1.0, location.x / width))
+                    onHovering?()
                 case .ended:
                     isHovering = false
                 }
@@ -163,6 +165,17 @@ struct SubtitleTrack: Identifiable, Hashable {
 
 #if os(macOS)
 // MARK: - Center-Fitted High Performance Video Host
+final class CenteredVideoContainerView: NSView {
+    override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        for subview in subviews {
+            subview.frame = bounds
+        }
+    }
+}
+
 struct CenteredKSVideoHost: NSViewRepresentable {
     let coordinator: KSVideoPlayer.Coordinator
     let url: URL
@@ -176,7 +189,7 @@ struct CenteredKSVideoHost: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSView {
-        let container = NSView()
+        let container = CenteredVideoContainerView()
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.black.cgColor
         container.autoresizingMask = [.width, .height]
@@ -187,15 +200,9 @@ struct CenteredKSVideoHost: NSViewRepresentable {
 
         let playerView = coordinator.makeView(url: url, options: options)
         playerView.wantsLayer = true
-        playerView.translatesAutoresizingMaskIntoConstraints = false
+        playerView.autoresizingMask = [.width, .height]
+        playerView.frame = container.bounds
         container.addSubview(playerView)
-
-        NSLayoutConstraint.activate([
-            playerView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            playerView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            playerView.topAnchor.constraint(equalTo: container.topAnchor),
-            playerView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
 
         return container
     }
@@ -208,14 +215,9 @@ struct CenteredKSVideoHost: NSViewRepresentable {
             nsView.subviews.forEach { $0.removeFromSuperview() }
             let playerView = coordinator.makeView(url: url, options: options)
             playerView.wantsLayer = true
-            playerView.translatesAutoresizingMaskIntoConstraints = false
+            playerView.autoresizingMask = [.width, .height]
+            playerView.frame = nsView.bounds
             nsView.addSubview(playerView)
-            NSLayoutConstraint.activate([
-                playerView.leadingAnchor.constraint(equalTo: nsView.leadingAnchor),
-                playerView.trailingAnchor.constraint(equalTo: nsView.trailingAnchor),
-                playerView.topAnchor.constraint(equalTo: nsView.topAnchor),
-                playerView.bottomAnchor.constraint(equalTo: nsView.bottomAnchor),
-            ])
         }
     }
 
@@ -236,6 +238,10 @@ struct PlayerView: View {
     @StateObject private var ksEngine = KSPlayerEngine.shared
     @StateObject private var watchlistManager = WatchlistManager.shared
     @State private var activeStreamURL: URL? = nil
+    @State private var currentActiveLinkID: String? = nil
+    @State private var failedLinkIDs: Set<String> = []
+    @State private var failedStreamURLs: Set<String> = []
+    @State private var isSkippingFakeStream: Bool = false
 
     @State private var isPlaying: Bool = true
     @State private var currentTime: Double = 0
@@ -317,6 +323,7 @@ struct PlayerView: View {
     // Periodic history save tracking
     @State private var lastHistorySaveTime: Date = Date()
     @State private var keyEventMonitor: Any? = nil
+    @State private var mouseEventMonitor: Any? = nil
 
     private let tmdbService = TMDBService()
     private let aggregatorService = AggregatorService()
@@ -441,12 +448,36 @@ struct PlayerView: View {
                     togglePlayPause()
                 }
                 #if os(macOS)
-                .onHover { isHovered in
-                    if isHovered && !showControls {
-                        userInteracted()
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active:
+                        if !showControls {
+                            userInteracted()
+                        }
+                    case .ended:
+                        break
                     }
                 }
                 #endif
+
+            // Bottom Duration Bar Proximity Hover Zone (Makes bar visible when cursor approaches bottom without clicking)
+            VStack {
+                Spacer()
+                Color.clear
+                    .frame(height: 140)
+                    .contentShape(Rectangle())
+                    #if os(macOS)
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active:
+                            userInteracted()
+                        case .ended:
+                            break
+                        }
+                    }
+                    #endif
+            }
+            .ignoresSafeArea()
 
             // 5. Center Play/Pause Pulse Icon
             if showPlayPausePulse {
@@ -620,9 +651,32 @@ struct PlayerView: View {
                             }
                             .buttonStyle(.plain)
 
+                            // Option 1.5: Auto-try Next Working Stream
+                            Button(action: {
+                                if availableStreamLinks.isEmpty {
+                                    loadAvailableSources()
+                                }
+                                autoPlayNextBestLink()
+                            }) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "bolt.fill")
+                                    Text("Auto-Play Next Working Stream")
+                                }
+                                .font(.headline)
+                                .frame(maxWidth: 380)
+                                .padding(.vertical, 12)
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(12)
+                            }
+                            .buttonStyle(.plain)
+
                             // Option 2: Alternative Sources Drawer
                             Button(action: {
                                 showPlaybackErrorSheet = false
+                                if availableStreamLinks.isEmpty {
+                                    loadAvailableSources()
+                                }
                                 withAnimation { showSourcesDrawer = true }
                             }) {
                                 HStack(spacing: 8) {
@@ -637,27 +691,6 @@ struct PlayerView: View {
                                 .cornerRadius(12)
                             }
                             .buttonStyle(.plain)
-
-                            // Option 3: If it's a magnet URL, offer to open in Mac BitTorrent client
-                            if let url = activeStreamURL ?? streamURL, url.scheme?.lowercased() == "magnet" {
-                                Button(action: {
-                                    NSWorkspace.shared.open(url)
-                                    showPlaybackErrorSheet = false
-                                    onDismiss()
-                                }) {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "arrow.down.circle.fill")
-                                        Text("Open Magnet in Torrent Client (Transmission/Folx)")
-                                    }
-                                    .font(.subheadline.bold())
-                                    .frame(maxWidth: 380)
-                                    .padding(.vertical, 10)
-                                    .background(Color.white.opacity(0.08))
-                                    .foregroundColor(.white)
-                                    .cornerRadius(10)
-                                }
-                                .buttonStyle(.plain)
-                            }
 
                             // Option 4: External Players with exact resume timestamp (for playable HTTP/HTTPS streams)
                             if let url = activeStreamURL ?? streamURL, url.scheme?.lowercased() != "magnet" {
@@ -819,12 +852,15 @@ struct PlayerView: View {
                             subtitlesMenu
                         }
 
-                        // Sources & Quality Drawer Button
+                        // Sources & Quality Switcher Button (Pauses playback and centers window)
                         Button(action: {
                             userInteracted()
+                            if isPlaying {
+                                togglePlayPause()
+                            }
                             withAnimation(.easeInOut(duration: 0.25)) {
-                                showSourcesDrawer.toggle()
-                                if showSourcesDrawer && availableStreamLinks.isEmpty {
+                                showSourcesDrawer = true
+                                if availableStreamLinks.isEmpty {
                                     loadAvailableSources()
                                 }
                             }
@@ -899,6 +935,9 @@ struct PlayerView: View {
                             seekTo(targetSec)
                         },
                         onScrubbingChanged: { _ in
+                            userInteracted()
+                        },
+                        onHovering: {
                             userInteracted()
                         }
                     )
@@ -1077,6 +1116,16 @@ struct PlayerView: View {
                 .background(
                     LinearGradient(colors: [.clear, .black.opacity(0.4), .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
                 )
+                #if os(macOS)
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active:
+                        userInteracted()
+                    case .ended:
+                        break
+                    }
+                }
+                #endif
             }
             .opacity(showControls ? 1.0 : 0.0)
             .animation(.easeInOut(duration: 0.25), value: showControls)
@@ -1089,19 +1138,50 @@ struct PlayerView: View {
                     .zIndex(250)
             }
 
-            // 12. In-Player Stream Sources & Quality Switcher Drawer
+            // 12. In-Player Stream Sources & Quality Switcher (Centered Modal Window)
             if showSourcesDrawer {
-                sourcesSideDrawer
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                    .transition(.move(edge: .trailing))
-                    .zIndex(260)
+                ZStack {
+                    Color.black.opacity(0.65)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                showSourcesDrawer = false
+                            }
+                        }
+
+                    sourcesCenterModal
+                        .frame(minWidth: 540, idealWidth: 640, maxWidth: 680, minHeight: 380, idealHeight: 460, maxHeight: 520)
+                        .background(Color(red: 0.1, green: 0.1, blue: 0.12).opacity(0.98))
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.85), radius: 30, x: 0, y: 15)
+                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .ignoresSafeArea()
+                .zIndex(260)
             }
         }
+        .ignoresSafeArea()
         .onAppear {
+            #if os(macOS)
+            DispatchQueue.main.async {
+                if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) {
+                    window.titlebarAppearsTransparent = true
+                    window.styleMask.insert(.fullSizeContentView)
+                }
+            }
+            #endif
             if let s = currentSeason { playingSeasonNumber = s; selectedSeasonNumber = s }
             if let e = currentEpisode { playingEpisodeNumber = e }
             if !initialLinks.isEmpty {
                 availableStreamLinks = initialLinks
+                currentActiveLinkID = initialLinks.first?.id
+            } else {
+                loadAvailableSources()
             }
             setupPlayer()
             setupKeyboardMonitor()
@@ -1205,6 +1285,22 @@ struct PlayerView: View {
             self.currentTime = current
             if abs(total - self.duration) >= 0.5 {
                 self.duration = total
+                
+                // Anti-Fake-Hoster Detection:
+                // If a stream claims to be the movie/show but duration is <= 95 seconds, it is a hoster removal/debrid error clip.
+                if Config.autoPlaySkipShortClips && total > 0 && total <= 95 && !self.isSkippingFakeStream {
+                    self.isSkippingFakeStream = true
+                    if let curr = self.currentActiveLinkID {
+                        self.failedLinkIDs.insert(curr)
+                    }
+                    if let direct = self.activeStreamURL?.absoluteString {
+                        self.failedStreamURLs.insert(direct)
+                    }
+                    self.showToast("Hoster notice / expired clip detected (\(Int(total))s) — Auto-playing next stream...")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        self.autoPlayNextBestLink()
+                    }
+                }
             }
             let bSec = ksEngine.bufferedTime
             if abs(bSec - self.bufferedSeconds) >= 0.5 {
@@ -1364,6 +1460,10 @@ struct PlayerView: View {
             NSEvent.removeMonitor(mon)
             keyEventMonitor = nil
         }
+        if let mon = mouseEventMonitor {
+            NSEvent.removeMonitor(mon)
+            mouseEventMonitor = nil
+        }
         NSCursor.unhide()
         #endif
         ksEngine.pause()
@@ -1372,6 +1472,32 @@ struct PlayerView: View {
 
     private func exitPlayer() {
         teardownPlayer()
+
+        #if os(macOS)
+        DispatchQueue.main.async {
+            if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.canBecomeKey }) {
+                // Exit fullscreen if active
+                if window.styleMask.contains(.fullScreen) {
+                    window.toggleFullScreen(nil)
+                }
+
+                // If window size became smaller than ideal standard size (e.g. shrunk down during player use),
+                // smoothly expand back to a comfortable minimum standard frame
+                let currentFrame = window.frame
+                if currentFrame.width < 1200 || currentFrame.height < 750 {
+                    let screen = window.screen ?? NSScreen.main
+                    let screenFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+                    let targetWidth = min(1400.0, screenFrame.width * 0.9)
+                    let targetHeight = min(900.0, screenFrame.height * 0.9)
+                    let targetX = screenFrame.origin.x + (screenFrame.width - targetWidth) / 2.0
+                    let targetY = screenFrame.origin.y + (screenFrame.height - targetHeight) / 2.0
+                    let restoredFrame = NSRect(x: targetX, y: targetY, width: targetWidth, height: targetHeight)
+                    window.setFrame(restoredFrame, display: true, animate: true)
+                }
+            }
+        }
+        #endif
+
         onDismiss()
     }
 
@@ -1409,7 +1535,9 @@ struct PlayerView: View {
             do {
                 let (newURL, _) = try await aggregatorService.resolveStreamURLWithFallback(startingLink: link, allLinks: availableStreamLinks)
                 await MainActor.run {
+                    self.currentActiveLinkID = link.id
                     self.activeStreamURL = newURL
+                    self.isSkippingFakeStream = false
                     self.ksEngine.loadStream(url: newURL, startTime: savedTime)
                     self.showToast("Switched to \(link.resolutionBadge) at \(formatTime(savedTime))")
                 }
@@ -1421,57 +1549,234 @@ struct PlayerView: View {
         }
     }
 
-    private var sourcesSideDrawer: some View {
+    private func autoPlayNextBestLink() {
+        let savedTime = currentTime
+        showToast("Finding best working stream...")
+        withAnimation { 
+            showSourcesDrawer = false
+            showPlaybackErrorSheet = false
+        }
+
+        Task {
+            do {
+                // If sources not loaded yet, fetch them now
+                if self.availableStreamLinks.isEmpty, let media = self.mediaItem {
+                    let links = (try? await self.aggregatorService.fetchBestLinks(
+                        tmdbID: media.id,
+                        imdbID: media.imdbID,
+                        type: media.type,
+                        season: self.playingSeasonNumber,
+                        episode: self.playingEpisodeNumber
+                    )) ?? []
+                    await MainActor.run {
+                        self.availableStreamLinks = links
+                    }
+                }
+
+                let maxSize = Config.autoPlayMaxGbSize
+                let prefQuality = Config.autoPlayPreferredQuality.lowercased()
+                let preferHDR = Config.autoPlayPreferHDR
+                let preferSurround = Config.autoPlayPreferSurround
+                let cachedOnly = Config.autoPlayCachedOnly
+
+                var candidates = self.availableStreamLinks.filter { link in
+                    // Filter out already failed link IDs or current link
+                    if self.failedLinkIDs.contains(link.id) { return false }
+                    if let cur = self.currentActiveLinkID, link.id == cur { return false }
+                    if let direct = link.url?.absoluteString, self.failedStreamURLs.contains(direct) { return false }
+
+                    // Filter cached only if active
+                    if cachedOnly && !link.isCached { return false }
+
+                    // Filter by max file size limit (e.g. 8 GB)
+                    if maxSize > 0, let gb = link.sizeInGigabytes, gb > maxSize {
+                        return false
+                    }
+
+                    return true
+                }
+
+                // If all candidate streams exceeded size limit, fallback to remaining un-failed candidates
+                if candidates.isEmpty {
+                    candidates = self.availableStreamLinks.filter { link in
+                        if self.failedLinkIDs.contains(link.id) { return false }
+                        if let cur = self.currentActiveLinkID, link.id == cur { return false }
+                        return true
+                    }
+                }
+
+                // Sort candidates based on user preferences:
+                candidates.sort { a, b in
+                    // 1. Preferred quality match
+                    let aQuality = a.quality.lowercased()
+                    let bQuality = b.quality.lowercased()
+                    let aMatch = (aQuality == prefQuality || (prefQuality == "4k" && a.quality == "4K") || (prefQuality == "1080p" && a.quality == "FHD") || (prefQuality == "720p" && a.quality == "HD"))
+                    let bMatch = (bQuality == prefQuality || (prefQuality == "4k" && b.quality == "4K") || (prefQuality == "1080p" && b.quality == "FHD") || (prefQuality == "720p" && b.quality == "HD"))
+                    if aMatch != bMatch { return aMatch && !bMatch }
+
+                    // 2. Cached status priority
+                    if a.isCached != b.isCached { return a.isCached && !b.isCached }
+
+                    // 3. HDR / Dolby Vision preference
+                    if preferHDR {
+                        let aHDR = a.hdrTag != nil
+                        let bHDR = b.hdrTag != nil
+                        if aHDR != bHDR { return aHDR && !bHDR }
+                    }
+
+                    // 4. Surround sound preference
+                    if preferSurround {
+                        let aSurround = (a.audioTag?.contains("5.1") == true || a.audioTag?.contains("7.1") == true || a.audioTag?.contains("ATMOS") == true)
+                        let bSurround = (b.audioTag?.contains("5.1") == true || b.audioTag?.contains("7.1") == true || b.audioTag?.contains("ATMOS") == true)
+                        if aSurround != bSurround { return aSurround && !bSurround }
+                    }
+
+                    // 5. Higher seeds or score
+                    let sA = a.seeds ?? 0
+                    let sB = b.seeds ?? 0
+                    if sA != sB { return sA > sB }
+                    return a.score > b.score
+                }
+
+                guard let firstChoice = candidates.first else {
+                    await MainActor.run {
+                        self.showToast("No alternative streams found.")
+                        self.isSkippingFakeStream = false
+                    }
+                    return
+                }
+
+                let (newURL, pickedLink) = try await self.aggregatorService.resolveStreamURLWithFallback(startingLink: firstChoice, allLinks: candidates)
+                await MainActor.run {
+                    self.currentActiveLinkID = pickedLink.id
+                    self.activeStreamURL = newURL
+                    self.isSkippingFakeStream = false
+                    self.ksEngine.loadStream(url: newURL, startTime: savedTime)
+                    let sz = pickedLink.sizeString != nil ? " • \(pickedLink.sizeString!)" : ""
+                    self.showToast("Auto-playing \(pickedLink.resolutionBadge)\(sz)")
+                }
+            } catch {
+                await MainActor.run {
+                    self.isSkippingFakeStream = false
+                    self.showToast("Auto-play failed: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    private var sourcesCenterModal: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("Sources")
-                    .font(.headline.bold())
-                    .foregroundColor(.white)
+            // Header Bar
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Select Stream Source")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
+                    Text(availableStreamLinks.isEmpty ? "Searching indexers…" : "\(availableStreamLinks.count) streams available • Playback paused")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.55))
+                }
+
                 Spacer()
-                Button(action: { withAnimation { showSourcesDrawer = false } }) {
+
+                // Auto Play / Next Working Button
+                Button(action: { autoPlayNextBestLink() }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "bolt.fill")
+                        Text("Auto Play")
+                    }
+                    .font(.system(size: 11, weight: .bold))
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 6)
+                    .background(Color.white)
+                    .foregroundColor(.black)
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+
+                if let bestUHD = availableStreamLinks.first(where: { $0.quality == "4K" && (!Config.showOnlyCachedResults || $0.isCached) }) {
+                    Button(action: { switchToLink(bestUHD) }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "sparkles")
+                            Text("Best UHD")
+                        }
+                        .font(.system(size: 11, weight: .bold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.purple.opacity(0.85))
+                        .foregroundColor(.white)
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if let bestFHD = availableStreamLinks.first(where: { $0.quality == "FHD" && (!Config.showOnlyCachedResults || $0.isCached) }) {
+                    Button(action: { switchToLink(bestFHD) }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "play.circle.fill")
+                            Text("Best FHD")
+                        }
+                        .font(.system(size: 11, weight: .bold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.blue.opacity(0.85))
+                        .foregroundColor(.white)
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Button(action: { withAnimation(.easeInOut(duration: 0.2)) { showSourcesDrawer = false } }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.title2)
-                        .foregroundColor(.gray)
+                        .foregroundColor(.gray.opacity(0.8))
                 }
                 .buttonStyle(.plain)
             }
-            .padding(18)
-            .background(Color.black.opacity(0.4))
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .background(Color.black.opacity(0.45))
 
             if isLoadingSources {
-                VStack {
+                VStack(spacing: 12) {
                     Spacer()
-                    ProgressView().tint(.white)
-                    Text("Finding sources…")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                        .padding(.top, 8)
+                    ProgressView().tint(.white).scaleEffect(1.2)
+                    Text("Finding streams from decentralized indexers…")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.7))
                     Spacer()
                 }
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if availableStreamLinks.isEmpty {
-                VStack {
+                VStack(spacing: 10) {
                     Spacer()
-                    Text("No alternative sources available")
-                        .font(.subheadline)
+                    Image(systemName: "square.stack.3d.up.slash")
+                        .font(.system(size: 38))
+                        .foregroundColor(.white.opacity(0.3))
+                    Text("No alternative streams found")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.white)
+                    Text("All installed add-on indexers returned no additional playable sources.")
+                        .font(.system(size: 12))
                         .foregroundColor(.gray)
                     Spacer()
                 }
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    VStack(spacing: 10) {
+                    VStack(spacing: 8) {
                         ForEach(availableStreamLinks) { link in
                             Button(action: {
                                 switchToLink(link)
                             }) {
-                                HStack(alignment: .top, spacing: 12) {
+                                HStack(alignment: .center, spacing: 14) {
                                     VStack(alignment: .leading, spacing: 5) {
-                                        HStack(spacing: 6) {
+                                        HStack(alignment: .center, spacing: 8) {
                                             Text(mediaItem?.title ?? "Stream")
-                                                .font(.system(size: 12.5, weight: .bold))
+                                                .font(.system(size: 13, weight: .bold))
                                                 .foregroundColor(.white)
                                                 .lineLimit(1)
+
                                             StreamAttributeRow(link: link)
                                         }
 
@@ -1484,11 +1789,33 @@ struct PlayerView: View {
 
                                     Spacer()
 
+                                    // Download Button for this source
+                                    if let media = mediaItem {
+                                        Button(action: {
+                                            DownloadManager.shared.startDownloadWithSource(item: media, link: link)
+                                            showToast("Downloading \(link.resolutionBadge) source...")
+                                        }) {
+                                            Image(systemName: "arrow.down.circle.fill")
+                                                .font(.system(size: 16, weight: .bold))
+                                                .foregroundColor(Color(red: 1.0, green: 0.4, blue: 0.4))
+                                                .frame(width: 32, height: 32)
+                                                .background(Color(red: 1.0, green: 0.4, blue: 0.4).opacity(0.18))
+                                                .clipShape(Circle())
+                                        }
+                                        .buttonStyle(.plain)
+                                        .help("Download this source")
+                                    }
+
+                                    // Play Stream
                                     Image(systemName: "play.fill")
-                                        .font(.system(size: 10, weight: .bold))
-                                        .foregroundColor(.white.opacity(0.7))
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(.white.opacity(0.85))
+                                        .frame(width: 30, height: 30)
+                                        .background(Color.white.opacity(0.08))
+                                        .clipShape(Circle())
                                 }
-                                .padding(12)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
                                 .background(Color.white.opacity(0.04))
                                 .cornerRadius(12)
                             }
@@ -1499,10 +1826,7 @@ struct PlayerView: View {
                 }
             }
         }
-        .frame(width: 380)
-        .background(.ultraThinMaterial)
         .preferredColorScheme(.dark)
-        .shadow(color: .black.opacity(0.7), radius: -10, y: 0)
     }
 
     // MARK: - Subtitles Management & Sync
@@ -1628,6 +1952,9 @@ struct PlayerView: View {
                 }
                 return nil
             case 1: // 'S' - Sources
+                if self.isPlaying {
+                    self.togglePlayPause()
+                }
                 withAnimation {
                     self.showSourcesDrawer.toggle()
                     if self.showSourcesDrawer && self.availableStreamLinks.isEmpty {
@@ -1649,6 +1976,11 @@ struct PlayerView: View {
             default:
                 return event
             }
+        }
+
+        mouseEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { event in
+            self.userInteracted()
+            return event
         }
         #endif
     }
@@ -1924,46 +2256,67 @@ struct PlayerView: View {
             if audioSubtitleTab == 0 {
                 audioTracksMenu
             } else {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 16) {
                     HStack {
-                        Text("Subtitles")
-                            .font(.headline)
+                        Text("SUBTITLES")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.white.opacity(0.5))
                         Spacer()
                         if isLoadingSubtitles {
-                            ProgressView().scaleEffect(0.7)
+                            ProgressView().scaleEffect(0.6)
                         }
                     }
 
-                    Button(action: {
-                        disableSubtitles()
-                        showSubtitlePopover = false
-                    }) {
-                        HStack {
-                            Text("Off")
-                            Spacer()
-                            if selectedSubtitle == nil {
-                                Image(systemName: "checkmark")
-                                    .foregroundColor(.blue)
+                    // Appearance & Sync Controls
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Color")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(.gray)
+                            HStack(spacing: 6) {
+                                Circle().fill(Color.white).frame(width: 18, height: 18)
+                                    .overlay(Circle().stroke(Color.blue, lineWidth: subtitleColor == .white ? 2 : 0))
+                                    .onTapGesture { subtitleColor = .white }
+                                Circle().fill(Color.yellow).frame(width: 18, height: 18)
+                                    .overlay(Circle().stroke(Color.blue, lineWidth: subtitleColor == .yellow ? 2 : 0))
+                                    .onTapGesture { subtitleColor = .yellow }
+                                Circle().fill(Color.cyan).frame(width: 18, height: 18)
+                                    .overlay(Circle().stroke(Color.blue, lineWidth: subtitleColor == .cyan ? 2 : 0))
+                                    .onTapGesture { subtitleColor = .cyan }
                             }
                         }
-                    }
-                    .buttonStyle(.plain)
 
-                    Divider()
-
-                    // Subtitle Delay Offset Controls
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Sync Offset:")
-                                .font(.caption)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Size")
+                                .font(.system(size: 10, weight: .semibold))
                                 .foregroundColor(.gray)
-                            Spacer()
-                            Text(String(format: "%+.1fs", subtitleOffsetSeconds))
-                                .font(.caption.bold())
-                                .foregroundColor(.white.opacity(0.8))
+                            HStack(spacing: 8) {
+                                Button(action: { subtitleFontSize = max(16, subtitleFontSize - 2) }) {
+                                    Image(systemName: "textformat.size.smaller")
+                                        .foregroundColor(.white)
+                                }
+                                .buttonStyle(.plain)
+                                
+                                Text("\(Int(subtitleFontSize))")
+                                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                    .foregroundColor(.white)
+                                
+                                Button(action: { subtitleFontSize = min(60, subtitleFontSize + 2) }) {
+                                    Image(systemName: "textformat.size.larger")
+                                        .foregroundColor(.white)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-
-                        HStack(spacing: 8) {
+                        
+                        Spacer()
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Sync Offset (\(String(format: "%+.1fs", subtitleOffsetSeconds)))")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.gray)
+                        HStack(spacing: 4) {
                             Button("-0.5s") { subtitleOffsetSeconds -= 0.5 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.mini)
@@ -1975,59 +2328,55 @@ struct PlayerView: View {
                                 .controlSize(.mini)
                         }
                     }
-                    .padding(.vertical, 2)
 
-                    // Subtitle Appearance: Color & Size
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Subtitle Color:")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-
-                        HStack(spacing: 8) {
-                            Button("Yellow") { subtitleColor = .yellow }
-                                .buttonStyle(.bordered)
-                                .controlSize(.mini)
-                                .foregroundColor(.yellow)
-                            Button("White") { subtitleColor = .white }
-                                .buttonStyle(.bordered)
-                                .controlSize(.mini)
-                                .foregroundColor(.white)
-                            Button("Cyan") { subtitleColor = .cyan }
-                                .buttonStyle(.bordered)
-                                .controlSize(.mini)
-                                .foregroundColor(.cyan)
-                        }
-                    }
-
-                    Divider()
+                    Divider().background(Color.white.opacity(0.1))
 
                     ScrollView {
                         VStack(alignment: .leading, spacing: 10) {
+                            Button(action: {
+                                disableSubtitles()
+                            }) {
+                                HStack {
+                                    Text("Off")
+                                        .font(.system(size: 13))
+                                    Spacer()
+                                    if selectedSubtitle == nil {
+                                        Image(systemName: "checkmark")
+                                            .foregroundColor(.blue)
+                                            .font(.system(size: 12, weight: .bold))
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                            .buttonStyle(.plain)
+                            
                             ForEach(subtitles) { track in
                                 Button(action: {
                                     selectSubtitleTrack(track)
-                                    showSubtitlePopover = false
                                 }) {
                                     HStack {
                                         Text(track.displayName)
+                                            .font(.system(size: 13))
                                             .lineLimit(1)
                                         Spacer()
                                         if selectedSubtitle?.id == track.id {
                                             Image(systemName: "checkmark")
                                                 .foregroundColor(.blue)
+                                                .font(.system(size: 12, weight: .bold))
                                         }
                                     }
+                                    .padding(.vertical, 4)
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
                     }
-                    .frame(maxHeight: 200)
+                    .frame(maxHeight: 220)
                 }
             }
         }
-        .padding(16)
-        .frame(width: 300)
+        .padding(18)
+        .frame(width: 320)
     }
 
     private var externalPlayersMenu: some View {

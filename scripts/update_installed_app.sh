@@ -27,7 +27,7 @@ fi
 
 if [ -n "$SOURCE_APP" ]; then
     echo "📲 Updating $TARGET_DIR/$APP_NAME.app from $SOURCE_APP..."
-    pkill -x "$APP_NAME" 2>/dev/null || true
+    pkill -9 -x "$APP_NAME" 2>/dev/null || true; pkill -9 -f "$APP_NAME.app" 2>/dev/null || true; sleep 1
     rm -rf "$TARGET_DIR/$APP_NAME.app"
     cp -R "$SOURCE_APP" "$TARGET_DIR/$APP_NAME.app"
     plutil -replace CFBundleName -string "Somnius" "$TARGET_DIR/$APP_NAME.app/Contents/Info.plist"

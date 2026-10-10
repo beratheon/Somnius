@@ -42,6 +42,11 @@ struct MediaDetailView: View {
     @State private var isLoadingExtras: Bool = false
 
     @ObservedObject private var watchlistManager = WatchlistManager.shared
+    @State private var showDownloadSourcesModal: Bool = false
+    @State private var downloadSources: [AggregatedLink] = []
+    @State private var isLoadingDownloadSources: Bool = false
+    private let aggregatorService = AggregatorService()
+
     private let tmdbService = TMDBService()
 
     init(item: MediaItem, onPlay: @escaping (MediaItem, Int?, Int?) -> Void, onDismiss: @escaping () -> Void) {
@@ -181,14 +186,23 @@ struct MediaDetailView: View {
 
                                     // Action Buttons
                                     HStack(spacing: 12) {
-                                        // Play Button
+                                        // Play / Continue Button
+                                        let inWatchlist = watchlistManager.isWatchlisted(id: currentItem.id)
+                                        let historyItem = watchlistManager.history.first(where: { $0.mediaItem.id == currentItem.id })
+                                        let hasWatchedProgress = (historyItem != nil && historyItem!.progressSeconds > 10)
+                                        let shouldShowContinue = inWatchlist && hasWatchedProgress
+
                                         Button(action: {
-                                            onPlay(currentItem, currentItem.type == .series ? selectedSeason : nil, currentItem.type == .series ? 1 : nil)
+                                            if shouldShowContinue, let hist = historyItem {
+                                                onPlay(currentItem, hist.seasonNumber ?? (currentItem.type == .series ? selectedSeason : nil), hist.episodeNumber ?? (currentItem.type == .series ? 1 : nil))
+                                            } else {
+                                                onPlay(currentItem, currentItem.type == .series ? selectedSeason : nil, currentItem.type == .series ? 1 : nil)
+                                            }
                                         }) {
                                             HStack(spacing: 8) {
-                                                Image(systemName: "play.fill")
+                                                Image(systemName: shouldShowContinue ? "arrow.clockwise.circle.fill" : "play.fill")
                                                     .font(.system(size: 14, weight: .bold))
-                                                Text("Play")
+                                                Text(shouldShowContinue ? "Continue" : "Play")
                                                     .font(.system(size: 14, weight: .bold))
                                             }
                                             .foregroundColor(.black)
@@ -220,6 +234,28 @@ struct MediaDetailView: View {
                                             .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 1))
                                         }
                                         .buttonStyle(PlainButtonStyle())
+                        // Download Button (Subtle Default, Shines on Click)
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                showDownloadSourcesModal = true
+                            }
+                            loadDownloadSources()
+                        }) {
+                            HStack(spacing: 7) {
+                                Image(systemName: "arrow.down.circle")
+                                    .font(.system(size: 13, weight: .bold))
+                                Text("Download")
+                                    .font(.system(size: 13, weight: .semibold))
+                            }
+                            .foregroundColor(Color(red: 1.0, green: 0.45, blue: 0.45))
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 12)
+                            .background(Color(red: 1.0, green: 0.4, blue: 0.4).opacity(0.12))
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(Color(red: 1.0, green: 0.4, blue: 0.4).opacity(0.35), lineWidth: 1))
+                        }
+                        .buttonStyle(ShiningDownloadButtonStyle())
+
 
                                         // Favorite Button
                                         let isFav = watchlistManager.isFavorite(id: currentItem.id)
@@ -1031,6 +1067,13 @@ struct MediaDetailView: View {
                 .padding(22)
             }
             .overlay {
+                if showDownloadSourcesModal {
+                    downloadSourcesModal
+                        .zIndex(250)
+                        .transition(.opacity)
+                }
+            }
+            .overlay {
                 // Filmography Modal Overlay when Director or Actor is clicked
                 if let person = selectedPerson {
                     PersonWorksOverlay(
@@ -1227,6 +1270,242 @@ struct MediaDetailView: View {
                 self.similarItems = sim
                 self.isLoadingSimilar = false
             }
+        }
+    }
+
+    private func autoDownloadBestSource() {
+        guard !downloadSources.isEmpty else { return }
+        let maxSize = Config.autoPlayMaxGbSize
+        let prefQuality = Config.autoPlayPreferredQuality.lowercased()
+        let cachedOnly = Config.autoPlayCachedOnly
+
+        var candidates = downloadSources.filter { link in
+            if cachedOnly && !link.isCached { return false }
+            if maxSize > 0, let gb = link.sizeInGigabytes, gb > maxSize { return false }
+            return true
+        }
+        if candidates.isEmpty { candidates = downloadSources }
+
+        candidates.sort { a, b in
+            let aQuality = a.quality.lowercased()
+            let bQuality = b.quality.lowercased()
+            let aMatch = (aQuality == prefQuality || (prefQuality == "4k" && a.quality == "4K") || (prefQuality == "1080p" && a.quality == "FHD"))
+            let bMatch = (bQuality == prefQuality || (prefQuality == "4k" && b.quality == "4K") || (prefQuality == "1080p" && b.quality == "FHD"))
+            if aMatch != bMatch { return aMatch && !bMatch }
+            if a.isCached != b.isCached { return a.isCached && !b.isCached }
+            return a.score > b.score
+        }
+
+        if let best = candidates.first {
+            DownloadManager.shared.startDownloadWithSource(item: currentItem, link: best)
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showDownloadSourcesModal = false
+            }
+        }
+    }
+
+    private func loadDownloadSources() {
+        isLoadingDownloadSources = true
+        Task {
+            do {
+                let links = try await aggregatorService.fetchBestLinks(
+                    tmdbID: currentItem.id,
+                    imdbID: currentItem.imdbID,
+                    type: currentItem.type,
+                    season: currentItem.type == .series ? selectedSeason : nil,
+                    episode: currentItem.type == .series ? 1 : nil
+                )
+                await MainActor.run {
+                    self.downloadSources = links
+                    self.isLoadingDownloadSources = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.downloadSources = []
+                    self.isLoadingDownloadSources = false
+                }
+            }
+        }
+    }
+
+    private var downloadSourcesModal: some View {
+        ZStack {
+            Color.black.opacity(0.7)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showDownloadSourcesModal = false
+                    }
+                }
+
+            VStack(alignment: .leading, spacing: 0) {
+                // Header
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .foregroundColor(Color(red: 1.0, green: 0.35, blue: 0.35))
+                            Text("Download Source Selection")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+                        Text(downloadSources.isEmpty ? "Retrieving source streams..." : "\(downloadSources.count) sources available for download")
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+
+                    Spacer()
+
+                    if !downloadSources.isEmpty {
+                        // Universal Auto Play Button
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showDownloadSourcesModal = false
+                            }
+                            onPlay(currentItem, currentItem.type == .series ? selectedSeason : nil, currentItem.type == .series ? 1 : nil)
+                        }) {
+                            HStack(spacing: 5) {
+                                Image(systemName: "bolt.fill")
+                                Text("Auto Play")
+                            }
+                            .font(.system(size: 11, weight: .bold))
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 6)
+                            .background(Color.white)
+                            .foregroundColor(.black)
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+
+                        // Auto Download Button
+                        Button(action: {
+                            autoDownloadBestSource()
+                        }) {
+                            HStack(spacing: 5) {
+                                Image(systemName: "arrow.down.circle.fill")
+                                Text("Auto Download")
+                            }
+                            .font(.system(size: 11, weight: .bold))
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 6)
+                            .background(Color(red: 1.0, green: 0.35, blue: 0.35))
+                            .foregroundColor(.white)
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showDownloadSourcesModal = false
+                        }
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(.gray.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .background(Color.black.opacity(0.5))
+
+                // Content
+                if isLoadingDownloadSources {
+                    VStack(spacing: 12) {
+                        Spacer()
+                        ProgressView().tint(.white).scaleEffect(1.2)
+                        Text("Finding high-speed download sources…")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white.opacity(0.7))
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 280)
+                } else if downloadSources.isEmpty {
+                    VStack(spacing: 10) {
+                        Spacer()
+                        Image(systemName: "slash.circle")
+                            .font(.system(size: 36))
+                            .foregroundColor(.white.opacity(0.3))
+                        Text("No download sources found")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 280)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 8) {
+                            ForEach(downloadSources) { link in
+                                HStack(alignment: .center, spacing: 14) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack(spacing: 8) {
+                                            Text(link.resolutionBadge)
+                                                .font(.system(size: 11, weight: .bold))
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Color.white.opacity(0.12))
+                                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                                                .foregroundColor(.white)
+                                            
+                                            if let sz = link.sizeString {
+                                                Text(sz)
+                                                    .font(.system(size: 11, weight: .medium))
+                                                    .foregroundColor(Color(red: 1.0, green: 0.4, blue: 0.4))
+                                            }
+                                            
+                                            Text(link.source)
+                                                .font(.system(size: 10, weight: .bold))
+                                                .foregroundColor(.white.opacity(0.5))
+                                        }
+
+                                        Text(link.fileName)
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.white.opacity(0.7))
+                                            .lineLimit(2)
+                                    }
+
+                                    Spacer()
+
+                                    // Big download button in row
+                                    Button(action: {
+                                        DownloadManager.shared.startDownloadWithSource(item: currentItem, link: link)
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            showDownloadSourcesModal = false
+                                        }
+                                    }) {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "arrow.down.circle.fill")
+                                                .font(.system(size: 13, weight: .bold))
+                                            Text("Download")
+                                                .font(.system(size: 12, weight: .bold))
+                                        }
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 8)
+                                        .background(Color(red: 1.0, green: 0.35, blue: 0.35))
+                                        .clipShape(Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                .padding(12)
+                                .background(Color.white.opacity(0.04))
+                                .cornerRadius(10)
+                            }
+                        }
+                        .padding(16)
+                    }
+                    .frame(maxHeight: 380)
+                }
+            }
+            .frame(minWidth: 540, maxWidth: 620)
+            .background(Color(red: 0.1, green: 0.1, blue: 0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.8), radius: 25, x: 0, y: 10)
         }
     }
 }
@@ -1789,3 +2068,20 @@ struct ExtraHorizontalCard: View {
     }
 }
 
+
+
+// MARK: - Shining Download Button Style (Shines when clicked)
+struct ShiningDownloadButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .shadow(
+                color: configuration.isPressed ? Color(red: 1.0, green: 0.3, blue: 0.3).opacity(0.9) : Color.clear,
+                radius: configuration.isPressed ? 14 : 0,
+                x: 0,
+                y: 0
+            )
+            .brightness(configuration.isPressed ? 0.25 : 0.0)
+            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
+    }
+}

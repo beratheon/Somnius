@@ -32,11 +32,15 @@ class AggregatorService {
             return []
         }
 
+        // Also fetch title if available to empower indexers like Knaben
+        let title = try? await tmdbService.fetchTitle(tmdbID: tmdbID, type: type)
+
         // 1. Fetch streams dynamically from user's installed Stremio add-ons
         var allLinks: [AggregatedLink] = await StremioAddonManager.shared.fetchStreams(
             imdbID: baseIMDb,
             tmdbID: tmdbID,
             type: type,
+            title: title,
             season: season,
             episode: episode
         )
@@ -74,21 +78,22 @@ class AggregatorService {
 
         // 4. Filter based on setup mode: Classic vs Debrid
         if !Config.isDebridMode {
-            // In Classic mode (without Debrid), only bring fast, verified, or highly seeded sources
-            uniqueLinks = uniqueLinks.filter { link in
-                if let url = link.url, let scheme = url.scheme?.lowercased(), (scheme == "http" || scheme == "https") {
+            // In Classic mode (without Debrid), keep all viable links (direct HTTP/HTTPS, cached, or torrents)
+            // Only prune torrents that explicitly have 0 seeds if there are other seeded alternatives
+            let hasSeededLinks = uniqueLinks.contains { ($0.seeds ?? 0) >= 1 }
+            if hasSeededLinks {
+                uniqueLinks = uniqueLinks.filter { link in
+                    if let seeds = link.seeds {
+                        return seeds > 0
+                    }
                     return true
                 }
-                if link.isCached {
-                    return true
-                }
-                if let seeds = link.seeds {
-                    return seeds >= 10
-                }
-                return false
             }
         } else if Config.showOnlyCachedResults {
-            uniqueLinks = uniqueLinks.filter { $0.isCached }
+            let cachedLinks = uniqueLinks.filter { $0.isCached }
+            if !cachedLinks.isEmpty {
+                uniqueLinks = cachedLinks
+            }
         }
 
         // 5. Sort links:
@@ -185,37 +190,17 @@ class AggregatorService {
             }
         }
 
-        // 3. Local Streaming Engine resolution (127.0.0.1:11470)
-        let isEngineRunning = await isLocalStreamingEngineAlive()
-        if !isEngineRunning {
-            tryLaunchLocalTorrentEngine()
-            // Short grace period for daemon initialization
-            try? await Task.sleep(nanoseconds: 600_000_000)
-        }
-
-        if await isLocalStreamingEngineAlive() {
-            for candidate in candidates {
-                var hashToResolve = candidate.infoHash
-                if (hashToResolve == nil || hashToResolve!.isEmpty), let u = candidate.url, u.scheme?.lowercased() == "magnet" {
-                    hashToResolve = extractInfoHash(from: u)
-                }
-
-                if let infoHash = hashToResolve, !infoHash.isEmpty {
-                    if let localURL = URL(string: "http://127.0.0.1:11470/\(infoHash)/0") {
-                        return (localURL, candidate)
-                    }
-                }
-            }
-        }
-
-        // 4. Fallback when neither Debrid nor local engine is active
+        // 3. Fallback when neither direct stream nor Debrid resolution is possible
+        // Throw an explicit informative error so the UI handles it cleanly rather than feeding an unplayable magnet scheme to KSPlayer
         for candidate in candidates {
             if let magnet = candidate.url, magnet.scheme?.lowercased() == "magnet" {
-                return (magnet, candidate)
-            }
-            if let hash = candidate.infoHash, !hash.isEmpty,
-               let constructed = URL(string: "magnet:?xt=urn:btih:\(hash)") {
-                return (constructed, candidate)
+                throw NSError(
+                    domain: "AggregatorService",
+                    code: 404,
+                    userInfo: [
+                        NSLocalizedDescriptionKey: "This source requires Real-Debrid to convert into an instant playable stream. Connect your Debrid account in Settings, or pick a direct stream."
+                    ]
+                )
             }
         }
 
@@ -223,36 +208,9 @@ class AggregatorService {
             domain: "AggregatorService",
             code: 404,
             userInfo: [
-                NSLocalizedDescriptionKey: "No playable stream found. For instant buffer-free streaming, connect a Debrid account in Settings > Add-ons."
+                NSLocalizedDescriptionKey: "No playable stream found. For instant high-speed streaming, connect Real-Debrid in Settings > Debrid Account."
             ]
         )
-    }
-
-    private func isLocalStreamingEngineAlive() async -> Bool {
-        guard let url = URL(string: "http://127.0.0.1:11470/stats.json") else { return false }
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 1.0
-        do {
-            let (_, resp) = try await URLSession.shared.data(for: req)
-            return (resp as? HTTPURLResponse)?.statusCode == 200
-        } catch {
-            return false
-        }
-    }
-
-    private func tryLaunchLocalTorrentEngine() {
-        let candidates = [
-            "/Applications/StremioService.app/Contents/MacOS/stremio-service",
-            "/Applications/Stremio.app/Contents/MacOS/stremio-runtime"
-        ]
-        for path in candidates {
-            if FileManager.default.fileExists(atPath: path) {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: path)
-                try? process.run()
-                return
-            }
-        }
     }
 
     private func extractInfoHash(from url: URL) -> String? {

@@ -104,17 +104,7 @@ public final class AdPlacementManager: ObservableObject {
 
     // MARK: - Placement Eligibility
     public func isEligible(for placement: AdPlacement) -> Bool {
-        guard config.enabled else { return false }
-        guard isAdsEnabled else { return false }
-
-        let cooldownMinutes = config.cooldowns[placement.rawValue] ?? 2
-        if let lastShown = lastShownTimestamps[placement] {
-            let elapsed = Date().timeIntervalSince(lastShown)
-            if elapsed < Double(cooldownMinutes * 60) {
-                return false // Still in cooldown
-            }
-        }
-        return true
+        return false // Ads disabled for now per user request
     }
 
     // MARK: - Request and Display Ads

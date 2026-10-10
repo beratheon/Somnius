@@ -8,3 +8,6 @@ build_output/
 *.bak
 .tmp/
 data/
+*.py
+test_*.swift
+parse_*.swift

@@ -1,6 +1,6 @@
 import Foundation
 
-struct AggregatedLink: Identifiable, Codable {
+struct AggregatedLink: Identifiable, Codable, Sendable {
     let id: String
     let title: String
     let rawTitle: String
@@ -47,6 +47,21 @@ struct AggregatedLink: Identifiable, Codable {
         return "SD"
     }
 
+    var sizeInGigabytes: Double? {
+        guard let raw = sizeString?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        if raw.contains("gb") || raw.contains("gib") {
+            let numStr = raw.replacingOccurrences(of: "gib", with: "").replacingOccurrences(of: "gb", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return Double(numStr)
+        } else if raw.contains("mb") || raw.contains("mib") {
+            let numStr = raw.replacingOccurrences(of: "mib", with: "").replacingOccurrences(of: "mb", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if let mb = Double(numStr) { return mb / 1024.0 }
+        } else if raw.contains("tb") || raw.contains("tib") {
+            let numStr = raw.replacingOccurrences(of: "tib", with: "").replacingOccurrences(of: "tb", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if let tb = Double(numStr) { return tb * 1024.0 }
+        }
+        return nil
+    }
+
     static func checkIsCached(url: URL?, title: String) -> Bool {
         let upper = title.uppercased()
         if upper.contains("[RD+]") || upper.contains("RD+") || upper.contains("⚡") || upper.contains("REALDEBRID") || upper.contains("CACHED") {
@@ -65,12 +80,20 @@ struct StreamParser {
     static func parse(rawTitle: String, source: String, url: URL?, infoHash: String?) -> AggregatedLink? {
         let upper = rawTitle.uppercased()
 
-        // 0. Filter out invalid addon configuration error messages
-        let invalidKeywords = ["CONFIGURATION IS INVALID", "FAULTY MEDIAFUSION", "DELETE ONLY THE FAULTY", "INVALID ADD-ON", "RECONFIGURE IT", "ERROR.MP4"]
+        // 0. Filter out invalid addon configuration error messages & failed access stubs
+        let invalidKeywords = [
+            "CONFIGURATION IS INVALID", "FAULTY MEDIAFUSION", "DELETE ONLY THE FAULTY",
+            "INVALID ADD-ON", "RECONFIGURE IT", "ERROR.MP4", "INVALID REALDEBRID",
+            "FAILED_ACCESS", "FAILED ACCESS", "INVALID MEDIAFUSION", "INVALID_CONFIG",
+            "DELETE AND RECONFIGURE"
+        ]
         for bad in invalidKeywords {
             if upper.contains(bad) {
                 return nil
             }
+        }
+        if let uStr = url?.absoluteString.lowercased(), uStr.contains("failed_access") || uStr.contains("error.mp4") || uStr.contains("invalid_config") {
+            return nil
         }
 
         // 1. Filter out actual trash releases (CAM, HDCAM, TELESYNC, WORKPRINT, SAMPLE, .EXE, TRAILER)
@@ -86,15 +109,23 @@ struct StreamParser {
         var resBadge = "SD"
         var baseScore = 10
 
-        if upper.contains("2160P") || upper.contains("4K") || upper.contains("UHD") {
+        let has2160 = upper.contains("2160P") || upper.contains("2160 ") || upper.contains(".2160.") || upper.contains("4K")
+        let has1080 = upper.contains("1080P") || upper.contains("1080I") || upper.contains("1080 ") || upper.contains(".1080.") || upper.contains("FHD")
+        let has720 = upper.contains("720P") || upper.contains(".720.") || upper.contains(" 720 ") || upper.contains("HD")
+
+        if has2160 && !has1080 {
             quality = "4K"
             resBadge = "UHD"
             baseScore = upper.contains("REMUX") ? 100 : (upper.contains("BLURAY") ? 90 : 80)
-        } else if upper.contains("1080P") || upper.contains("FHD") {
+        } else if has1080 {
             quality = "FHD"
             resBadge = "FHD"
             baseScore = upper.contains("REMUX") ? 70 : (upper.contains("BLURAY") ? 65 : 55)
-        } else if upper.contains("720P") || upper.contains("HD") {
+        } else if upper.contains("UHD") && !has1080 && !has720 {
+            quality = "4K"
+            resBadge = "UHD"
+            baseScore = 80
+        } else if has720 {
             quality = "HD"
             resBadge = "HD"
             baseScore = 30
@@ -110,9 +141,14 @@ struct StreamParser {
             if quality == "4K" { baseScore += 20 }
         }
 
-        // 3. HDR / Dolby Vision Tag
+        // 3. HDR / Dolby Vision Tag (Carefully exclude DVD, DVD9, DVDRip, DVB)
         var hdrTag: String? = nil
-        if upper.contains("DV") || upper.contains("DOLBY VISION") || upper.contains("DOLBY-VISION") {
+        let isDolbyVision = upper.contains("DOLBY VISION") ||
+                            upper.contains("DOLBY-VISION") ||
+                            upper.contains("DOVI") ||
+                            rawTitle.range(of: #"(?<![a-zA-Z0-9])DV(?![a-zA-Z0-9])"#, options: .regularExpression) != nil
+
+        if isDolbyVision {
             hdrTag = "DV"
             baseScore += 12
         } else if upper.contains("HDR10+") || upper.contains("HDR10PLUS") {
@@ -223,7 +259,7 @@ struct StreamParser {
     }
 
     private static func extractSeeds(from rawTitle: String) -> Int? {
-        let pattern = #"(?:👤|seeds?:\s*|peers?:\s*|\[)(\d+)(?:\s*seeds?|\s*peers?|\])"#
+        let pattern = #"(?:👤\s*|seeds?:\s*|peers?:\s*|\[)(\d+)"#
         if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
            let match = regex.firstMatch(in: rawTitle, range: NSRange(rawTitle.startIndex..., in: rawTitle)),
            let range = Range(match.range(at: 1), in: rawTitle) {
@@ -279,8 +315,9 @@ struct StreamParser {
         var str = line
         let prefixesToRemove = [
             "[RD+] Torrentio", "[RD+] Comet", "[RD+] Knightcrawler", "[RD+] Cyberflix", "[RD+] MediaFusion",
-            "[Torrentio]", "[Comet]", "[Knightcrawler]", "[Cyberflix]", "[MediaFusion]",
-            "Torrentio", "Comet", "Knightcrawler", "Cyberflix", "MediaFusion", "PirateBay"
+            "[RD☁️] Meteor", "[RD🌩️] Meteor", "[P2P☁️] Meteor", "[P2P🌩️] Meteor",
+            "[Torrentio]", "[Comet]", "[Knightcrawler]", "[Cyberflix]", "[MediaFusion]", "[Meteor]", "[Knaben]", "[Storz]", "[StremThru]",
+            "Torrentio", "Comet", "Knightcrawler", "Cyberflix", "MediaFusion", "Meteor", "Knaben", "Storz", "StremThru", "PirateBay"
         ]
         for p in prefixesToRemove {
             if str.hasPrefix(p) {
@@ -301,6 +338,7 @@ struct MediaItem: Identifiable, Codable, Hashable {
     let rating: Double?
     let type: MediaType
     let imdbID: String?
+    let voteCount: Int?
 
     var resolvedIMDbID: String? {
         if let imdb = imdbID, imdb.hasPrefix("tt") { return imdb }
@@ -353,7 +391,7 @@ struct MediaItem: Identifiable, Codable, Hashable {
         case series
     }
 
-    init(id: String, title: String, description: String?, posterUrl: URL? = nil, backdropUrl: URL? = nil, releaseDate: Date?, rating: Double?, type: MediaType, imdbID: String? = nil, posterURL: URL? = nil, backdropURL: URL? = nil) {
+    init(id: String, title: String, description: String?, posterUrl: URL? = nil, backdropUrl: URL? = nil, releaseDate: Date?, rating: Double?, type: MediaType, imdbID: String? = nil, posterURL: URL? = nil, backdropURL: URL? = nil, voteCount: Int? = nil) {
         self.id = id
         self.title = title
         self.description = description
@@ -363,6 +401,7 @@ struct MediaItem: Identifiable, Codable, Hashable {
         self.rating = rating
         self.type = type
         self.imdbID = imdbID
+        self.voteCount = voteCount
     }
 }
 

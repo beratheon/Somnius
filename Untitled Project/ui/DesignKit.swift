@@ -29,6 +29,7 @@ struct SoftBadge: View {
             .padding(.vertical, 3)
             .background(tone.color.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .fixedSize(horizontal: true, vertical: true)
     }
 }
 
@@ -43,6 +44,7 @@ struct StreamAttributeRow: View {
             if let size = link.sizeString { SoftBadge(text: size, tone: .neutral) }
             if link.isCached { SoftBadge(text: "Instant", tone: .sage) }
         }
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
@@ -118,6 +120,7 @@ actor ImagePipeline {
 /// Drop-in replacement for AsyncImage: cached, downsampled off the main thread, soft fade-in.
 struct CachedImage: View {
     let url: URL?
+    var fallbackURL: URL? = nil
     var maxPixel: CGFloat = 600
     var contentMode: ContentMode = .fill
     var transparentBackground: Bool = false
@@ -137,16 +140,41 @@ struct CachedImage: View {
             }
         }
         .task(id: url) {
-            guard let url else { image = nil; return }
-            if let hit = ImagePipeline.shared.cached(url, maxPixel: maxPixel) {
-                image = hit
-                return
+            await loadImage()
+        }
+    }
+
+    private func loadImage() async {
+        guard let url else {
+            if let fallback = fallbackURL {
+                await loadSingleImage(fallback)
+            } else {
+                image = nil
             }
-            image = nil
-            let loaded = await ImagePipeline.shared.image(for: url, maxPixel: maxPixel)
-            if !Task.isCancelled {
-                withAnimation(.easeOut(duration: 0.2)) { image = loaded }
-            }
+            return
+        }
+        if let hit = ImagePipeline.shared.cached(url, maxPixel: maxPixel) {
+            image = hit
+            return
+        }
+        image = nil
+        var loaded = await ImagePipeline.shared.image(for: url, maxPixel: maxPixel)
+        if loaded == nil, let fallback = fallbackURL, fallback != url {
+            loaded = await ImagePipeline.shared.image(for: fallback, maxPixel: maxPixel)
+        }
+        if !Task.isCancelled {
+            withAnimation(.easeOut(duration: 0.2)) { image = loaded }
+        }
+    }
+
+    private func loadSingleImage(_ targetURL: URL) async {
+        if let hit = ImagePipeline.shared.cached(targetURL, maxPixel: maxPixel) {
+            image = hit
+            return
+        }
+        let loaded = await ImagePipeline.shared.image(for: targetURL, maxPixel: maxPixel)
+        if !Task.isCancelled {
+            withAnimation(.easeOut(duration: 0.2)) { image = loaded }
         }
     }
 }

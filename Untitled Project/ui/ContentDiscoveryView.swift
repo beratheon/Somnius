@@ -523,7 +523,7 @@ struct MoviePosterCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .topTrailing) {
-                CachedImage(url: item.posterUrl, maxPixel: 700)
+                CachedImage(url: item.posterUrl, fallbackURL: item.posterURL, maxPixel: 700)
                     .frame(width: posterWidth, height: posterHeight)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .grayscale(isHovered ? 0.0 : 0.45)
@@ -737,7 +737,7 @@ struct BestMatchSpotlightCard: View {
 
     var body: some View {
         HStack(spacing: 20) {
-            CachedImage(url: item.posterUrl, maxPixel: 400)
+            CachedImage(url: item.posterUrl, fallbackURL: item.posterURL, maxPixel: 400)
                 .frame(width: 120, height: 180)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 

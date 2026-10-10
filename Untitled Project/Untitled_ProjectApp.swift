@@ -7,6 +7,16 @@ struct Untitled_ProjectApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                #if os(macOS)
+                .onAppear {
+                    DispatchQueue.main.async {
+                        if let window = NSApp.keyWindow ?? NSApp.windows.first {
+                            window.titlebarAppearsTransparent = true
+                            window.styleMask.insert(.fullSizeContentView)
+                        }
+                    }
+                }
+                #endif
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
