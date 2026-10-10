@@ -78,15 +78,27 @@ class AggregatorService {
 
         // 4. Filter based on setup mode: Classic vs Debrid
         if !Config.isDebridMode {
-            // In Classic mode (without Debrid), keep all viable links (direct HTTP/HTTPS, cached, or torrents)
-            // Only prune torrents that explicitly have 0 seeds if there are other seeded alternatives
-            let hasSeededLinks = uniqueLinks.contains { ($0.seeds ?? 0) >= 1 }
-            if hasSeededLinks {
-                uniqueLinks = uniqueLinks.filter { link in
-                    if let seeds = link.seeds {
-                        return seeds > 0
+            let engineAvailable = await isLocalStreamingEngineAlive() || 
+                FileManager.default.fileExists(atPath: "/Applications/StremioService.app/Contents/MacOS/stremio-runtime") ||
+                FileManager.default.fileExists(atPath: "/Applications/Stremio.app/Contents/MacOS/stremio-runtime") ||
+                FileManager.default.fileExists(atPath: "/Applications/Stremio Enhanced.app/Contents/MacOS/stremio-runtime")
+
+            if engineAvailable || Config.defaultPlayerSelection != "native" {
+                // Local streaming daemon or external player available: rank healthy torrents by seeders
+                let hasSeededLinks = uniqueLinks.contains { ($0.seeds ?? 0) >= 1 }
+                if hasSeededLinks {
+                    uniqueLinks = uniqueLinks.filter { link in
+                        if let seeds = link.seeds {
+                            return seeds > 0
+                        }
+                        return true
                     }
-                    return true
+                }
+            } else {
+                // Without Debrid or local engine, ONLY pull direct HTTP/HTTPS streams that guaranteed work
+                uniqueLinks = uniqueLinks.filter { link in
+                    guard let scheme = link.url?.scheme?.lowercased() else { return false }
+                    return scheme == "http" || scheme == "https"
                 }
             }
         } else if Config.showOnlyCachedResults {
@@ -190,17 +202,29 @@ class AggregatorService {
             }
         }
 
-        // 3. Fallback when neither direct stream nor Debrid resolution is possible
-        // Throw an explicit informative error so the UI handles it cleanly rather than feeding an unplayable magnet scheme to KSPlayer
-        for candidate in candidates {
-            if let magnet = candidate.url, magnet.scheme?.lowercased() == "magnet" {
-                throw NSError(
-                    domain: "AggregatorService",
-                    code: 404,
-                    userInfo: [
-                        NSLocalizedDescriptionKey: "This source requires Real-Debrid to convert into an instant playable stream. Connect your Debrid account in Settings, or pick a direct stream."
-                    ]
-                )
+        // 3. Local P2P Streaming Engine resolution (127.0.0.1:11470) for debridless playback
+        let isEngineReady = await ensureLocalTorrentEngineIsRunning()
+        if isEngineReady {
+            for candidate in candidates {
+                var hashToResolve = candidate.infoHash
+                if (hashToResolve == nil || hashToResolve!.isEmpty), let u = candidate.url, u.scheme?.lowercased() == "magnet" {
+                    hashToResolve = extractInfoHash(from: u)
+                }
+
+                if let infoHash = hashToResolve, !infoHash.isEmpty {
+                    if let localStreamURL = URL(string: "http://127.0.0.1:11470/\(infoHash)/0") {
+                        return (localStreamURL, candidate)
+                    }
+                }
+            }
+        }
+
+        // 4. External Player direct pass-through (IINA / VLC handle magnet links directly)
+        if Config.defaultPlayerSelection != "native" {
+            for candidate in candidates {
+                if let u = candidate.url {
+                    return (u, candidate)
+                }
             }
         }
 
@@ -208,9 +232,54 @@ class AggregatorService {
             domain: "AggregatorService",
             code: 404,
             userInfo: [
-                NSLocalizedDescriptionKey: "No playable stream found. For instant high-speed streaming, connect Real-Debrid in Settings > Debrid Account."
+                NSLocalizedDescriptionKey: "No working stream found. Please choose another source or download to watch offline."
             ]
         )
+    }
+
+    func isLocalStreamingEngineAlive() async -> Bool {
+        guard let url = URL(string: "http://127.0.0.1:11470/stats.json") else { return false }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 0.8
+        do {
+            let (_, resp) = try await URLSession.shared.data(for: req)
+            return (resp as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            return false
+        }
+    }
+
+    func ensureLocalTorrentEngineIsRunning() async -> Bool {
+        if await isLocalStreamingEngineAlive() {
+            return true
+        }
+
+        let candidates = [
+            (bin: "/Applications/StremioService.app/Contents/MacOS/stremio-runtime", arg: "/Applications/StremioService.app/Contents/MacOS/server.js"),
+            (bin: "/Applications/Stremio.app/Contents/MacOS/stremio-runtime", arg: "/Applications/Stremio.app/Contents/MacOS/server.js"),
+            (bin: "/Applications/Stremio Enhanced.app/Contents/MacOS/stremio-runtime", arg: "/Applications/Stremio Enhanced.app/Contents/MacOS/server.js")
+        ]
+
+        for item in candidates {
+            if FileManager.default.fileExists(atPath: item.bin) && FileManager.default.fileExists(atPath: item.arg) {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: item.bin)
+                process.arguments = [item.arg]
+                process.standardOutput = FileHandle.nullDevice
+                process.standardError = FileHandle.nullDevice
+                try? process.run()
+                break
+            }
+        }
+
+        for _ in 0..<12 {
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            if await isLocalStreamingEngineAlive() {
+                return true
+            }
+        }
+
+        return false
     }
 
     private func extractInfoHash(from url: URL) -> String? {
