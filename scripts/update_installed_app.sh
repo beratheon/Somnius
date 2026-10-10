@@ -32,6 +32,7 @@ if [ -n "$SOURCE_APP" ]; then
     cp -R "$SOURCE_APP" "$TARGET_DIR/$APP_NAME.app"
     plutil -replace CFBundleName -string "Somnius" "$TARGET_DIR/$APP_NAME.app/Contents/Info.plist"
     plutil -replace CFBundleDisplayName -string "Somnius" "$TARGET_DIR/$APP_NAME.app/Contents/Info.plist"
+    plutil -replace CFBundleIdentifier -string "com.beratheon.Somnius" "$TARGET_DIR/$APP_NAME.app/Contents/Info.plist"
     echo "✅ Done! Your installed $APP_NAME.app in /Applications has been updated with your latest changes."
     echo "💡 Launch it anytime with: open /Applications/Somnius.app"
 else

@@ -43,6 +43,7 @@ fi
 # Explicitly guarantee macOS Menu Bar reads Somnius
 plutil -replace CFBundleName -string "Somnius" "$APP_PATH/Contents/Info.plist"
 plutil -replace CFBundleDisplayName -string "Somnius" "$APP_PATH/Contents/Info.plist"
+plutil -replace CFBundleIdentifier -string "com.beratheon.Somnius" "$APP_PATH/Contents/Info.plist"
 
 # 3. Create Custom Styled DMG installer
 echo "💿 Generating DMG artwork and staging installer..."
