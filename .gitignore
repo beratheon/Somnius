@@ -9,5 +9,6 @@ build_output/
 .tmp/
 data/
 *.py
+!scripts/*.py
 test_*.swift
 parse_*.swift
