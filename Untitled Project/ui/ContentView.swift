@@ -451,7 +451,18 @@ struct ContentView: View {
         showStreamPicker = true
 
         do {
-            let links = try await AggregatorService().fetchBestLinks(tmdbID: item.id, imdbID: item.imdbID, type: item.type, season: season, episode: episode)
+            let links = try await AggregatorService().fetchBestLinks(
+                tmdbID: item.id,
+                imdbID: item.imdbID,
+                type: item.type,
+                season: season,
+                episode: episode,
+                onBatch: { partialLinks in
+                    Task { @MainActor in
+                        self.scrapedLinks = partialLinks
+                    }
+                }
+            )
             scrapedLinks = links
             isFetchingStreams = false
             hasFinishedScraping = true
@@ -642,7 +653,7 @@ struct StreamSelectionSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if isLoading || !hasFinished {
+                if links.isEmpty && (isLoading || !hasFinished) {
                     VStack(spacing: 16) {
                         Spacer()
                         ProgressView()
@@ -696,11 +707,22 @@ struct StreamSelectionSheet: View {
                         // Quick Action Header Bar
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("\(filteredLinks.count) Streams Found")
-                                    .font(.headline.weight(.semibold))
-                                    .foregroundColor(.white)
+                                HStack(spacing: 8) {
+                                    Text("\(filteredLinks.count) Streams Found")
+                                        .font(.headline.weight(.semibold))
+                                        .foregroundColor(.white)
+                                    if isLoading || !hasFinished {
+                                        ProgressView()
+                                            .scaleEffect(0.65)
+                                            .tint(.white.opacity(0.8))
+                                    }
+                                }
 
-                                if Config.showOnlyCachedResults {
+                                if isLoading || !hasFinished {
+                                    Text("Scanning additional indexers...")
+                                        .font(.caption.weight(.medium))
+                                        .foregroundColor(.white.opacity(0.6))
+                                } else if Config.showOnlyCachedResults {
                                     Text("Instant streams only")
                                         .font(.caption.weight(.medium))
                                         .foregroundColor(SoftTone.sage.color)

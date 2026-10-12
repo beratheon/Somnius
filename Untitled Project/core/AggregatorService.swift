@@ -13,11 +13,25 @@ class AggregatorService {
 
     init() {}
 
-    func fetchBestLinks(tmdbID: String, imdbID: String? = nil, type: MediaItem.MediaType, season: Int? = nil, episode: Int? = nil) async throws -> [AggregatedLink] {
-        return try await getBestLinks(tmdbID: tmdbID, imdbID: imdbID, type: type, season: season, episode: episode)
+    func fetchBestLinks(
+        tmdbID: String,
+        imdbID: String? = nil,
+        type: MediaItem.MediaType,
+        season: Int? = nil,
+        episode: Int? = nil,
+        onBatch: (([AggregatedLink]) -> Void)? = nil
+    ) async throws -> [AggregatedLink] {
+        return try await getBestLinks(tmdbID: tmdbID, imdbID: imdbID, type: type, season: season, episode: episode, onBatch: onBatch)
     }
 
-    func getBestLinks(tmdbID: String, imdbID: String? = nil, type: MediaItem.MediaType, season: Int? = nil, episode: Int? = nil) async throws -> [AggregatedLink] {
+    func getBestLinks(
+        tmdbID: String,
+        imdbID: String? = nil,
+        type: MediaItem.MediaType,
+        season: Int? = nil,
+        episode: Int? = nil,
+        onBatch: (([AggregatedLink]) -> Void)? = nil
+    ) async throws -> [AggregatedLink] {
         // Resolve IMDb ID once so providers don't duplicate TMDB calls
         var resolvedIMDb: String? = imdbID
         if resolvedIMDb == nil || resolvedIMDb!.isEmpty {
@@ -32,38 +46,55 @@ class AggregatorService {
             return []
         }
 
-        // Also fetch title if available to empower indexers like Knaben
+        // Also fetch title if available to empower indexers like ThePirateBay
         let title = try? await tmdbService.fetchTitle(tmdbID: tmdbID, type: type)
 
-        // 1. Fetch streams dynamically from user's installed Stremio add-ons
-        var allLinks: [AggregatedLink] = await StremioAddonManager.shared.fetchStreams(
+        var accumulatedLinks: [AggregatedLink] = []
+
+        // 1. Fetch streams dynamically from indexers with real-time progressive batching
+        let allLinks: [AggregatedLink] = await StremioAddonManager.shared.fetchStreams(
             imdbID: baseIMDb,
             tmdbID: tmdbID,
             type: type,
             title: title,
             season: season,
-            episode: episode
+            episode: episode,
+            onBatch: { newBatch in
+                accumulatedLinks.append(contentsOf: newBatch)
+                let currentSorted = self.processAndSort(links: accumulatedLinks)
+                onBatch?(currentSorted)
+            }
         )
 
-        // 2. RealDebrid Instant Availability Cache Verification
-        let hashesToCheck = allLinks.compactMap { $0.infoHash }
-        if !hashesToCheck.isEmpty, let cachedSet = try? await rdService.checkInstantAvailability(hashes: hashesToCheck), !cachedSet.isEmpty {
-            allLinks = allLinks.map { link in
-                if let h = link.infoHash, cachedSet.contains(h.lowercased()) {
-                    var updated = link
-                    updated.isCached = true
-                    return updated
+        accumulatedLinks = allLinks
+
+        // 2. RealDebrid Instant Availability Cache Verification (only for non-cached torrents to save latency)
+        if Config.isDebridMode {
+            let hashesToCheck = accumulatedLinks.filter { !$0.isCached }.compactMap { $0.infoHash }
+            if !hashesToCheck.isEmpty, let cachedSet = try? await rdService.checkInstantAvailability(hashes: hashesToCheck), !cachedSet.isEmpty {
+                accumulatedLinks = accumulatedLinks.map { link in
+                    if let h = link.infoHash, cachedSet.contains(h.lowercased()) {
+                        var updated = link
+                        updated.isCached = true
+                        return updated
+                    }
+                    return link
                 }
-                return link
             }
         }
 
+        let finalSorted = self.processAndSort(links: accumulatedLinks)
+        onBatch?(finalSorted)
+        return finalSorted
+    }
+
+    private func processAndSort(links: [AggregatedLink]) -> [AggregatedLink] {
         // 3. Deduplicate links by infoHash or URL
         var seenHashes = Set<String>()
         var seenURLs = Set<String>()
         var uniqueLinks: [AggregatedLink] = []
 
-        for link in allLinks {
+        for link in links {
             if let hash = link.infoHash, !hash.isEmpty {
                 let cleanHash = hash.uppercased()
                 if seenHashes.contains(cleanHash) { continue }

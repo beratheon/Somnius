@@ -317,7 +317,16 @@ class StremioAddonManager: ObservableObject {
     }
 
     // MARK: - Stream Fetching Protocol
-    func fetchStreams(imdbID: String, tmdbID: String, type: MediaItem.MediaType, title: String? = nil, season: Int?, episode: Int?) async -> [AggregatedLink] {
+    // MARK: - Stream Fetching Protocol
+    func fetchStreams(
+        imdbID: String,
+        tmdbID: String,
+        type: MediaItem.MediaType,
+        title: String? = nil,
+        season: Int?,
+        episode: Int?,
+        onBatch: (([AggregatedLink]) -> Void)? = nil
+    ) async -> [AggregatedLink] {
         let typeString = (type == .series) ? "series" : "movie"
         let targetID: String
         if type == .series {
@@ -334,24 +343,38 @@ class StremioAddonManager: ObservableObject {
         let rdParam = !rdKey.isEmpty ? "realdebrid=\(rdKey)" : ""
 
         await withTaskGroup(of: [AggregatedLink].self) { group in
-            if isTurbo {
-                group.addTask { return await self.queryTorrentio(typeString: typeString, targetID: targetID, rdParam: rdParam) }
-                group.addTask { return await self.queryMeteor(typeString: typeString, targetID: targetID, rdParam: rdParam) }
-                group.addTask { return await self.queryComet(typeString: typeString, targetID: targetID, rdParam: rdParam) }
-                group.addTask { return await self.queryKnaben(typeString: typeString, targetID: targetID, rdParam: rdParam) }
-            } else {
-                group.addTask { return await self.queryTorrentio(typeString: typeString, targetID: targetID, rdParam: rdParam) }
+            // 1. High-Speed Torrentio Debrid (All 17 providers enabled: YTS, RARBG, 1337x, TPB, EZTV, Rutracker, etc.)
+            if isTurbo && !rdParam.isEmpty {
+                group.addTask {
+                    return await self.queryTorrentio(typeString: typeString, targetID: targetID, rdParam: rdParam)
+                }
             }
 
-            // User-installed custom add-ons
+            // 2. High-Speed Torrentio P2P (All 17 providers uncached/p2p)
+            group.addTask {
+                return await self.queryTorrentioP2P(typeString: typeString, targetID: targetID)
+            }
+
+            // 3. ThePirateBay Direct API (Over 100 torrents, seeders, and hash info)
+            if let searchTitle = title, !searchTitle.isEmpty {
+                group.addTask {
+                    return await self.queryThePirateBay(title: searchTitle, type: type, season: season, episode: episode)
+                }
+            }
+
+            // 4. User-installed custom add-ons
             for addon in self.installedAddons where addon.isEnabled && addon.supportedResources.contains("stream") {
+                // If user installed a Torrentio instance with RD already, let it run
                 group.addTask {
                     return await self.queryGenericAddon(addon: addon, typeString: typeString, targetID: targetID)
                 }
             }
 
             for await links in group {
-                allLinks.append(contentsOf: links)
+                if !links.isEmpty {
+                    allLinks.append(contentsOf: links)
+                    onBatch?(links)
+                }
             }
         }
 
@@ -422,7 +445,7 @@ class StremioAddonManager: ObservableObject {
     // MARK: - Raw Stremio Endpoint Scraper
     private func queryRawStreamEndpoint(url: URL, source: String? = nil) async -> [AggregatedLink] {
         var req = URLRequest(url: url)
-        req.timeoutInterval = 9.0
+        req.timeoutInterval = 4.0
         req.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
 
         struct StreamItem: Decodable {
@@ -453,7 +476,7 @@ class StremioAddonManager: ObservableObject {
 
                 // Filter out provider notice/error banner streams
                 let lower = combinedText.lowercased()
-                if lower.contains("obsolete configuration") || lower.contains("please re-configure") || lower.contains("error") && stream.url == nil && stream.infoHash == nil {
+                if lower.contains("obsolete configuration") || lower.contains("please re-configure") || (lower.contains("error") && stream.url == nil && stream.infoHash == nil) {
                     return nil
                 }
 
@@ -479,79 +502,56 @@ class StremioAddonManager: ObservableObject {
         return await queryRawStreamEndpoint(url: url, source: addon.name)
     }
 
-    private func urlSafeBase64(_ data: Data) -> String? {
-        let b64 = data.base64EncodedString()
-        return b64
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-    }
-
-    // MARK: - 1. Torrentio Provider
+    // MARK: - 1. High-Speed Torrentio Provider (All 17 Providers Enabled)
     private func queryTorrentio(typeString: String, targetID: String, rdParam: String) async -> [AggregatedLink] {
-        let base = rdParam.isEmpty ? "https://torrentio.strem.fun/stream" : "https://torrentio.strem.fun/\(rdParam)/stream"
-        guard let url = URL(string: "\(base)/\(typeString)/\(targetID).json") else { return [] }
+        let allProviders = "providers=yts,eztv,rarbg,1337x,thepiratebay,kickasstorrents,torrentgalaxy,magnetdl,horriblesubs,nyaasi,tokyotosho,anidex,rutor,rutracker,torrent9,mejortorrent,cinecalidad|sort=qualitysize"
+        let fullConfig = rdParam.isEmpty ? allProviders : "\(allProviders)|\(rdParam)"
+        guard let url = URL(string: "https://torrentio.strem.fun/\(fullConfig)/stream/\(typeString)/\(targetID).json") else { return [] }
         return await queryRawStreamEndpoint(url: url, source: "Torrentio")
     }
 
-    // MARK: - 2. Meteor Provider
-    private func queryMeteor(typeString: String, targetID: String, rdParam: String) async -> [AggregatedLink] {
-        let base = rdParam.isEmpty ? "https://meteor-v2.strem.fun/stream" : "https://meteor-v2.strem.fun/\(rdParam)/stream"
-        guard let url = URL(string: "\(base)/\(typeString)/\(targetID).json") else { return [] }
-        return await queryRawStreamEndpoint(url: url, source: "Meteor")
+    // MARK: - 2. Torrentio P2P Provider
+    private func queryTorrentioP2P(typeString: String, targetID: String) async -> [AggregatedLink] {
+        let allProviders = "providers=yts,eztv,rarbg,1337x,thepiratebay,kickasstorrents,torrentgalaxy,magnetdl,horriblesubs,nyaasi,tokyotosho,anidex,rutor,rutracker,torrent9,mejortorrent,cinecalidad|sort=qualitysize"
+        guard let url = URL(string: "https://torrentio.strem.fun/\(allProviders)/stream/\(typeString)/\(targetID).json") else { return [] }
+        return await queryRawStreamEndpoint(url: url, source: "Torrentio")
     }
 
-    // MARK: - 3. Comet Provider (V2 Format with ElfHosted & Multi-Indexer Support)
-    private func queryComet(typeString: String, targetID: String, rdParam: String) async -> [AggregatedLink] {
-        let rdKey = Config.realDebridApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !rdKey.isEmpty else { return [] }
+    // MARK: - 3. ThePirateBay Direct API (Fast & Reliable Fallback)
+    private func queryThePirateBay(title: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async -> [AggregatedLink] {
+        var query = title
+        if type == .series, let s = season, let e = episode {
+            query += String(format: " S%02dE%02d", s, e)
+        }
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "https://apibay.org/q.php?q=\(encoded)") else { return [] }
 
-        // Comet v2 settings JSON
-        let cometConfig: [String: Any] = [
-            "maxResultsPerResolution": 0,
-            "maxSize": 0,
-            "cachedOnly": false,
-            "sortCachedUncachedTogether": false,
-            "removeTrash": false,
-            "resultFormat": ["all"],
-            "debridServices": [
-                ["service": "realdebrid", "apiKey": rdKey]
-            ],
-            "enableTorrent": true,
-            "deduplicateStreams": false,
-            "scrapeDebridAccountTorrents": false,
-            "debridStreamProxyPassword": "",
-            "languages": [
-                "required": [String](),
-                "allowed": [String](),
-                "exclude": [String](),
-                "preferred": [String]()
-            ],
-            "resolutions": [String: Bool](),
-            "options": [
-                "remove_ranks_under": -10000000000,
-                "allow_english_in_languages": true,
-                "remove_unknown_languages": false
-            ]
-        ]
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 3.5
+        req.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
 
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: cometConfig),
-              let b64 = jsonData.base64EncodedString() as String? else {
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return [] }
+            struct PBItem: Decodable {
+                let name: String
+                let info_hash: String
+                let size: String
+                let seeders: String
+            }
+            let items = try JSONDecoder().decode([PBItem].self, from: data)
+            return items.prefix(80).compactMap { item -> AggregatedLink? in
+                guard item.info_hash != "0000000000000000000000000000000000000000" else { return nil }
+                let seeds = Int(item.seeders) ?? 0
+                let sizeBytes = Int64(item.size) ?? 0
+                let gb = Double(sizeBytes) / 1_073_741_824.0
+                let sizeStr = gb >= 1.0 ? String(format: "%.2f GB", gb) : String(format: "%.0f MB", Double(sizeBytes) / 1_048_576.0)
+                let rawTitle = "\(item.name)\n👤 \(seeds) 💾 \(sizeStr) ⚙️ ThePirateBay"
+                return StreamParser.parse(rawTitle: rawTitle, source: "ThePirateBay", url: nil, infoHash: item.info_hash)
+            }
+        } catch {
             return []
         }
-
-        let base = "https://comet.elfhosted.com/\(b64)"
-        guard let url = URL(string: "\(base)/stream/\(typeString)/\(targetID).json") else { return [] }
-        return await queryRawStreamEndpoint(url: url, source: "Comet")
-    }
-
-    // MARK: - 4. Knaben Provider
-    private func queryKnaben(typeString: String, targetID: String, rdParam: String) async -> [AggregatedLink] {
-        let configJSON = "{\"debridservice\":\"realdebrid\",\"debridapikey\":\"\(Config.realDebridApiKey)\",\"resolvesync\":true}"
-        let configBase64 = urlSafeBase64(configJSON.data(using: .utf8) ?? Data()) ?? ""
-        let base = rdParam.isEmpty ? "https://knaben-stremio.elfhosted.com/stream" : "https://knaben-stremio.elfhosted.com/\(configBase64)/stream"
-        guard let url = URL(string: "\(base)/\(typeString)/\(targetID).json") else { return [] }
-        return await queryRawStreamEndpoint(url: url, source: "Knaben")
     }
 }
 

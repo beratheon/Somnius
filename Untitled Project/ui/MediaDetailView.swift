@@ -1334,7 +1334,12 @@ struct MediaDetailView: View {
                     imdbID: currentItem.imdbID,
                     type: currentItem.type,
                     season: currentItem.type == .series ? selectedSeason : nil,
-                    episode: currentItem.type == .series ? 1 : nil
+                    episode: currentItem.type == .series ? 1 : nil,
+                    onBatch: { partialLinks in
+                        Task { @MainActor in
+                            self.downloadSources = partialLinks
+                        }
+                    }
                 )
                 await MainActor.run {
                     self.downloadSources = links
