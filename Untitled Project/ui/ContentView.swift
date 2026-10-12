@@ -74,7 +74,7 @@ struct ContentView: View {
                         }
 
                         // Top Navigation Links (Home, Movies, Series, Watchlist, Settings)
-                        HStack(spacing: 22) {
+                        HStack(spacing: 20) {
                             ForEach(MainNavigationTab.allCases, id: \.self) { tab in
                                 Button(action: {
                                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -99,6 +99,38 @@ struct ContentView: View {
                                 }
                                 .buttonStyle(PlainButtonStyle())
                             }
+
+                            // Support Patreon Button (Directly next to Settings)
+                            Button(action: {
+                                if let url = URL(string: "https://www.patreon.com/cw/infage") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }) {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "heart.fill")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(Color(red: 1.0, green: 0.35, blue: 0.42))
+                                    Text("Support on Patreon")
+                                        .font(.system(size: 11.5, weight: .bold))
+                                        .foregroundColor(.white)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(
+                                    LinearGradient(
+                                        colors: [Color(red: 1.0, green: 0.3, blue: 0.4).opacity(0.25), Color(red: 0.95, green: 0.45, blue: 0.2).opacity(0.2)],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color(red: 1.0, green: 0.35, blue: 0.45).opacity(0.45), lineWidth: 0.8)
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .help("Support our projects on Patreon (https://www.patreon.com/cw/infage)")
                         }
                         .padding(.leading, 10)
 

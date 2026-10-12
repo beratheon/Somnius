@@ -1855,6 +1855,61 @@ struct UserProfileView: View {
             .background(Color.white.opacity(0.04))
             .cornerRadius(12)
 
+            // Patreon Support Card
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text("Support Our Projects on Patreon")
+                                .font(.subheadline.bold())
+                                .foregroundColor(.white)
+                            Text("PATREON")
+                                .font(.system(size: 9, weight: .heavy))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color(red: 1.0, green: 0.35, blue: 0.42).opacity(0.2))
+                                .foregroundColor(Color(red: 1.0, green: 0.4, blue: 0.45))
+                                .clipShape(Capsule())
+                        }
+                        Text("Become a patron to directly support Somnius development, new scrapers, and independent media features.")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    Spacer()
+                    Button(action: {
+                        if let url = URL(string: "https://www.patreon.com/cw/infage") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "heart.fill")
+                                .font(.caption.bold())
+                            Text("Join Patreon")
+                                .font(.caption.bold())
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(
+                            LinearGradient(
+                                colors: [Color(red: 1.0, green: 0.35, blue: 0.42), Color(red: 0.95, green: 0.45, blue: 0.2)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .padding(16)
+            .background(Color.white.opacity(0.04))
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color(red: 1.0, green: 0.35, blue: 0.45).opacity(0.2), lineWidth: 1)
+            )
+
             // Ads Toggle Card (Requirement 5)
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
