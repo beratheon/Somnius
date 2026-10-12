@@ -11,12 +11,13 @@ NAME = "Somnius 1.0.0 Beta"
 BODY = """## Somnius 1.0.0 Beta Release 🚀
 
 ### What's New:
-- **Dual Video Engines**: Native KSPlayer + AVPlayer with fast audio & subtitle track switching.
+- **P2P & Debrid Streaming Engine**: Instant peer pre-warming, top-tier tracker aggregation, and adaptive video stream selection.
+- **Support Us on Patreon**: Added direct Patreon support button in Settings to support future development.
+- **Dual Video Engines**: Native KSPlayer + AVPlayer with fast audio & subtitle track switching and intelligent stall protection.
 - **Unified Metadata Engine**: TMDB & TVDB API integration for accurate TV shows, series, docuseries, and movies.
-- **Universal Auto-Play**: Smart source selection, file size bandwidth limiter, and automatic hoster notice-clip skipping.
+- **Universal Auto-Play**: Smart source selection, seeder-prioritized ranking, and automatic hoster notice-clip skipping.
 - **Decentralized Streaming Add-ons**: Built-in support for Torrentio, Comet v2, Meteor, and Knaben.
 - **Native Downloads**: Built-in torrent and debrid download manager with background transmission.
-- **Remote Gatekeeper**: Automatic update checking and preview lifecycle management.
 
 ### Installation (macOS):
 1. Download **`Somnius-1.0.0.dmg`** below.

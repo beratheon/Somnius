@@ -142,6 +142,16 @@ struct MediaDetailView: View {
                                         Text(Calendar.current.component(.year, from: date).description)
                                             .font(.system(size: 14, weight: .semibold))
                                             .foregroundColor(.white.opacity(0.88))
+
+                                        if date > Date() {
+                                            Text("UNRELEASED")
+                                                .font(.system(size: 10, weight: .black, design: .rounded))
+                                                .foregroundColor(.white)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Color.orange.opacity(0.9))
+                                                .clipShape(RoundedRectangle(cornerRadius: 3.5, style: .continuous))
+                                        }
                                     }
 
                                     if let rating = currentItem.rating, rating > 0 {
@@ -183,6 +193,17 @@ struct MediaDetailView: View {
                                     }
                                     .padding(.top, 2)
                                 }
+
+                                    if let date = currentItem.releaseDate, date > Date() {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "clock.badge.exclamationmark")
+                                                .font(.system(size: 12, weight: .semibold))
+                                            Text("Releasing \(date.formatted(date: .long, time: .omitted)) • Streams may not be available yet")
+                                                .font(.system(size: 12, weight: .medium))
+                                        }
+                                        .foregroundColor(Color.orange.opacity(0.95))
+                                        .padding(.vertical, 4)
+                                    }
 
                                     // Action Buttons
                                     HStack(spacing: 12) {

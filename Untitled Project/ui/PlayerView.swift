@@ -1267,12 +1267,19 @@ struct PlayerView: View {
                         }
                     } else {
                         // Initial buffering before playback has started
-                        // P2P / debridless torrent buffering needs patience to discover peers and acquire initial pieces without re-seeking
-                        if self.stallSecondsCount == 15.0 {
+                        if self.stallSecondsCount == 12.0 {
                             self.ksEngine.play()
-                        } else if self.stallSecondsCount >= 45.0 {
-                            print("[StallWatchdog] Initial buffer timeout.")
-                            self.attemptStallAutoRecovery()
+                        } else if self.stallSecondsCount >= 22.0 {
+                            print("[StallWatchdog] Initial buffer timeout on unseeded stream. Attempting next candidate...")
+                            if let curr = self.currentActiveLinkID {
+                                self.failedLinkIDs.insert(curr)
+                            }
+                            if let direct = (self.activeStreamURL ?? self.streamURL)?.absoluteString {
+                                self.failedStreamURLs.insert(direct)
+                            }
+                            self.stallSecondsCount = 0
+                            self.showToast("No active seeds transferring data. Trying next stream...")
+                            self.autoPlayNextBestLink()
                         }
                     }
                 } else {
@@ -1662,7 +1669,8 @@ struct PlayerView: View {
 
                 guard let firstChoice = candidates.first else {
                     await MainActor.run {
-                        self.showToast("No alternative streams found.")
+                        self.isBuffering = false
+                        self.showToast("No active seeders found. This title may be unreleased or unavailable.")
                         self.isSkippingFakeStream = false
                     }
                     return
