@@ -78,6 +78,10 @@ public class MPVVideoView: NSView {
         layer = metalLayer
     }
 
+    public override func makeBackingLayer() -> CALayer {
+        return metalLayer
+    }
+
     public override func layout() {
         super.layout()
         updateLayerGeometry()
@@ -187,6 +191,7 @@ public class MPVPlayerEngine: ObservableObject {
     @Published public var edrRange: Double = 1.0
 
     private var mpv: OpaquePointer? = nil
+    private weak var attachedView: MPVVideoView? = nil
     private var activeMetalLayer: MetalLayer? = nil
     private let eventQueue = DispatchQueue(label: "com.somnius.mpv.events", qos: .userInitiated)
     private var pendingURL: URL? = nil
@@ -200,6 +205,7 @@ public class MPVPlayerEngine: ObservableObject {
 
     // MARK: - Setup & Initialization
     public func attachView(_ view: MPVVideoView) {
+        self.attachedView = view
         self.activeMetalLayer = view.metalLayer
         ensureEngineInitialized()
 
@@ -210,8 +216,8 @@ public class MPVPlayerEngine: ObservableObject {
     }
 
     private func ensureEngineInitialized() {
-        guard let layer = activeMetalLayer else {
-            print("⏳ [MPVPlayerEngine] ensureEngineInitialized: activeMetalLayer is nil, waiting for view attachment")
+        guard let view = attachedView else {
+            print("⏳ [MPVPlayerEngine] ensureEngineInitialized: attachedView is nil, waiting for view attachment")
             return
         }
         if mpv != nil { return }
@@ -221,16 +227,14 @@ public class MPVPlayerEngine: ObservableObject {
             return
         }
 
-        var layerInt: Int64 = Int64(Int(bitPattern: Unmanaged.passUnretained(layer).toOpaque()))
+        // On macOS Cocoa, wid must be the pointer to the host NSView!
+        var viewInt: Int64 = Int64(Int(bitPattern: Unmanaged.passUnretained(view).toOpaque()))
 
-        // Video Output: gpu-next + Vulkan (MoltenVK) for zero-overhead direct CAMetalLayer rendering
-        let widStatus = mpv_set_option(handle, "wid", MPV_FORMAT_INT64, &layerInt)
+        let widStatus = mpv_set_option(handle, "wid", MPV_FORMAT_INT64, &viewInt)
         if widStatus < 0 {
             print("❌ [MPVPlayerEngine] wid set_option failed: \(String(cString: mpv_error_string(widStatus)))")
         }
         mpv_set_option_string(handle, "vo", "gpu-next")
-        mpv_set_option_string(handle, "gpu-api", "vulkan")
-        mpv_set_option_string(handle, "gpu-context", "moltenvk")
         mpv_set_option_string(handle, "hwdec", "videotoolbox")
 
         // Apple Silicon XDR/EDR HDR Passthrough & Tone Mapping

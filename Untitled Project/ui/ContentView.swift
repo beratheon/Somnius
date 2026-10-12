@@ -586,7 +586,7 @@ struct ContentView: View {
         let cachedOnly = Config.autoPlayCachedOnly
 
         var candidates = scrapedLinks.filter { link in
-            if cachedOnly && !link.isCached { return false }
+            if Config.isDebridMode && cachedOnly && !link.isCached { return false }
             if maxSize > 0, let gb = link.sizeInGigabytes, gb > maxSize { return false }
             return true
         }
@@ -595,30 +595,51 @@ struct ContentView: View {
             candidates = scrapedLinks
         }
 
+        // In Debrid mode, isolate instant cached streams so uncached files are never picked
+        if Config.isDebridMode {
+            let cached = candidates.filter { $0.isCached }
+            if !cached.isEmpty {
+                candidates = cached
+            }
+        } else {
+            // In classic mode, isolate streams with active seeders (>= 3)
+            let seeded = candidates.filter { ($0.seeds ?? 0) >= 3 }
+            if !seeded.isEmpty {
+                candidates = seeded
+            }
+        }
+
         candidates.sort { a, b in
-            // 1. Dolby Vision Preference (Optimal for Liquid Retina XDR)
-            if preferDolbyVision {
-                let aDV = (a.hdrTag == "DV" || a.rawTitle.localizedCaseInsensitiveContains("dolby vision") || a.rawTitle.localizedCaseInsensitiveContains("dovi"))
-                let bDV = (b.hdrTag == "DV" || b.rawTitle.localizedCaseInsensitiveContains("dolby vision") || b.rawTitle.localizedCaseInsensitiveContains("dovi"))
-                if aDV != bDV { return aDV && !bDV }
+            // 1. Playability / Instant Cached status (Crucial for Debrid mode)
+            if Config.isDebridMode && a.isCached != b.isCached {
+                return a.isCached && !b.isCached
             }
 
-            // 2. Speed / Peer throughput in classic mode
+            // 2. Swarm health (Crucial for Classic mode: avoid dead swarms)
             if !Config.isDebridMode {
                 let sA = a.seeds ?? 0
                 let sB = b.seeds ?? 0
-                if sA != sB { return sA > sB }
+                if (sA >= 5) != (sB >= 5) {
+                    return sA >= 5
+                }
+                if abs(sA - sB) > 15 {
+                    return sA > sB
+                }
             }
 
-            // 3. User Target Quality Match
+            // 3. User Target Quality Match (e.g. 1080p FHD vs 4K UHD)
             let aQuality = a.quality.lowercased()
             let bQuality = b.quality.lowercased()
             let aMatch = (aQuality == prefQuality || (prefQuality == "4k" && a.quality == "4K") || (prefQuality == "1080p" && a.quality == "FHD") || (prefQuality == "720p" && a.quality == "HD"))
             let bMatch = (bQuality == prefQuality || (prefQuality == "4k" && b.quality == "4K") || (prefQuality == "1080p" && b.quality == "FHD") || (prefQuality == "720p" && b.quality == "HD"))
             if aMatch != bMatch { return aMatch && !bMatch }
 
-            // 4. Cached Cloud Status Priority
-            if a.isCached != b.isCached { return a.isCached && !b.isCached }
+            // 4. Dolby Vision Preference (Liquid Retina XDR)
+            if preferDolbyVision {
+                let aDV = (a.hdrTag == "DV" || a.rawTitle.localizedCaseInsensitiveContains("dolby vision") || a.rawTitle.localizedCaseInsensitiveContains("dovi"))
+                let bDV = (b.hdrTag == "DV" || b.rawTitle.localizedCaseInsensitiveContains("dolby vision") || b.rawTitle.localizedCaseInsensitiveContains("dovi"))
+                if aDV != bDV { return aDV && !bDV }
+            }
 
             // 5. HDR10 Preference
             if preferHDR {

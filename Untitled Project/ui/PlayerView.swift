@@ -421,6 +421,7 @@ struct PlayerView: View {
 
     private var isPlayerLoadingOrStalled: Bool {
         if isSwitchingEpisode { return false }
+        if showSourcesDrawer || showPlaybackErrorSheet || playbackError != nil { return false }
         if currentTime == 0 && (!isPlaying || isBuffering) { return true }
         if isBuffering && (currentTime == 0 || stallSecondsCount > 2) { return true }
         return false
@@ -1719,7 +1720,7 @@ struct PlayerView: View {
                     if let direct = link.url?.absoluteString, self.failedStreamURLs.contains(direct) { return false }
 
                     // Filter cached only if active
-                    if cachedOnly && !link.isCached { return false }
+                    if Config.isDebridMode && cachedOnly && !link.isCached { return false }
 
                     // Filter by max file size limit (e.g. 8 GB)
                     if maxSize > 0, let gb = link.sizeInGigabytes, gb > maxSize {
@@ -1738,39 +1739,61 @@ struct PlayerView: View {
                     }
                 }
 
-                // Sort candidates based on user preferences:
+                // In Debrid mode, isolate instant cached streams
+                if Config.isDebridMode {
+                    let cached = candidates.filter { $0.isCached }
+                    if !cached.isEmpty {
+                        candidates = cached
+                    }
+                } else {
+                    // In classic mode, isolate streams with active seeders (>= 3)
+                    let seeded = candidates.filter { ($0.seeds ?? 0) >= 3 }
+                    if !seeded.isEmpty {
+                        candidates = seeded
+                    }
+                }
+
+                // Sort candidates based on playability and user preferences:
                 candidates.sort { a, b in
-                    // 1. Dolby Vision preference (Liquid Retina XDR)
-                    if preferDolbyVision {
-                        let aDV = (a.hdrTag == "DV" || a.rawTitle.localizedCaseInsensitiveContains("dolby vision") || a.rawTitle.localizedCaseInsensitiveContains("dovi"))
-                        let bDV = (b.hdrTag == "DV" || b.rawTitle.localizedCaseInsensitiveContains("dolby vision") || b.rawTitle.localizedCaseInsensitiveContains("dovi"))
-                        if aDV != bDV { return aDV && !bDV }
+                    // 1. Playability / Instant Cached status
+                    if Config.isDebridMode && a.isCached != b.isCached {
+                        return a.isCached && !b.isCached
                     }
 
-                    // 2. Preferred quality match
+                    // 2. Swarm health in classic mode
+                    if !Config.isDebridMode {
+                        let sA = a.seeds ?? 0
+                        let sB = b.seeds ?? 0
+                        if (sA >= 5) != (sB >= 5) {
+                            return sA >= 5
+                        }
+                        if abs(sA - sB) > 15 {
+                            return sA > sB
+                        }
+                    }
+
+                    // 3. Preferred quality match
                     let aQuality = a.quality.lowercased()
                     let bQuality = b.quality.lowercased()
                     let aMatch = (aQuality == prefQuality || (prefQuality == "4k" && a.quality == "4K") || (prefQuality == "1080p" && a.quality == "FHD") || (prefQuality == "720p" && a.quality == "HD"))
                     let bMatch = (bQuality == prefQuality || (prefQuality == "4k" && b.quality == "4K") || (prefQuality == "1080p" && b.quality == "FHD") || (prefQuality == "720p" && b.quality == "HD"))
                     if aMatch != bMatch { return aMatch && !bMatch }
 
-                    if !Config.isDebridMode {
-                        let sA = a.seeds ?? 0
-                        let sB = b.seeds ?? 0
-                        if sA != sB { return sA > sB }
+                    // 4. Dolby Vision preference (Liquid Retina XDR)
+                    if preferDolbyVision {
+                        let aDV = (a.hdrTag == "DV" || a.rawTitle.localizedCaseInsensitiveContains("dolby vision") || a.rawTitle.localizedCaseInsensitiveContains("dovi"))
+                        let bDV = (b.hdrTag == "DV" || b.rawTitle.localizedCaseInsensitiveContains("dolby vision") || b.rawTitle.localizedCaseInsensitiveContains("dovi"))
+                        if aDV != bDV { return aDV && !bDV }
                     }
 
-                    // 3. Cached status priority
-                    if a.isCached != b.isCached { return a.isCached && !b.isCached }
-
-                    // 4. HDR10 preference
+                    // 5. HDR10 preference
                     if preferHDR {
                         let aHDR = a.hdrTag != nil
                         let bHDR = b.hdrTag != nil
                         if aHDR != bHDR { return aHDR && !bHDR }
                     }
 
-                    // 5. Surround sound preference
+                    // 6. Surround sound preference
                     if preferSurround {
                         let aSurround = (a.audioTag?.contains("5.1") == true || a.audioTag?.contains("7.1") == true || a.audioTag?.contains("ATMOS") == true)
                         let bSurround = (b.audioTag?.contains("5.1") == true || b.audioTag?.contains("7.1") == true || b.audioTag?.contains("ATMOS") == true)
