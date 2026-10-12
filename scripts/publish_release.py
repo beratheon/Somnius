@@ -11,15 +11,15 @@ NAME = "Somnius 1.0.0 Beta"
 BODY = """## Somnius 1.0.0 Beta Release 🚀
 
 ### What's New:
-- **Zero-Lag Video Playback**: Fully unmounted background UI during playback, eliminated live window-server blur overhead, decoupled player state subscriptions, and throttled UI dispatch ticks to eliminate frame drops.
+- **Internal libmpv Rendering Engine**: Native Apple Silicon VideoToolbox hardware acceleration, Liquid Retina XDR / EDR peak brightness support, and zero external dependencies for maximum smoothness and efficiency.
+- **One-Click Auto-Play**: Direct playback with automatic stream resolution matching your preferred quality (4K UHD, 1080p, Dolby Vision, HDR10, Surround Audio 5.1/7.1) without manual source selection friction.
+- **Dedicated Media Sources Picker**: Instant access to browse and pick alternate media streams with clean speed indicators and format badges.
+- **Onboarding Auto-Play Configuration**: Intuitive setup step to configure target resolution, Liquid Retina XDR / Dolby Vision preference, surround sound, and file size limits right out of the box.
+- **Pure Agnostic Media Player Shell**: Eliminated legacy torrent terminology across the UI in favor of clean, modern media stream representations.
+- **Strict Content Safeguards & Exact Search**: Enforced adult/NSFW filtering and exact TMDB title matching for clean, accurate search results.
 - **Enhanced Subtitle Engine**: Direct track selection binding and PGS bitmap graphic subtitle rendering support.
-- **Debrid & P2P Stream Volume**: Restored ElfHosted Comet integration with Base64 Real-Debrid token routing, returning thousands of high-speed 4K Remux and Dolby Vision streams.
-- **Reliable Torrent Engine Lifecycle**: Serialized torrent mission cleanup prior to start, decoupling cache wiping from active stream startup.
+- **Zero-Lag Background Optimization**: Fully unmounted background UI during playback, eliminated live window-server blur overhead, and throttled UI dispatch ticks to eliminate frame drops.
 - **Minimalist Pastel Design**: Complete aesthetic overhaul harmonizing all UI elements with the SoftTone pastel palette.
-- **Patreon Supporter Integration**: Added direct Patreon supporter button next to Settings.
-- **Dual Video Engines**: Native KSPlayer + AVPlayer with instant audio track synchronization and stall protection.
-- **Unified Metadata Engine**: TMDB & TVDB API integration for accurate TV shows, series, and movies.
-- **Accurate Search & Adult Content Elimination**: Strict exclusion of adult/NSFW content across all API and stream endpoints, elimination of un-indexed tracker queries, and exact title match prioritization for flawless search results.
 
 ### Installation (macOS):
 1. Download **`Somnius-1.0.0.dmg`** or **`Somnius-1.0.0.pkg`** below.

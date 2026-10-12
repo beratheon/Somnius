@@ -9,7 +9,7 @@ struct AccountSetupView: View {
     @ObservedObject private var adManager = AdPlacementManager.shared
 
     @State private var isCreatingNewProfile: Bool = false
-    @State private var step: Int = 1 // 1: Profile, 2: Preferences, 3: Add-ons, 4: Engine & Speed
+    @State private var step: Int = 1 // 1: Profile, 2: Preferences, 3: Add-ons, 4: Engine, 5: Auto-Play
 
     // Profile form state
     @State private var profileName: String = ""
@@ -23,6 +23,13 @@ struct AccountSetupView: View {
     @State private var debridApiKeyInput: String = "" // Isolated per profile!
     @State private var isVerifyingDebrid: Bool = false
     @State private var debridStatusMessage: String? = nil
+
+    // Auto-Play Preferences form state
+    @State private var autoPlayQuality: String = Config.autoPlayPreferredQuality
+    @State private var autoPlayPreferHDR: Bool = Config.autoPlayPreferHDR
+    @State private var autoPlayPreferDolbyVision: Bool = Config.autoPlayPreferDolbyVision
+    @State private var autoPlayPreferSurround: Bool = Config.autoPlayPreferSurround
+    @State private var autoPlayMaxSize: Double = Config.autoPlayMaxGbSize
 
     // Addon install state in onboarding
     @State private var isInstallingCommunityPack: Bool = false
@@ -204,15 +211,17 @@ struct AccountSetupView: View {
                     .buttonStyle(PlainButtonStyle())
                 }
                 Spacer()
-                // 4-Step Indicator
+                // 5-Step Indicator
                 HStack(spacing: 8) {
                     stepCircle(num: 1, title: "Profile")
-                    Divider().frame(width: 20, height: 1).background(Color.white.opacity(0.2))
+                    Divider().frame(width: 14, height: 1).background(Color.white.opacity(0.2))
                     stepCircle(num: 2, title: "Preferences")
-                    Divider().frame(width: 20, height: 1).background(Color.white.opacity(0.2))
+                    Divider().frame(width: 14, height: 1).background(Color.white.opacity(0.2))
                     stepCircle(num: 3, title: "Add-ons")
-                    Divider().frame(width: 20, height: 1).background(Color.white.opacity(0.2))
-                    stepCircle(num: 4, title: "Engine & Speed")
+                    Divider().frame(width: 14, height: 1).background(Color.white.opacity(0.2))
+                    stepCircle(num: 4, title: "Engine")
+                    Divider().frame(width: 14, height: 1).background(Color.white.opacity(0.2))
+                    stepCircle(num: 5, title: "Auto-Play")
                 }
                 Spacer()
                 Text("").frame(width: 80)
@@ -229,8 +238,10 @@ struct AccountSetupView: View {
                         step2PreferencesView
                     } else if step == 3 {
                         step3AddonsView
-                    } else {
+                    } else if step == 4 {
                         step4SpeedEngineView
+                    } else {
+                        step5AutoPlayView
                     }
                 }
                 .frame(maxWidth: 820)
@@ -254,7 +265,7 @@ struct AccountSetupView: View {
 
                 Spacer()
 
-                if step < 4 {
+                if step < 5 {
                     Button("Continue") {
                         withAnimation { step += 1 }
                     }
@@ -268,9 +279,9 @@ struct AccountSetupView: View {
                     .buttonStyle(PlainButtonStyle())
                     .disabled(profileName.isEmpty)
                 } else {
-                    // Final Step (Speed Engine) Buttons
+                    // Final Step (Auto-Play Tuning) Buttons
                     Button(action: finalizeAccountCreation) {
-                        Text("Skip / Setup Later")
+                        Text("Skip with Defaults")
                             .font(.custom("Helvetica", size: 13))
                             .foregroundColor(.white.opacity(0.6))
                             .padding(.horizontal, 16)
@@ -650,15 +661,15 @@ struct AccountSetupView: View {
                             Text("Classic Engine")
                                 .font(.custom("Helvetica", size: 16).weight(.bold))
                                 .foregroundColor(.white)
-                            Text("Decentralized Peer Swarm")
+                            Text("Decentralized Media Swarm")
                                 .font(.custom("Helvetica", size: 12))
                                 .foregroundColor(.white.opacity(0.5))
                         }
 
                         VStack(alignment: .leading, spacing: 6) {
                             bulletItem("Zero accounts or tokens required")
-                            bulletItem("Direct peer-to-peer distribution")
-                            bulletItem("Throughput scales with peer seeders")
+                            bulletItem("Direct network distribution")
+                            bulletItem("High-throughput multi-stream delivery")
                         }
                         .padding(.top, 4)
 
@@ -720,7 +731,7 @@ struct AccountSetupView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             bulletItem("Instant 4K UHD Remux & Dolby Vision")
                             bulletItem("Uncapped 1 Gbps direct pipe (no buffering)")
-                            bulletItem("Instant seek without waiting for peers")
+                            bulletItem("Instant seek without loading delays")
                         }
                         .padding(.top, 4)
 
@@ -908,6 +919,124 @@ struct AccountSetupView: View {
         .frame(maxWidth: 780)
     }
 
+    // MARK: - Step 5: Auto-Play Preferences
+    private var step5AutoPlayView: some View {
+        VStack(spacing: 24) {
+            VStack(spacing: 6) {
+                Text("Auto-Play Preferences")
+                    .font(.custom("Baskerville", size: 28))
+                    .foregroundColor(.white)
+                Text("Configure your default one-click playback settings. When you click Play, Somnius automatically chooses the highest quality stream matching your hardware.")
+                    .font(.custom("Helvetica", size: 13))
+                    .foregroundColor(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 580)
+            }
+
+            VStack(spacing: 20) {
+                // Resolution Target
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Target Resolution")
+                        .font(.custom("Helvetica", size: 13).weight(.bold))
+                        .foregroundColor(.white.opacity(0.8))
+
+                    HStack(spacing: 12) {
+                        Button(action: { autoPlayQuality = "4k" }) {
+                            VStack(spacing: 4) {
+                                Text("4K UHD")
+                                    .font(.custom("Helvetica", size: 14).weight(.bold))
+                                    .foregroundColor(autoPlayQuality == "4k" ? .white : .white.opacity(0.7))
+                                Text("2160p HDR / DV")
+                                    .font(.custom("Helvetica", size: 10))
+                                    .foregroundColor(.white.opacity(0.5))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(autoPlayQuality == "4k" ? SoftTone.sand.color.opacity(0.18) : Color.white.opacity(0.05))
+                            .cornerRadius(10)
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(autoPlayQuality == "4k" ? SoftTone.sand.color : Color.clear, lineWidth: 1.5))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        Button(action: { autoPlayQuality = "1080p" }) {
+                            VStack(spacing: 4) {
+                                Text("1080p FHD")
+                                    .font(.custom("Helvetica", size: 14).weight(.bold))
+                                    .foregroundColor(autoPlayQuality == "1080p" ? .white : .white.opacity(0.7))
+                                Text("Full High Definition")
+                                    .font(.custom("Helvetica", size: 10))
+                                    .foregroundColor(.white.opacity(0.5))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(autoPlayQuality == "1080p" ? SoftTone.mist.color.opacity(0.18) : Color.white.opacity(0.05))
+                            .cornerRadius(10)
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(autoPlayQuality == "1080p" ? SoftTone.mist.color : Color.clear, lineWidth: 1.5))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        Button(action: { autoPlayQuality = "720p" }) {
+                            VStack(spacing: 4) {
+                                Text("720p HD")
+                                    .font(.custom("Helvetica", size: 14).weight(.bold))
+                                    .foregroundColor(autoPlayQuality == "720p" ? .white : .white.opacity(0.7))
+                                Text("Bandwidth Saver")
+                                    .font(.custom("Helvetica", size: 10))
+                                    .foregroundColor(.white.opacity(0.5))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(autoPlayQuality == "720p" ? SoftTone.sage.color.opacity(0.18) : Color.white.opacity(0.05))
+                            .cornerRadius(10)
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(autoPlayQuality == "720p" ? SoftTone.sage.color : Color.clear, lineWidth: 1.5))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+
+                // Audio & Display Hardware Toggles
+                VStack(spacing: 12) {
+                    Toggle("Prefer Dolby Vision (Optimized for Apple Silicon XDR)", isOn: $autoPlayPreferDolbyVision)
+                        .toggleStyle(.switch)
+                    Toggle("Prefer HDR10 / EDR High Dynamic Range", isOn: $autoPlayPreferHDR)
+                        .toggleStyle(.switch)
+                    Toggle("Prefer 5.1 / 7.1 / Dolby Atmos Surround Audio", isOn: $autoPlayPreferSurround)
+                        .toggleStyle(.switch)
+                }
+                .padding(16)
+                .background(Color.white.opacity(0.04))
+                .cornerRadius(12)
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
+
+                // Max File Size Limit
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Maximum Stream File Size Guard")
+                            .font(.custom("Helvetica", size: 13).weight(.bold))
+                            .foregroundColor(.white.opacity(0.8))
+                        Spacer()
+                        Text(autoPlayMaxSize == 0 ? "Unlimited" : "\(Int(autoPlayMaxSize)) GB")
+                            .font(.custom("Helvetica", size: 13).weight(.bold))
+                            .foregroundColor(SoftTone.mist.color)
+                    }
+
+                    Picker("", selection: $autoPlayMaxSize) {
+                        Text("8 GB").tag(8.0)
+                        Text("15 GB").tag(15.0)
+                        Text("25 GB").tag(25.0)
+                        Text("No Limit").tag(0.0)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                .padding(16)
+                .background(Color.white.opacity(0.04))
+                .cornerRadius(12)
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
+            }
+            .frame(maxWidth: 580)
+        }
+    }
+
     private func bulletItem(_ text: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "circle.fill")
@@ -1030,6 +1159,13 @@ struct AccountSetupView: View {
             }
         }
 
+        // Save Auto-Play defaults to persistent Config
+        Config.autoPlayPreferredQuality = autoPlayQuality
+        Config.autoPlayPreferHDR = autoPlayPreferHDR
+        Config.autoPlayPreferDolbyVision = autoPlayPreferDolbyVision
+        Config.autoPlayPreferSurround = autoPlayPreferSurround
+        Config.autoPlayMaxGbSize = autoPlayMaxSize
+
         let mode = (!cleanDebrid.isEmpty && isDebridMode) ? "debrid" : "classic"
 
         _ = accountManager.createAccount(
@@ -1055,5 +1191,10 @@ struct AccountSetupView: View {
         isDebridMode = false
         debridApiKeyInput = "" // Isolated per profile!
         debridStatusMessage = nil
+        autoPlayQuality = "1080p"
+        autoPlayPreferHDR = true
+        autoPlayPreferDolbyVision = true
+        autoPlayPreferSurround = true
+        autoPlayMaxSize = 8.0
     }
 }

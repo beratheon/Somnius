@@ -424,6 +424,11 @@ struct ContentView: View {
                     item: item,
                     onPlay: { itemToPlay, season, episode in
                         Task {
+                            await autoPlayMediaItem(itemToPlay, season: season, episode: episode)
+                        }
+                    },
+                    onShowSources: { itemToPlay, season, episode in
+                        Task {
                             await selectMediaAndScrape(itemToPlay, season: season, episode: episode)
                         }
                     },
@@ -502,13 +507,73 @@ struct ContentView: View {
     }
 
     @MainActor
+    private func autoPlayMediaItem(_ item: MediaItem, season: Int? = nil, episode: Int? = nil) async {
+        selectedMediaItem = item
+        playingSeason = season
+        playingEpisode = episode
+        isFetchingStreams = true
+        hasFinishedScraping = false
+        scrapedLinks = []
+
+        withAnimation(.easeInOut(duration: 0.25)) {
+            isPreparingStream = true
+            let epTag = (season != nil && episode != nil) ? " (S\(season!) E\(episode!))" : ""
+            preparingStreamTitle = item.title + epTag
+            preparingStreamSubtitle = "Finding best media source…"
+        }
+
+        do {
+            let links = try await AggregatorService().fetchBestLinks(
+                tmdbID: item.id,
+                imdbID: item.imdbID,
+                type: item.type,
+                season: season,
+                episode: episode,
+                onBatch: { partialLinks in
+                    Task { @MainActor in
+                        self.scrapedLinks = partialLinks
+                    }
+                }
+            )
+            scrapedLinks = links
+            isFetchingStreams = false
+            hasFinishedScraping = true
+
+            guard !links.isEmpty else {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    self.isPreparingStream = false
+                }
+                self.errorMessage = "No playable media sources found for this title. You can check installed add-ons or try selecting sources manually."
+                return
+            }
+
+            await autoPlayTopLink()
+        } catch {
+            isFetchingStreams = false
+            hasFinishedScraping = true
+            withAnimation(.easeInOut(duration: 0.25)) {
+                self.isPreparingStream = false
+            }
+            self.errorMessage = "Unable to find media sources: \(error.localizedDescription)"
+        }
+    }
+
+    @MainActor
     private func autoPlayTopLink() async {
-        guard !scrapedLinks.isEmpty else { return }
+        guard !scrapedLinks.isEmpty else {
+            isFetchingStreams = false
+            withAnimation(.easeInOut(duration: 0.25)) {
+                self.isPreparingStream = false
+            }
+            errorMessage = "No media sources available."
+            return
+        }
         isFetchingStreams = true
 
         let maxSize = Config.autoPlayMaxGbSize
         let prefQuality = Config.autoPlayPreferredQuality.lowercased()
         let preferHDR = Config.autoPlayPreferHDR
+        let preferDolbyVision = Config.autoPlayPreferDolbyVision
         let preferSurround = Config.autoPlayPreferSurround
         let cachedOnly = Config.autoPlayCachedOnly
 
@@ -523,26 +588,38 @@ struct ContentView: View {
         }
 
         candidates.sort { a, b in
+            // 1. Dolby Vision Preference (Optimal for Liquid Retina XDR)
+            if preferDolbyVision {
+                let aDV = (a.hdrTag == "DV" || a.rawTitle.localizedCaseInsensitiveContains("dolby vision") || a.rawTitle.localizedCaseInsensitiveContains("dovi"))
+                let bDV = (b.hdrTag == "DV" || b.rawTitle.localizedCaseInsensitiveContains("dolby vision") || b.rawTitle.localizedCaseInsensitiveContains("dovi"))
+                if aDV != bDV { return aDV && !bDV }
+            }
+
+            // 2. Speed / Peer throughput in classic mode
             if !Config.isDebridMode {
                 let sA = a.seeds ?? 0
                 let sB = b.seeds ?? 0
                 if sA != sB { return sA > sB }
             }
 
+            // 3. User Target Quality Match
             let aQuality = a.quality.lowercased()
             let bQuality = b.quality.lowercased()
             let aMatch = (aQuality == prefQuality || (prefQuality == "4k" && a.quality == "4K") || (prefQuality == "1080p" && a.quality == "FHD") || (prefQuality == "720p" && a.quality == "HD"))
             let bMatch = (bQuality == prefQuality || (prefQuality == "4k" && b.quality == "4K") || (prefQuality == "1080p" && b.quality == "FHD") || (prefQuality == "720p" && b.quality == "HD"))
             if aMatch != bMatch { return aMatch && !bMatch }
 
+            // 4. Cached Cloud Status Priority
             if a.isCached != b.isCached { return a.isCached && !b.isCached }
 
+            // 5. HDR10 Preference
             if preferHDR {
                 let aHDR = a.hdrTag != nil
                 let bHDR = b.hdrTag != nil
                 if aHDR != bHDR { return aHDR && !bHDR }
             }
 
+            // 6. Surround Sound Preference
             if preferSurround {
                 let aSurround = (a.audioTag?.contains("5.1") == true || a.audioTag?.contains("7.1") == true || a.audioTag?.contains("ATMOS") == true)
                 let bSurround = (b.audioTag?.contains("5.1") == true || b.audioTag?.contains("7.1") == true || b.audioTag?.contains("ATMOS") == true)
@@ -555,7 +632,18 @@ struct ContentView: View {
             return a.score > b.score
         }
 
-        let bestLink = candidates.first ?? scrapedLinks[0]
+        guard let bestLink = candidates.first ?? scrapedLinks.first else {
+            isFetchingStreams = false
+            withAnimation(.easeInOut(duration: 0.25)) {
+                self.isPreparingStream = false
+            }
+            errorMessage = "No working media source found."
+            return
+        }
+
+        withAnimation(.easeInOut(duration: 0.2)) {
+            self.preparingStreamSubtitle = "Buffering \(bestLink.resolutionBadge) media stream..."
+        }
 
         do {
             let (url, resolvedLink) = try await AggregatorService().resolveStreamURLWithFallback(startingLink: bestLink, allLinks: candidates)
@@ -566,6 +654,7 @@ struct ContentView: View {
             withAnimation(.easeInOut(duration: 0.3)) {
                 self.showPlayer = true
                 self.isPreparingStream = false
+                self.detailMediaItem = nil
             }
         } catch {
             isFetchingStreams = false
@@ -579,6 +668,11 @@ struct ContentView: View {
     @MainActor
     private func playStream(link: AggregatedLink) async {
         isFetchingStreams = true
+        withAnimation(.easeInOut(duration: 0.25)) {
+            self.isPreparingStream = true
+            self.preparingStreamTitle = selectedMediaItem?.title ?? link.cleanDisplayTitle
+            self.preparingStreamSubtitle = "Buffering \(link.resolutionBadge) media stream..."
+        }
         do {
             let (url, _) = try await AggregatorService().resolveStreamURLWithFallback(startingLink: link, allLinks: scrapedLinks)
             isFetchingStreams = false
@@ -587,6 +681,7 @@ struct ContentView: View {
             withAnimation(.easeInOut(duration: 0.3)) {
                 self.showPlayer = true
                 self.isPreparingStream = false
+                self.detailMediaItem = nil
             }
         } catch {
             isFetchingStreams = false
@@ -674,10 +769,10 @@ struct StreamSelectionSheet: View {
                         ProgressView()
                             .scaleEffect(1.4)
                             .tint(.white)
-                        Text("Finding streams…")
+                        Text("Finding media sources…")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundColor(.white)
-                        Text(mediaItem != nil ? "Searching decentralized streaming indexers for \(mediaItem!.title)" : "Searching decentralized streaming indexers…")
+                        Text(mediaItem != nil ? "Searching media providers for \(mediaItem!.title)…" : "Searching media providers…")
                             .font(.system(size: 12))
                             .foregroundColor(.white.opacity(0.5))
                             .multilineTextAlignment(.center)
@@ -691,10 +786,10 @@ struct StreamSelectionSheet: View {
                         Image(systemName: "square.stack.3d.up.slash")
                             .font(.system(size: 46))
                             .foregroundColor(.white.opacity(0.4))
-                        Text("No Streams Available")
+                        Text("No Sources Available")
                             .font(.custom("Baskerville", size: 24))
                             .foregroundColor(.white)
-                        Text(StremioAddonManager.shared.installedAddons.isEmpty ? "No active stream add-ons installed. Install a community add-on in Settings > Add-ons to resolve streams." : "None of your installed add-ons returned playable streams for this title.")
+                        Text(StremioAddonManager.shared.installedAddons.isEmpty ? "No active stream add-ons installed. Install a community add-on in Settings > Add-ons to resolve streams." : "None of your installed add-ons returned playable sources for this title.")
                             .font(.custom("Helvetica", size: 13))
                             .foregroundColor(.gray)
                             .multilineTextAlignment(.center)
@@ -724,7 +819,7 @@ struct StreamSelectionSheet: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 8) {
-                                    Text("\(filteredLinks.count) Streams Found")
+                                    Text("\(filteredLinks.count) Media Sources Found")
                                         .font(.headline.weight(.semibold))
                                         .foregroundColor(.white)
                                     if isLoading || !hasFinished {
@@ -735,7 +830,7 @@ struct StreamSelectionSheet: View {
                                 }
 
                                 if isLoading || !hasFinished {
-                                    Text("Scanning additional indexers...")
+                                    Text("Scanning additional providers...")
                                         .font(.caption.weight(.medium))
                                         .foregroundColor(.white.opacity(0.6))
                                 } else if Config.showOnlyCachedResults {
@@ -836,7 +931,7 @@ struct StreamSelectionSheet: View {
                                                 StreamAttributeRow(link: link)
                                             }
 
-                                            Text(link.fileName)
+                                            Text(link.cleanDisplayTitle)
                                                 .font(.system(size: 11, weight: .regular))
                                                 .foregroundColor(.white.opacity(0.45))
                                                 .lineLimit(2)
@@ -861,7 +956,7 @@ struct StreamSelectionSheet: View {
                     }
                 }
             }
-            .navigationTitle(mediaItem != nil ? mediaItem!.title : "Available Streams")
+            .navigationTitle(mediaItem != nil ? "\(mediaItem!.title) • Sources" : "Media Sources")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }

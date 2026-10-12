@@ -37,6 +37,14 @@ struct Config {
         set { UserDefaults.standard.set(newValue, forKey: "Auto_Play_Prefer_HDR") }
     }
 
+    static var autoPlayPreferDolbyVision: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: "Auto_Play_Prefer_DV") == nil { return true }
+            return UserDefaults.standard.bool(forKey: "Auto_Play_Prefer_DV")
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "Auto_Play_Prefer_DV") }
+    }
+
     static var autoPlayPreferSurround: Bool {
         get {
             if UserDefaults.standard.object(forKey: "Auto_Play_Prefer_Surround") == nil { return true }

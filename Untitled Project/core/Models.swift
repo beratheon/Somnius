@@ -78,6 +78,43 @@ struct AggregatedLink: Identifiable, Codable, Sendable {
         }
         return false
     }
+
+    var cleanDisplayTitle: String {
+        var str = fileName
+        // Strip video file extensions
+        for ext in [".mkv", ".mp4", ".avi", ".ts", ".m4v", ".mov"] {
+            if str.lowercased().hasSuffix(ext) {
+                str = String(str.dropLast(ext.count))
+            }
+        }
+
+        // Strip tracker / indexer / community tags in brackets
+        if let regex = try? NSRegularExpression(pattern: #"(?i)\[(?:yts|tgx|rarbg|eztv|etrg|galaxyrg|psa|qxr|framestor|flux|glhf|torrent|p2p|rd\+|rd|rd☁️|rd🌩️|debrid|torrentio|comet|knightcrawler|mediafusion)[^\]]*\]"#, options: []) {
+            str = regex.stringByReplacingMatches(in: str, options: [], range: NSRange(str.startIndex..., in: str), withTemplate: "")
+        }
+
+        // Strip release group suffixes (-YIFY, -SPARKS, -FraMeSToR, etc.)
+        if let regex = try? NSRegularExpression(pattern: #"-[A-Za-z0-9_]+$"#, options: []) {
+            str = regex.stringByReplacingMatches(in: str, options: [], range: NSRange(str.startIndex..., in: str), withTemplate: "")
+        }
+
+        // Strip torrent / peer keywords
+        let bannedWords = ["torrent", "torrentio", "p2p", ".torrent", "magnet"]
+        for bad in bannedWords {
+            if let regex = try? NSRegularExpression(pattern: #"(?i)\b\#(bad)\b"#, options: []) {
+                str = regex.stringByReplacingMatches(in: str, options: [], range: NSRange(str.startIndex..., in: str), withTemplate: "")
+            }
+        }
+
+        // Replace underscores with spaces and collapse spaces
+        str = str.replacingOccurrences(of: "_", with: " ")
+        if let spaceRegex = try? NSRegularExpression(pattern: #"\s+"#, options: []) {
+            str = spaceRegex.stringByReplacingMatches(in: str, options: [], range: NSRange(str.startIndex..., in: str), withTemplate: " ")
+        }
+
+        str = str.trimmingCharacters(in: CharacterSet(charactersIn: " -|/\\ \n\r\t[]()"))
+        return str.isEmpty ? "Media Source (\(resolutionBadge))" : str
+    }
 }
 
 struct StreamParser {
@@ -359,7 +396,8 @@ struct StreamParser {
             "[RD+] Torrentio", "[RD+] Comet", "[RD+] Knightcrawler", "[RD+] Cyberflix", "[RD+] MediaFusion",
             "[RD☁️] Meteor", "[RD🌩️] Meteor", "[P2P☁️] Meteor", "[P2P🌩️] Meteor",
             "[Torrentio]", "[Comet]", "[Knightcrawler]", "[Cyberflix]", "[MediaFusion]", "[Meteor]", "[Knaben]", "[Storz]", "[StremThru]",
-            "Torrentio", "Comet", "Knightcrawler", "Cyberflix", "MediaFusion", "Meteor", "Knaben", "Storz", "StremThru", "PirateBay"
+            "Torrentio", "Comet", "Knightcrawler", "Cyberflix", "MediaFusion", "Meteor", "Knaben", "Storz", "StremThru", "PirateBay",
+            "[Torrent]", "Torrent:", "Torrent", "[P2P]", "P2P:", "P2P"
         ]
         for p in prefixesToRemove {
             if str.hasPrefix(p) {

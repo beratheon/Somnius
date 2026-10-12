@@ -299,6 +299,18 @@ public class MPVPlayerEngine: ObservableObject {
 
                 case MPV_EVENT_END_FILE:
                     print("⏹️ [MPVPlayerEngine] MPV_EVENT_END_FILE")
+                    if let endFile = UnsafePointer<mpv_event_end_file>(OpaquePointer(event.data))?.pointee {
+                        if endFile.reason == MPV_END_FILE_REASON_ERROR {
+                            let errStr = String(cString: mpv_error_string(endFile.error))
+                            print("❌ [MPVPlayerEngine] File ended with error: \(errStr)")
+                            DispatchQueue.main.async {
+                                self.isPlaying = false
+                                self.isBuffering = false
+                                self.playbackError = "Media stream playback failed (\(errStr))."
+                            }
+                            break
+                        }
+                    }
                     DispatchQueue.main.async {
                         self.isPlaying = false
                         self.isBuffering = false

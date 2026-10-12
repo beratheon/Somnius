@@ -4,6 +4,7 @@ struct MediaDetailView: View {
     @State private var currentItem: MediaItem
     @State private var navigationStack: [MediaItem] = []
     var onPlay: (MediaItem, Int?, Int?) -> Void // (item, seasonNum, episodeNum)
+    var onShowSources: ((MediaItem, Int?, Int?) -> Void)? = nil
     var onDismiss: () -> Void
 
     @State private var totalSeasons: Int = 1
@@ -49,9 +50,10 @@ struct MediaDetailView: View {
 
     private let tmdbService = TMDBService()
 
-    init(item: MediaItem, onPlay: @escaping (MediaItem, Int?, Int?) -> Void, onDismiss: @escaping () -> Void) {
+    init(item: MediaItem, onPlay: @escaping (MediaItem, Int?, Int?) -> Void, onShowSources: ((MediaItem, Int?, Int?) -> Void)? = nil, onDismiss: @escaping () -> Void) {
         self._currentItem = State(initialValue: item)
         self.onPlay = onPlay
+        self.onShowSources = onShowSources
         self.onDismiss = onDismiss
         let initialLogo = item.initialLogoURL
         self._logoURL = State(initialValue: initialLogo)
@@ -233,6 +235,28 @@ struct MediaDetailView: View {
                                             .clipShape(Capsule())
                                         }
                                         .buttonStyle(PlainButtonStyle())
+
+                                        // Sources Button (Manual Stream Selection)
+                                        Button(action: {
+                                            let s = currentItem.type == .series ? selectedSeason : nil
+                                            let e = currentItem.type == .series ? 1 : nil
+                                            onShowSources?(currentItem, s, e)
+                                        }) {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: "slider.horizontal.3")
+                                                    .font(.system(size: 13, weight: .semibold))
+                                                Text("Sources")
+                                                    .font(.system(size: 13, weight: .semibold))
+                                            }
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 18)
+                                            .padding(.vertical, 12)
+                                            .background(.ultraThinMaterial)
+                                            .clipShape(Capsule())
+                                            .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 1))
+                                        }
+                                        .buttonStyle(PlainButtonStyle())
+                                        .help("Browse and select media sources manually")
 
                                         // Watchlist Button
                                         let isSaved = watchlistManager.isWatchlisted(id: currentItem.id)
@@ -560,6 +584,20 @@ struct MediaDetailView: View {
                                                                     }
 
                                                                     Spacer(minLength: 0)
+
+                                                                    // Single Episode Sources Button
+                                                                    Button(action: {
+                                                                        onShowSources?(currentItem, selectedSeason, ep.episodeNumber)
+                                                                    }) {
+                                                                        Image(systemName: "slider.horizontal.3")
+                                                                            .font(.system(size: 13, weight: .semibold))
+                                                                            .foregroundColor(Color.white.opacity(0.6))
+                                                                            .padding(7)
+                                                                            .background(Color.white.opacity(0.06))
+                                                                            .clipShape(Circle())
+                                                                    }
+                                                                    .buttonStyle(PlainButtonStyle())
+                                                                    .help("Choose sources for Episode \(ep.episodeNumber)")
 
                                                                     // Single Episode Mark Watched Button
                                                                     Button(action: {

@@ -18,6 +18,7 @@ struct UserProfileView: View {
     @State private var autoPlayMaxSize: Double = Config.autoPlayMaxGbSize
     @State private var autoPlayQuality: String = Config.autoPlayPreferredQuality
     @State private var autoPlayPreferHDR: Bool = Config.autoPlayPreferHDR
+    @State private var autoPlayPreferDV: Bool = Config.autoPlayPreferDolbyVision
     @State private var autoPlayPreferSurround: Bool = Config.autoPlayPreferSurround
     @State private var autoPlayCachedOnly: Bool = Config.autoPlayCachedOnly
     @State private var autoPlaySkipShortClips: Bool = Config.autoPlaySkipShortClips
@@ -283,15 +284,15 @@ struct UserProfileView: View {
 
     private func categorySubtitle(_ category: SettingsCategory) -> String {
         switch category {
-        case .setupMode: return "Switch between Classic P2P and Real-Debrid streaming engines"
+        case .setupMode: return "Switch between Classic Standard and Real-Debrid Turbo streaming engines"
         case .debridAccount: return "Configure and inspect your Real-Debrid API credentials"
         case .player: return "Tune hardware decoding, instant start, and buffer durations"
         case .subtitles: return "Static subtitle rendering, sizes, and default languages"
         case .audioLanguage: return "Audio stream settings, PAL speedup correction, and lip-sync calibration"
-        case .streaming: return "Preferred resolutions, seed filters, and cache controls"
+        case .streaming: return "Preferred resolutions, stream filters, and cache controls"
         case .addons: return "Manage external stream add-ons and manifest extensions"
         case .catalogs: return "Manage live catalogs, import/export configurations, or remove sections"
-        case .cloud: return "Manage active torrents in your Real-Debrid cloud storage"
+        case .cloud: return "Manage active media in your Real-Debrid cloud storage"
         case .watchlist: return "Browse and organize your saved titles and continue watching history"
         case .updates: return "Configure auto-updates via Sparkle, GitHub Releases, and opt into Beta channel"
         case .monetization: return "Support Somnius development with non-intrusive sponsor ads, or configure referral links"
@@ -321,7 +322,7 @@ struct UserProfileView: View {
                         Text("Classic Streaming")
                             .font(.headline.bold())
                             .foregroundColor(.white)
-                        Text("Direct fast streaming without external accounts. Curated for verified fast peers.")
+                        Text("Direct fast streaming without external accounts. Curated for verified high-speed sources.")
                             .font(.caption)
                             .foregroundColor(.gray)
                             .fixedSize(horizontal: false, vertical: true)
@@ -415,7 +416,7 @@ struct UserProfileView: View {
                 Text("Current Active Engine: \(setupMode == "debrid" ? "Real-Debrid Mode" : "Classic Mode")")
                     .font(.subheadline.bold())
                     .foregroundColor(.white)
-                Text("In Classic mode, the app filters for high-speed seeders and cached links. In Debrid mode, torrents are converted into instant encrypted HTTPS streams via Real-Debrid.")
+                Text("In Classic mode, the app filters for high-speed multi-source streams. In Debrid mode, sources are converted into instant encrypted 1Gbps HTTPS streams via Real-Debrid.")
                     .font(.caption)
                     .foregroundColor(.gray)
             }
@@ -908,7 +909,7 @@ struct UserProfileView: View {
                     Text("Show Only Cached Links (RD+)")
                         .font(.subheadline.bold())
                         .foregroundColor(.white)
-                    Text("Hides uncached torrents that require background debrid downloading.")
+                    Text("Hides uncached streams that require background cloud downloading.")
                         .font(.caption)
                         .foregroundColor(.gray)
                 }
@@ -1004,7 +1005,13 @@ struct UserProfileView: View {
                 Divider().background(Color.white.opacity(0.08))
 
                 // Attributes & Filters
-                Toggle("Prefer Dolby Vision & HDR10 Releases", isOn: $autoPlayPreferHDR)
+                Toggle("Prefer Dolby Vision Releases (Liquid Retina XDR)", isOn: $autoPlayPreferDV)
+                    .toggleStyle(.switch)
+                    .onChange(of: autoPlayPreferDV) { _, val in
+                        Config.autoPlayPreferDolbyVision = val
+                    }
+
+                Toggle("Prefer HDR10 / EDR High Dynamic Range", isOn: $autoPlayPreferHDR)
                     .toggleStyle(.switch)
                     .onChange(of: autoPlayPreferHDR) { _, val in
                         Config.autoPlayPreferHDR = val
@@ -1459,7 +1466,7 @@ struct UserProfileView: View {
     private var debridCloudView: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("Active RealDebrid Cloud Torrents")
+                Text("Active Real-Debrid Cloud Media")
                     .font(.headline.bold())
                     .foregroundColor(.white)
                 Spacer()
@@ -1485,7 +1492,7 @@ struct UserProfileView: View {
                     Image(systemName: "icloud.slash")
                         .font(.system(size: 36))
                         .foregroundColor(.gray)
-                    Text("No active debrid cloud torrents found.")
+                    Text("No active cloud media files found.")
                         .foregroundColor(.gray)
                 }
                 .frame(maxWidth: .infinity)
@@ -2393,7 +2400,7 @@ struct AddonSettingsModalView: View {
                         .foregroundColor(SoftTone.mist.color)
                 }
 
-                Text("If this add-on indexes torrent or restricted streams, entering your debrid token allows the add-on to convert them into instant encrypted HTTPS streams.")
+                Text("If this add-on provides restricted or community streams, entering your debrid token allows the add-on to convert them into instant encrypted HTTPS streams.")
                     .font(.custom("Helvetica", size: 12))
                     .foregroundColor(.gray)
 

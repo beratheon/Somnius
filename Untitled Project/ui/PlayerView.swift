@@ -1272,7 +1272,7 @@ struct PlayerView: View {
                                 self.failedStreamURLs.insert(direct)
                             }
                             self.stallSecondsCount = 0
-                            self.showToast("No active seeds transferring data. Trying next stream...")
+                            self.showToast("Stream buffer stalled. Trying next media source...")
                             self.autoPlayNextBestLink()
                         }
                     }
@@ -1614,6 +1614,7 @@ struct PlayerView: View {
                 let maxSize = Config.autoPlayMaxGbSize
                 let prefQuality = Config.autoPlayPreferredQuality.lowercased()
                 let preferHDR = Config.autoPlayPreferHDR
+                let preferDolbyVision = Config.autoPlayPreferDolbyVision
                 let preferSurround = Config.autoPlayPreferSurround
                 let cachedOnly = Config.autoPlayCachedOnly
 
@@ -1645,7 +1646,14 @@ struct PlayerView: View {
 
                 // Sort candidates based on user preferences:
                 candidates.sort { a, b in
-                    // 1. Preferred quality match
+                    // 1. Dolby Vision preference (Liquid Retina XDR)
+                    if preferDolbyVision {
+                        let aDV = (a.hdrTag == "DV" || a.rawTitle.localizedCaseInsensitiveContains("dolby vision") || a.rawTitle.localizedCaseInsensitiveContains("dovi"))
+                        let bDV = (b.hdrTag == "DV" || b.rawTitle.localizedCaseInsensitiveContains("dolby vision") || b.rawTitle.localizedCaseInsensitiveContains("dovi"))
+                        if aDV != bDV { return aDV && !bDV }
+                    }
+
+                    // 2. Preferred quality match
                     let aQuality = a.quality.lowercased()
                     let bQuality = b.quality.lowercased()
                     let aMatch = (aQuality == prefQuality || (prefQuality == "4k" && a.quality == "4K") || (prefQuality == "1080p" && a.quality == "FHD") || (prefQuality == "720p" && a.quality == "HD"))
@@ -1658,24 +1666,23 @@ struct PlayerView: View {
                         if sA != sB { return sA > sB }
                     }
 
-                    // 2. Cached status priority
+                    // 3. Cached status priority
                     if a.isCached != b.isCached { return a.isCached && !b.isCached }
 
-                    // 3. HDR / Dolby Vision preference
+                    // 4. HDR10 preference
                     if preferHDR {
                         let aHDR = a.hdrTag != nil
                         let bHDR = b.hdrTag != nil
                         if aHDR != bHDR { return aHDR && !bHDR }
                     }
 
-                    // 4. Surround sound preference
+                    // 5. Surround sound preference
                     if preferSurround {
                         let aSurround = (a.audioTag?.contains("5.1") == true || a.audioTag?.contains("7.1") == true || a.audioTag?.contains("ATMOS") == true)
                         let bSurround = (b.audioTag?.contains("5.1") == true || b.audioTag?.contains("7.1") == true || b.audioTag?.contains("ATMOS") == true)
                         if aSurround != bSurround { return aSurround && !bSurround }
                     }
 
-                    // 5. Higher seeds or score
                     let sA = a.seeds ?? 0
                     let sB = b.seeds ?? 0
                     if sA != sB { return sA > sB }
@@ -1685,7 +1692,7 @@ struct PlayerView: View {
                 guard let firstChoice = candidates.first else {
                     await MainActor.run {
                         self.isBuffering = false
-                        self.showToast("No active seeders found. This title may be unreleased or unavailable.")
+                        self.showToast("No high-speed media sources available for this title.")
                         self.isSkippingFakeStream = false
                     }
                     return
@@ -1828,7 +1835,7 @@ struct PlayerView: View {
                                             StreamAttributeRow(link: link)
                                         }
 
-                                        Text(link.fileName)
+                                        Text(link.cleanDisplayTitle)
                                             .font(.system(size: 11, weight: .regular))
                                             .foregroundColor(.white.opacity(0.45))
                                             .lineLimit(2)
