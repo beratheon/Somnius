@@ -499,6 +499,50 @@ struct PlayerView: View {
                                 .multilineTextAlignment(.center)
                         }
 
+                        // Quick actions while buffering
+                        HStack(spacing: 12) {
+                            Button(action: {
+                                exitPlayer()
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 11, weight: .bold))
+                                    Text("Cancel")
+                                        .font(.system(size: 12, weight: .medium))
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 7)
+                                .background(Color.white.opacity(0.12))
+                                .foregroundColor(.white)
+                                .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+
+                            Button(action: {
+                                userInteracted()
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    showSourcesDrawer = true
+                                }
+                                if availableStreamLinks.isEmpty {
+                                    loadAvailableSources()
+                                }
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "slider.horizontal.3")
+                                        .font(.system(size: 11, weight: .bold))
+                                    Text("Sources")
+                                        .font(.system(size: 12, weight: .medium))
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 7)
+                                .background(SoftTone.sage.color.opacity(0.20))
+                                .foregroundColor(SoftTone.sage.color)
+                                .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.top, 4)
+
                         // [SDK Integration Point]: Non-intrusive sponsor banner during stream buffering
                         if let ad = adManager.activePlayerLoadingAd, adManager.isAdsEnabled {
                             AdBannerCardView(ad: ad, placement: .playerLoading)
@@ -577,7 +621,9 @@ struct PlayerView: View {
                 }
                 .onTapGesture(count: 1) {
                     userInteracted()
-                    togglePlayPause()
+                    if currentTime > 0 {
+                        togglePlayPause()
+                    }
                 }
                 #if os(macOS)
                 .onHover { isHovered in
@@ -1193,6 +1239,7 @@ struct PlayerView: View {
             .opacity(showControls ? 1.0 : 0.0)
             .allowsHitTesting(showControls)
             .animation(.easeInOut(duration: 0.25), value: showControls)
+            .zIndex(300)
 
             // 11. TV Show Seasons & Episodes Side Drawer
             if showEpisodesDrawer {

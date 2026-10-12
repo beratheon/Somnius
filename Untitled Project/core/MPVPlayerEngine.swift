@@ -260,7 +260,8 @@ public class MPVPlayerEngine: ObservableObject {
         mpv_set_option_string(handle, "demuxer-max-bytes", "256MiB")
         mpv_set_option_string(handle, "demuxer-max-back-bytes", "128MiB")
         mpv_set_option_string(handle, "demuxer-readahead-secs", "\(bufferSeconds)")
-        mpv_set_option_string(handle, "network-timeout", "15")
+        mpv_set_option_string(handle, "stream-buffer-size", "4MiB")
+        mpv_set_option_string(handle, "network-timeout", "8")
         mpv_set_option_string(handle, "keep-open", "yes")
         mpv_set_option_string(handle, "ytdl", "no")
         mpv_set_option_string(handle, "input-media-keys", "yes")
@@ -510,23 +511,27 @@ public class MPVPlayerEngine: ObservableObject {
             args.append("-1")
             args.append("start=\(Int(startTime))")
         }
-        executeCommand(args)
+        executeCommandAsync(args)
         applyAudioFilters()
         setScaleMode(currentScaleMode)
     }
 
     public func play() {
-        guard let handle = mpv else { return }
-        var flag: Int32 = 0
-        mpv_set_property(handle, "pause", MPV_FORMAT_FLAG, &flag)
         isPlaying = true
+        eventQueue.async { [weak self] in
+            guard let handle = self?.mpv else { return }
+            var flag: Int32 = 0
+            mpv_set_property(handle, "pause", MPV_FORMAT_FLAG, &flag)
+        }
     }
 
     public func pause() {
-        guard let handle = mpv else { return }
-        var flag: Int32 = 1
-        mpv_set_property(handle, "pause", MPV_FORMAT_FLAG, &flag)
         isPlaying = false
+        eventQueue.async { [weak self] in
+            guard let handle = self?.mpv else { return }
+            var flag: Int32 = 1
+            mpv_set_property(handle, "pause", MPV_FORMAT_FLAG, &flag)
+        }
     }
 
     public func togglePlayPause() {
@@ -540,7 +545,7 @@ public class MPVPlayerEngine: ObservableObject {
     public func seek(to seconds: Double) {
         let target = max(0, min(duration > 0 ? duration : Double.greatestFiniteMagnitude, seconds))
         currentTime = target
-        executeCommand(["seek", "\(target)", "absolute"])
+        executeCommandAsync(["seek", "\(target)", "absolute"])
     }
 
     public func seekRelative(_ seconds: Double) {
@@ -549,17 +554,21 @@ public class MPVPlayerEngine: ObservableObject {
 
     public func setRate(_ rate: Double) {
         playbackRate = rate
-        guard let handle = mpv else { return }
-        var r = rate
-        mpv_set_property(handle, "speed", MPV_FORMAT_DOUBLE, &r)
+        eventQueue.async { [weak self] in
+            guard let handle = self?.mpv else { return }
+            var r = rate
+            mpv_set_property(handle, "speed", MPV_FORMAT_DOUBLE, &r)
+        }
     }
 
     public func setVolume(_ vol: Double) {
         let clamped = max(0.0, min(1.0, vol))
         volume = clamped
-        guard let handle = mpv else { return }
-        var v = clamped * 100.0
-        mpv_set_property(handle, "volume", MPV_FORMAT_DOUBLE, &v)
+        eventQueue.async { [weak self] in
+            guard let handle = self?.mpv else { return }
+            var v = clamped * 100.0
+            mpv_set_property(handle, "volume", MPV_FORMAT_DOUBLE, &v)
+        }
         if clamped > 0 && isMuted {
             toggleMute()
         }
@@ -567,59 +576,56 @@ public class MPVPlayerEngine: ObservableObject {
 
     public func toggleMute() {
         isMuted.toggle()
-        guard let handle = mpv else { return }
-        var m: Int32 = isMuted ? 1 : 0
-        mpv_set_property(handle, "mute", MPV_FORMAT_FLAG, &m)
+        let m: Int32 = isMuted ? 1 : 0
+        eventQueue.async { [weak self] in
+            guard let handle = self?.mpv else { return }
+            var flag = m
+            mpv_set_property(handle, "mute", MPV_FORMAT_FLAG, &flag)
+        }
     }
 
     public func setScaleMode(_ mode: VideoScaleMode) {
         currentScaleMode = mode
-        guard let handle = mpv else { return }
+        isAspectFill = (mode == .fill || mode == .stretch)
+        eventQueue.async { [weak self] in
+            guard let handle = self?.mpv else { return }
+            switch mode {
+            case .fit:
+                mpv_set_property_string(handle, "panscan", "0.0")
+                mpv_set_property_string(handle, "keepaspect", "yes")
+                mpv_set_property_string(handle, "video-aspect-override", "-1")
+                mpv_set_property_string(handle, "video-zoom", "0")
 
-        switch mode {
-        case .fit:
-            mpv_set_property_string(handle, "panscan", "0.0")
-            mpv_set_property_string(handle, "keepaspect", "yes")
-            mpv_set_property_string(handle, "video-aspect-override", "-1")
-            mpv_set_property_string(handle, "video-zoom", "0")
-            isAspectFill = false
+            case .fill:
+                mpv_set_property_string(handle, "panscan", "1.0")
+                mpv_set_property_string(handle, "keepaspect", "yes")
+                mpv_set_property_string(handle, "video-aspect-override", "-1")
+                mpv_set_property_string(handle, "video-zoom", "0")
 
-        case .fill:
-            // Crop letterbox/pillarbox black bars to fill 100% of the screen/window seamlessly
-            mpv_set_property_string(handle, "panscan", "1.0")
-            mpv_set_property_string(handle, "keepaspect", "yes")
-            mpv_set_property_string(handle, "video-aspect-override", "-1")
-            mpv_set_property_string(handle, "video-zoom", "0")
-            isAspectFill = true
+            case .stretch:
+                mpv_set_property_string(handle, "panscan", "0.0")
+                mpv_set_property_string(handle, "keepaspect", "no")
+                mpv_set_property_string(handle, "video-aspect-override", "-1")
+                mpv_set_property_string(handle, "video-zoom", "0")
 
-        case .stretch:
-            // Disregard native aspect ratio and stretch to window bounds
-            mpv_set_property_string(handle, "panscan", "0.0")
-            mpv_set_property_string(handle, "keepaspect", "no")
-            mpv_set_property_string(handle, "video-aspect-override", "-1")
-            mpv_set_property_string(handle, "video-zoom", "0")
-            isAspectFill = true
+            case .widescreen16_9:
+                mpv_set_property_string(handle, "panscan", "0.0")
+                mpv_set_property_string(handle, "keepaspect", "yes")
+                mpv_set_property_string(handle, "video-aspect-override", "16:9")
+                mpv_set_property_string(handle, "video-zoom", "0")
 
-        case .widescreen16_9:
-            mpv_set_property_string(handle, "panscan", "0.0")
-            mpv_set_property_string(handle, "keepaspect", "yes")
-            mpv_set_property_string(handle, "video-aspect-override", "16:9")
-            mpv_set_property_string(handle, "video-zoom", "0")
-            isAspectFill = false
+            case .cinema21_9:
+                mpv_set_property_string(handle, "panscan", "0.0")
+                mpv_set_property_string(handle, "keepaspect", "yes")
+                mpv_set_property_string(handle, "video-aspect-override", "2.39:1")
+                mpv_set_property_string(handle, "video-zoom", "0")
 
-        case .cinema21_9:
-            mpv_set_property_string(handle, "panscan", "0.0")
-            mpv_set_property_string(handle, "keepaspect", "yes")
-            mpv_set_property_string(handle, "video-aspect-override", "2.39:1")
-            mpv_set_property_string(handle, "video-zoom", "0")
-            isAspectFill = false
-
-        case .classic4_3:
-            mpv_set_property_string(handle, "panscan", "0.0")
-            mpv_set_property_string(handle, "keepaspect", "yes")
-            mpv_set_property_string(handle, "video-aspect-override", "4:3")
-            mpv_set_property_string(handle, "video-zoom", "0")
-            isAspectFill = false
+            case .classic4_3:
+                mpv_set_property_string(handle, "panscan", "0.0")
+                mpv_set_property_string(handle, "keepaspect", "yes")
+                mpv_set_property_string(handle, "video-aspect-override", "4:3")
+                mpv_set_property_string(handle, "video-zoom", "0")
+            }
         }
     }
 
@@ -641,26 +647,31 @@ public class MPVPlayerEngine: ObservableObject {
 
     // MARK: - Track Selection
     public func selectAudioTrack(id: Int32) {
-        guard let handle = mpv else { return }
-        mpv_set_property_string(handle, "aid", "\(id)")
         selectedAudioTrackId = id
-        refreshTracks()
+        eventQueue.async { [weak self] in
+            guard let handle = self?.mpv else { return }
+            mpv_set_property_string(handle, "aid", "\(id)")
+            self?.refreshTracks()
+        }
     }
 
     public func selectSubtitleTrack(id: Int32?) {
-        guard let handle = mpv else { return }
-        if let targetId = id {
-            mpv_set_property_string(handle, "sid", "\(targetId)")
-            mpv_set_property_string(handle, "sub-visibility", "yes")
-            selectedSubtitleTrackId = targetId
-        } else {
-            mpv_set_property_string(handle, "sid", "no")
-            mpv_set_property_string(handle, "sub-visibility", "no")
-            selectedSubtitleTrackId = nil
+        selectedSubtitleTrackId = id
+        if id == nil {
             currentEmbeddedSubtitleText = nil
             currentEmbeddedSubtitleImage = nil
         }
-        refreshTracks()
+        eventQueue.async { [weak self] in
+            guard let handle = self?.mpv else { return }
+            if let targetId = id {
+                mpv_set_property_string(handle, "sid", "\(targetId)")
+                mpv_set_property_string(handle, "sub-visibility", "yes")
+            } else {
+                mpv_set_property_string(handle, "sid", "no")
+                mpv_set_property_string(handle, "sub-visibility", "no")
+            }
+            self?.refreshTracks()
+        }
     }
 
     public func refreshTracks() {
@@ -740,13 +751,17 @@ public class MPVPlayerEngine: ObservableObject {
     }
 
     public func applyAudioFilters() {
-        guard let handle = mpv else { return }
-        var delay = audioDelay
-        mpv_set_property(handle, "audio-delay", MPV_FORMAT_DOUBLE, &delay)
+        let delay = audioDelay
+        let pal = palSpeedupEnabled
+        eventQueue.async { [weak self] in
+            guard let handle = self?.mpv else { return }
+            var d = delay
+            mpv_set_property(handle, "audio-delay", MPV_FORMAT_DOUBLE, &d)
 
-        if palSpeedupEnabled {
-            var speed = 0.95904
-            mpv_set_property(handle, "speed", MPV_FORMAT_DOUBLE, &speed)
+            if pal {
+                var speed = 0.95904
+                mpv_set_property(handle, "speed", MPV_FORMAT_DOUBLE, &speed)
+            }
         }
     }
 
@@ -759,33 +774,34 @@ public class MPVPlayerEngine: ObservableObject {
     }
 
     // MARK: - Helper Commands
-    @discardableResult
-    public func executeCommand(_ args: [String]) -> Int32 {
-        guard let handle = mpv else {
-            print("⚠️ [MPVPlayerEngine] executeCommand dropped because mpv is nil: \(args.joined(separator: " "))")
-            return -1
-        }
-        var cArgs: [UnsafePointer<CChar>?] = args.map { UnsafePointer<CChar>(strdup($0)) }
-        cArgs.append(nil)
-        defer {
-            for ptr in cArgs where ptr != nil {
-                free(UnsafeMutablePointer(mutating: ptr!))
+    public func executeCommandAsync(_ args: [String]) {
+        eventQueue.async { [weak self] in
+            guard let self = self, let handle = self.mpv else { return }
+            var cArgs: [UnsafePointer<CChar>?] = args.map { UnsafePointer<CChar>(strdup($0)) }
+            cArgs.append(nil)
+            defer {
+                for ptr in cArgs where ptr != nil {
+                    free(UnsafeMutablePointer(mutating: ptr!))
+                }
+            }
+            let status = mpv_command(handle, &cArgs)
+            if status < 0 {
+                print("❌ [MPVPlayerEngine] mpv_command '\(args.joined(separator: " "))' failed (\(status)): \(String(cString: mpv_error_string(status)))")
+            } else {
+                print("✅ [MPVPlayerEngine] mpv_command '\(args.joined(separator: " "))' succeeded")
             }
         }
-        let status = mpv_command(handle, &cArgs)
-        if status < 0 {
-            print("❌ [MPVPlayerEngine] mpv_command '\(args.joined(separator: " "))' failed (\(status)): \(String(cString: mpv_error_string(status)))")
-        } else {
-            print("✅ [MPVPlayerEngine] mpv_command '\(args.joined(separator: " "))' succeeded")
-        }
-        return status
+    }
+
+    @discardableResult
+    public func executeCommand(_ args: [String]) -> Int32 {
+        executeCommandAsync(args)
+        return 0
     }
 
     // MARK: - Shutdown & Teardown
     public func reset() {
-        if let _ = mpv {
-            executeCommand(["stop"])
-        }
+        executeCommandAsync(["stop"])
         currentURL = nil
         pendingURL = nil
         pendingStartTime = nil

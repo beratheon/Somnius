@@ -547,33 +547,38 @@ class RealDebridService {
 
         let videoExtensions = [".mkv", ".mp4", ".m4v", ".avi", ".mov", ".ts", ".m2ts", ".webm", ".flv"]
 
-        for _ in 0..<12 {
-            try await Task.sleep(nanoseconds: 1_000_000_000)
+        for _ in 0..<4 {
+            try await Task.sleep(nanoseconds: 600_000_000)
 
             var infoRequest = URLRequest(url: infoURL)
             infoRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
             if let (infoData, infoResp) = try? await URLSession.shared.data(for: infoRequest),
                let infoHTTP = infoResp as? HTTPURLResponse, (200...299).contains(infoHTTP.statusCode),
-               let info = try? JSONDecoder().decode(TorrentInfoResponse.self, from: infoData),
-               let links = info.links, !links.isEmpty {
-                
-                var targetLink = links.first!
-                if let files = info.files {
-                    let selectedFiles = files.filter { $0.selected == 1 }
-                    let videoFiles = selectedFiles.filter { file in
-                        let lowerPath = file.path.lowercased()
-                        return videoExtensions.contains(where: { lowerPath.hasSuffix($0) })
-                    }
-                    
-                    let bestFile = videoFiles.max(by: { $0.bytes < $1.bytes }) ?? selectedFiles.max(by: { $0.bytes < $1.bytes })
-                    
-                    if let best = bestFile, let index = selectedFiles.firstIndex(where: { $0.id == best.id }), index < links.count {
-                        targetLink = links[index]
-                    }
+               let info = try? JSONDecoder().decode(TorrentInfoResponse.self, from: infoData) {
+
+                if info.status == "downloading" || info.status == "queued" {
+                    throw NSError(domain: "RealDebrid", code: 409, userInfo: [NSLocalizedDescriptionKey: "Torrent is not cached in cloud (status: \(info.status))"])
                 }
-                
-                return try await unrestrict(urlString: targetLink)
+
+                if let links = info.links, !links.isEmpty {
+                    var targetLink = links.first!
+                    if let files = info.files {
+                        let selectedFiles = files.filter { $0.selected == 1 }
+                        let videoFiles = selectedFiles.filter { file in
+                            let lowerPath = file.path.lowercased()
+                            return videoExtensions.contains(where: { lowerPath.hasSuffix($0) })
+                        }
+                        
+                        let bestFile = videoFiles.max(by: { $0.bytes < $1.bytes }) ?? selectedFiles.max(by: { $0.bytes < $1.bytes })
+                        
+                        if let best = bestFile, let index = selectedFiles.firstIndex(where: { $0.id == best.id }), index < links.count {
+                            targetLink = links[index]
+                        }
+                    }
+                    
+                    return try await unrestrict(urlString: targetLink)
+                }
             }
         }
 

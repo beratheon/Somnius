@@ -219,7 +219,21 @@ class AggregatorService {
 
         // 2. Real-Debrid instant cloud resolution (if configured)
         if !key.isEmpty {
-            for candidate in candidates {
+            // Only try cached torrents for instant playback (or starting link)
+            let debridCandidates = candidates.filter { $0.isCached || $0.id == startingLink.id }
+            for candidate in debridCandidates {
+                // Check if candidate has a direct HTTP/HTTPS url that redirects to CDN
+                if let directURL = candidate.url,
+                   let scheme = directURL.scheme?.lowercased(),
+                   (scheme == "http" || scheme == "https") {
+                    if let resolved = await resolveHttpRedirect(url: directURL) {
+                        let str = resolved.absoluteString.lowercased()
+                        if !str.contains("failed_access") && !str.contains("error.mp4") && !str.contains("invalid") {
+                            return (resolved, candidate)
+                        }
+                    }
+                }
+
                 var hashToResolve = candidate.infoHash
                 if (hashToResolve == nil || hashToResolve!.isEmpty), let u = candidate.url, u.scheme?.lowercased() == "magnet" {
                     hashToResolve = extractInfoHash(from: u)
@@ -242,7 +256,9 @@ class AggregatorService {
         if isEngineReady {
             // Await terminating previous background swarms so /removeAll completes before /create is sent
             await Self.stopAllTorrentMissions()
-            for candidate in candidates {
+            // Prefer candidates with active seeders (>= 1 seed) for fast buffering
+            let p2pCandidates = candidates.sorted { ($0.seeds ?? 0) > ($1.seeds ?? 0) }
+            for candidate in p2pCandidates {
                 var hashToResolve = candidate.infoHash
                 if (hashToResolve == nil || hashToResolve!.isEmpty), let u = candidate.url, u.scheme?.lowercased() == "magnet" {
                     hashToResolve = extractInfoHash(from: u)
