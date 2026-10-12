@@ -18,6 +18,9 @@ BODY = """## Somnius 1.0.0 Beta Release 🚀
 - **Pure Agnostic Media Player Shell**: Eliminated legacy torrent terminology across the UI in favor of clean, modern media stream representations.
 - **Strict Content Safeguards & Exact Search**: Enforced adult/NSFW filtering and exact TMDB title matching for clean, accurate search results.
 - **Enhanced Subtitle Engine**: Direct track selection binding and PGS bitmap graphic subtitle rendering support.
+- **Video Scale Modes & Fullscreen Cropping**: Native support for **Fill Screen (Zoom)** to eliminate black bars without distortion, **Fit to Screen**, **Stretch to Fill**, **16:9**, and **21:9 Cinematic** modes with keyboard shortcuts (`A`/`Z`) and interactive menu.
+- **Instant Player Loading HUD**: Centered loading card upon stream launch showing media title, season/episode, and live buffering progress until video frames begin.
+- **Double-Click Fullscreen**: Double-clicking anywhere on the video player instantly toggles fullscreen.
 - **Zero-Lag Background Optimization**: Fully unmounted background UI during playback, eliminated live window-server blur overhead, and throttled UI dispatch ticks to eliminate frame drops.
 - **Minimalist Pastel Design**: Complete aesthetic overhaul harmonizing all UI elements with the SoftTone pastel palette.
 
