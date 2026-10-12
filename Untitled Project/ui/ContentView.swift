@@ -562,18 +562,6 @@ struct ContentView: View {
             isFetchingStreams = false
             print("Successfully resolved stream via fallback: \(resolvedLink.title)")
 
-            if Config.defaultPlayerSelection != "native",
-               let ext = ExternalPlayer(rawValue: Config.defaultPlayerSelection.uppercased()) ?? ExternalPlayer.allCases.first(where: { $0.rawValue.lowercased() == Config.defaultPlayerSelection.lowercased() }),
-               ext.isInstalled {
-                withAnimation { self.isPreparingStream = false }
-                let resumeTime = selectedMediaItem.flatMap { WatchlistManager.shared.getResumeTime(id: $0.id, season: playingSeason, episode: playingEpisode) }
-                ext.open(url: url, startTime: resumeTime)
-                if let media = selectedMediaItem {
-                    WatchlistManager.shared.recordHistory(item: media, season: playingSeason, episode: playingEpisode, progress: resumeTime ?? 0, duration: 0)
-                }
-                return
-            }
-
             self.selectedStreamURL = url
             withAnimation(.easeInOut(duration: 0.3)) {
                 self.showPlayer = true
@@ -594,18 +582,6 @@ struct ContentView: View {
         do {
             let (url, _) = try await AggregatorService().resolveStreamURLWithFallback(startingLink: link, allLinks: scrapedLinks)
             isFetchingStreams = false
-
-            if Config.defaultPlayerSelection != "native",
-               let ext = ExternalPlayer(rawValue: Config.defaultPlayerSelection.uppercased()) ?? ExternalPlayer.allCases.first(where: { $0.rawValue.lowercased() == Config.defaultPlayerSelection.lowercased() }),
-               ext.isInstalled {
-                withAnimation { self.isPreparingStream = false }
-                let resumeTime = selectedMediaItem.flatMap { WatchlistManager.shared.getResumeTime(id: $0.id, season: playingSeason, episode: playingEpisode) }
-                ext.open(url: url, startTime: resumeTime)
-                if let media = selectedMediaItem {
-                    WatchlistManager.shared.recordHistory(item: media, season: playingSeason, episode: playingEpisode, progress: resumeTime ?? 0, duration: 0)
-                }
-                return
-            }
 
             self.selectedStreamURL = url
             withAnimation(.easeInOut(duration: 0.3)) {
@@ -631,13 +607,6 @@ struct ContentView: View {
         // Direct media links (e.g. MP4, MKV, M3U8, demo streams) can be played directly
         let ext = directCandidate.pathExtension.lowercased()
         if ["mp4", "mkv", "m3u8", "mov", "webm", "ts"].contains(ext) || linkString.contains("commondatastorage.googleapis.com") || linkString.contains("googlevideo.com") {
-            if Config.defaultPlayerSelection != "native",
-               let ext = ExternalPlayer(rawValue: Config.defaultPlayerSelection.uppercased()) ?? ExternalPlayer.allCases.first(where: { $0.rawValue.lowercased() == Config.defaultPlayerSelection.lowercased() }),
-               ext.isInstalled {
-                ext.open(url: directCandidate)
-                return
-            }
-
             self.selectedStreamURL = directCandidate
             self.showPlayer = true
             return
@@ -653,14 +622,6 @@ struct ContentView: View {
             let rd = RealDebridService()
             let resolved = try await rd.unrestrict(urlString: linkString)
             isFetchingStreams = false
-
-            if Config.defaultPlayerSelection != "native",
-               let ext = ExternalPlayer(rawValue: Config.defaultPlayerSelection.uppercased()) ?? ExternalPlayer.allCases.first(where: { $0.rawValue.lowercased() == Config.defaultPlayerSelection.lowercased() }),
-               ext.isInstalled {
-                withAnimation { self.isPreparingStream = false }
-                ext.open(url: resolved)
-                return
-            }
 
             self.selectedStreamURL = resolved
             withAnimation(.easeInOut(duration: 0.3)) {

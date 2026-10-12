@@ -257,25 +257,7 @@ class AggregatorService {
             }
         }
 
-        // 4. External Player direct pass-through (IINA / VLC handle magnet links directly)
-        if Config.defaultPlayerSelection != "native" {
-            for candidate in candidates {
-                if let u = candidate.url {
-                    return (u, candidate)
-                }
-            }
-        }
-
-        // 5. If native player requested but local engine unavailable, check if IINA or VLC is installed
-        for candidate in candidates {
-            if let u = candidate.url, u.scheme?.lowercased() == "magnet" {
-                if FileManager.default.fileExists(atPath: "/Applications/IINA.app") || FileManager.default.fileExists(atPath: "/Applications/VLC.app") {
-                    return (u, candidate)
-                }
-            }
-        }
-
-        // 6. Direct HTTP/HTTPS stream from any candidate
+        // 4. Direct HTTP/HTTPS stream from any candidate
         for candidate in candidates {
             if let directURL = candidate.url,
                let scheme = directURL.scheme?.lowercased(),

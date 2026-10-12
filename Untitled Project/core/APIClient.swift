@@ -141,13 +141,13 @@ struct Config {
     }
 
     static var defaultPlayerSelection: String {
-        get { UserDefaults.standard.string(forKey: defaultPlayerKey) ?? "native" }
-        set { UserDefaults.standard.set(newValue, forKey: defaultPlayerKey) }
+        get { "native" }
+        set { }
     }
 
     static var useIINAByDefault: Bool {
-        get { defaultPlayerSelection == "iina" }
-        set { defaultPlayerSelection = newValue ? "iina" : "native" }
+        get { false }
+        set { }
     }
 
     static var autoPlayNextEpisode: Bool {

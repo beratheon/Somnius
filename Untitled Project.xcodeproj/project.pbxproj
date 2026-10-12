@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		000000000000000200000003 /* KSPlayer in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000002 /* KSPlayer */; };
+		000000000000000200000003 /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000002 /* MPVKit */; };
 		000000000000000300000003 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000300000002 /* Sparkle */; };
 /* End PBXBuildFile section */
 
@@ -27,7 +27,7 @@
 		000000000000000130000000 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
-				000000000000000200000003 /* KSPlayer in Frameworks */,
+				000000000000000200000003 /* MPVKit in Frameworks */,
 				000000000000000300000003 /* Sparkle in Frameworks */,
 			);
 		};
@@ -69,7 +69,7 @@
 			);
 			name = "Untitled Project";
 			packageProductDependencies = (
-				000000000000000200000002 /* KSPlayer */,
+				000000000000000200000002 /* MPVKit */,
 				000000000000000300000002 /* Sparkle */,
 			);
 			productName = MyApp;
@@ -101,7 +101,7 @@
 			mainGroup = 000000000000000000000001;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				000000000000000200000001 /* XCRemoteSwiftPackageReference "KSPlayer" */,
+				000000000000000200000001 /* XCRemoteSwiftPackageReference "MPVKit" */,
 				000000000000000300000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 90;
@@ -401,12 +401,12 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		000000000000000200000001 /* XCRemoteSwiftPackageReference "KSPlayer" */ = {
+		000000000000000200000001 /* XCRemoteSwiftPackageReference "MPVKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/kingslay/KSPlayer.git";
+			repositoryURL = "https://github.com/mpvkit/MPVKit.git";
 			requirement = {
-				branch = main;
-				kind = branch;
+				kind = exactVersion;
+				version = 1.0.0;
 			};
 		};
 		000000000000000300000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
@@ -420,10 +420,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		000000000000000200000002 /* KSPlayer */ = {
+		000000000000000200000002 /* MPVKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 000000000000000200000001 /* XCRemoteSwiftPackageReference "KSPlayer" */;
-			productName = KSPlayer;
+			package = 000000000000000200000001 /* XCRemoteSwiftPackageReference "MPVKit" */;
+			productName = MPVKit;
 		};
 		000000000000000300000002 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;

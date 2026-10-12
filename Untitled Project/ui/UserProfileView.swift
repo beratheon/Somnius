@@ -13,7 +13,6 @@ struct UserProfileView: View {
     @State private var tvdbStatusMessage: String?
     @State private var setupMode: String = Config.streamingSetupMode
     @State private var showOnlyCached: Bool = Config.showOnlyCachedResults
-    @State private var defaultPlayer: String = Config.defaultPlayerSelection
     @State private var preferredSubLang: String = Config.preferredSubtitleLanguage
     @State private var autoPlayNext: Bool = Config.autoPlayNextEpisode
     @State private var autoPlayMaxSize: Double = Config.autoPlayMaxGbSize
@@ -697,21 +696,27 @@ struct UserProfileView: View {
             .background(Color.white.opacity(0.04))
             .cornerRadius(10)
 
-            // Player Selection
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Default Video Player")
-                    .font(.subheadline.bold())
-                    .foregroundColor(.white)
-                Picker("", selection: $defaultPlayer) {
-                    Text("Built-in Player").tag("native")
-                    Text("IINA").tag("iina")
-                    Text("VLC").tag("vlc")
-                    Text("Infuse").tag("infuse")
+            // Playback Engine Indicator
+            HStack(spacing: 12) {
+                Image(systemName: "cpu")
+                    .font(.system(size: 16))
+                    .foregroundColor(SoftTone.mist.color)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Playback Engine")
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
+                    Text("Native libmpv • Hardware VideoToolbox • Apple Silicon XDR/EDR")
+                        .font(.caption)
+                        .foregroundColor(.gray)
                 }
-                .pickerStyle(.segmented)
-                .onChange(of: defaultPlayer) { _, val in
-                    Config.defaultPlayerSelection = val
-                }
+                Spacer()
+                Text("libmpv")
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(SoftTone.mist.color.opacity(0.15))
+                    .foregroundColor(SoftTone.mist.color)
+                    .clipShape(Capsule())
             }
             .padding(14)
             .background(Color.white.opacity(0.04))

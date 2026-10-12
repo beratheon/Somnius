@@ -1,7 +1,6 @@
 import SwiftUI
 import AVKit
 import Combine
-import KSPlayer
 
 #if os(macOS)
 import AppKit
@@ -176,17 +175,9 @@ final class CenteredVideoContainerView: NSView {
     }
 }
 
-struct CenteredKSVideoHost: NSViewRepresentable {
-    let coordinator: KSVideoPlayer.Coordinator
+struct CenteredMPVVideoHost: NSViewRepresentable {
+    let engine: MPVPlayerEngine
     let url: URL
-    let options: KSOptions
-    var onPlay: ((TimeInterval, TimeInterval) -> Void)?
-    var onStateChanged: ((KSPlayerLayer, KSPlayerState) -> Void)?
-    var onFinish: ((KSPlayerLayer, Error?) -> Void)?
-
-    func makeCoordinator() -> KSVideoPlayer.Coordinator {
-        coordinator
-    }
 
     func makeNSView(context: Context) -> NSView {
         let container = CenteredVideoContainerView()
@@ -194,43 +185,25 @@ struct CenteredKSVideoHost: NSViewRepresentable {
         container.layer?.backgroundColor = NSColor.black.cgColor
         container.autoresizingMask = [.width, .height]
 
-        coordinator.onPlay = onPlay
-        coordinator.onStateChanged = onStateChanged
-        coordinator.onFinish = onFinish
+        let videoView = MPVVideoView()
+        videoView.frame = container.bounds
+        videoView.autoresizingMask = [.width, .height]
+        container.addSubview(videoView)
 
-        let playerView = coordinator.makeView(url: url, options: options)
-        playerView.wantsLayer = true
-        playerView.autoresizingMask = [.width, .height]
-        playerView.frame = container.bounds
-        container.addSubview(playerView)
+        engine.attachView(videoView)
+        engine.loadStream(url: url)
 
         return container
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        coordinator.onPlay = onPlay
-        coordinator.onStateChanged = onStateChanged
-        coordinator.onFinish = onFinish
-        if let playerLayer = coordinator.playerLayer {
-            if playerLayer.url.absoluteString != url.absoluteString {
-                playerLayer.set(url: url, options: options)
-            }
-        } else if nsView.subviews.isEmpty {
-            let playerView = coordinator.makeView(url: url, options: options)
-            playerView.wantsLayer = true
-            playerView.autoresizingMask = [.width, .height]
-            playerView.frame = nsView.bounds
-            nsView.addSubview(playerView)
+        if engine.currentURL?.absoluteString != url.absoluteString {
+            engine.loadStream(url: url)
         }
     }
 
-    static func dismantleNSView(_ nsView: NSView, coordinator: KSVideoPlayer.Coordinator) {
-        if let player = coordinator.playerLayer?.player {
-            player.pause()
-            player.shutdown()
-        }
-        coordinator.playerLayer?.pause()
-        coordinator.resetPlayer()
+    static func dismantleNSView(_ nsView: NSView, coordinator: ()) {
+        MPVPlayerEngine.shared.reset()
         nsView.subviews.forEach { $0.removeFromSuperview() }
         AggregatorService.stopAndCleanAllTorrentMissions()
     }
@@ -418,7 +391,6 @@ struct PlayerView: View {
     // Popovers
     @State private var showAudioPopover: Bool = false
     @State private var showSubtitlePopover: Bool = false
-    @State private var showExternalPlayerPopover: Bool = false
     @State private var showEnginePopover: Bool = false
 
     // TV Show Episodes Drawer State
@@ -450,43 +422,14 @@ struct PlayerView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            // 1. High Performance KSPlayer Metal/FFmpeg Engine (Dead-Center Fit)
+            // 1. High Performance libmpv Engine (Apple Silicon VideoToolbox & XDR/EDR)
             if let url = activeStreamURL ?? streamURL {
-                #if os(macOS)
-                CenteredKSVideoHost(
-                    coordinator: ksEngine.coordinator,
-                    url: url,
-                    options: ksEngine.options,
-                    onPlay: { current, total in
-                        ksEngine.onPlayTick(current: current, total: total)
-                        onPlayerTick(current: current, total: total)
-                    },
-                    onStateChanged: { layer, state in
-                        ksEngine.onStateChanged(layer: layer, state: state)
-                        onPlayerStateChanged(state: state)
-                    },
-                    onFinish: { layer, error in
-                        ksEngine.onFinish(layer: layer, error: error)
-                    }
+                CenteredMPVVideoHost(
+                    engine: ksEngine,
+                    url: url
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea()
-                #else
-                KSVideoPlayer(coordinator: ksEngine.coordinator, url: url, options: ksEngine.options)
-                    .onPlay { current, total in
-                        ksEngine.onPlayTick(current: current, total: total)
-                        onPlayerTick(current: current, total: total)
-                    }
-                    .onStateChanged { layer, state in
-                        ksEngine.onStateChanged(layer: layer, state: state)
-                        onPlayerStateChanged(state: state)
-                    }
-                    .onFinish { layer, error in
-                        ksEngine.onFinish(layer: layer, error: error)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .ignoresSafeArea()
-                #endif
             } else {
                 VStack(spacing: 16) {
                     ProgressView()
@@ -812,49 +755,6 @@ struct PlayerView: View {
                             }
                             .buttonStyle(.plain)
 
-                            // Option 4: External Players with exact resume timestamp (for playable HTTP/HTTPS streams)
-                            if let url = activeStreamURL ?? streamURL, url.scheme?.lowercased() != "magnet" {
-                                if ExternalPlayer.iina.isInstalled {
-                                    Button(action: {
-                                        ExternalPlayer.iina.open(url: url, startTime: currentTime)
-                                        showPlaybackErrorSheet = false
-                                        onDismiss()
-                                    }) {
-                                        HStack(spacing: 8) {
-                                            Image(systemName: "play.rectangle.fill")
-                                            Text("Open in IINA (starts at \(formatTime(currentTime)))")
-                                        }
-                                        .font(.subheadline.bold())
-                                        .frame(maxWidth: 380)
-                                        .padding(.vertical, 10)
-                                        .background(Color.white.opacity(0.08))
-                                        .foregroundColor(.white)
-                                        .cornerRadius(10)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-
-                                if ExternalPlayer.vlc.isInstalled {
-                                    Button(action: {
-                                        ExternalPlayer.vlc.open(url: url, startTime: currentTime)
-                                        showPlaybackErrorSheet = false
-                                        onDismiss()
-                                    }) {
-                                        HStack(spacing: 8) {
-                                            Image(systemName: "play.circle.fill")
-                                            Text("Open in VLC (starts at \(formatTime(currentTime)))")
-                                        }
-                                        .font(.subheadline.bold())
-                                        .frame(maxWidth: 380)
-                                        .padding(.vertical, 10)
-                                        .background(Color.white.opacity(0.08))
-                                        .foregroundColor(.white)
-                                        .cornerRadius(10)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-
                             Button("Close Player") {
                                 showPlaybackErrorSheet = false
                                 onDismiss()
@@ -989,26 +889,6 @@ struct PlayerView: View {
                             .clipShape(Capsule())
                             .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                         }
-                        .buttonStyle(.plain)
-
-                        // External Player Quick Launcher
-                        Button(action: {
-                            userInteracted()
-                            showExternalPlayerPopover.toggle()
-                        }) {
-                            Image(systemName: "arrow.up.right.video")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(width: 36, height: 36)
-                                .background(Color.white.opacity(0.12))
-                                .clipShape(Circle())
-                                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
-                        }
-                        .buttonStyle(.plain)
-                        .popover(isPresented: $showExternalPlayerPopover) {
-                            externalPlayersMenu
-                        }
-
                     }
                 }
                 .padding(.leading, 14)
@@ -1266,6 +1146,24 @@ struct PlayerView: View {
             }
         }
         .ignoresSafeArea()
+        .onReceive(ksEngine.$currentTime) { time in
+            onPlayerTick(current: time, total: ksEngine.duration)
+        }
+        .onReceive(ksEngine.$isBuffering) { buf in
+            self.isBuffering = buf
+        }
+        .onReceive(ksEngine.$isPlaying) { playing in
+            self.isPlaying = playing
+            if playing {
+                self.syncAudioAndSubtitleTracks()
+            }
+        }
+        .onReceive(ksEngine.$playbackError) { err in
+            if let err = err {
+                self.playbackError = err
+                self.showPlaybackErrorSheet = true
+            }
+        }
         .onAppear {
             #if os(macOS)
             DispatchQueue.main.async {
@@ -2146,7 +2044,7 @@ struct PlayerView: View {
         hideControlsWorkItem?.cancel()
 
         let workItem = DispatchWorkItem {
-            if !showEpisodesDrawer && !showSourcesDrawer && !showAudioPopover && !showSubtitlePopover && !showExternalPlayerPopover && !showEnginePopover {
+            if !showEpisodesDrawer && !showSourcesDrawer && !showAudioPopover && !showSubtitlePopover {
                 withAnimation {
                     showControls = false
                 }
@@ -2463,41 +2361,6 @@ struct PlayerView: View {
         }
         .padding(18)
         .frame(width: 320)
-    }
-
-    private var externalPlayersMenu: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Open in External Player")
-                .font(.headline)
-                .padding(.bottom, 2)
-
-            ForEach(ExternalPlayer.allCases) { playerApp in
-                Button(action: {
-                    showExternalPlayerPopover = false
-                    if let url = activeStreamURL ?? streamURL {
-                        playerApp.open(url: url, startTime: currentTime)
-                    }
-                }) {
-                    HStack {
-                        Text(playerApp.rawValue)
-                        Spacer()
-                        if playerApp.isInstalled {
-                            Text("Installed")
-                                .font(.caption2.bold())
-                                .foregroundColor(.green)
-                        } else {
-                            Text("Not Found")
-                                .font(.caption2)
-                                .foregroundColor(.gray)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(!playerApp.isInstalled)
-            }
-        }
-        .padding()
-        .frame(width: 220)
     }
 
     // MARK: - Episodes Side Drawer
