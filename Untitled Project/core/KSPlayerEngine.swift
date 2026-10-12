@@ -63,29 +63,31 @@ public class KSPlayerEngine: ObservableObject {
         KSOptions.firstPlayerType = KSMEPlayer.self
         KSOptions.secondPlayerType = KSAVPlayer.self
         KSOptions.hardwareDecode = true
-        KSOptions.asynchronousDecompression = false
-        KSOptions.isSecondOpen = false
-        KSOptions.isAccurateSeek = false
+        KSOptions.asynchronousDecompression = true
+        KSOptions.isSecondOpen = true
+        KSOptions.isAccurateSeek = true
         KSOptions.isSeekedAutoPlay = true
         KSOptions.canStartPictureInPictureAutomaticallyFromInline = true
-        KSOptions.preferredForwardBufferDuration = 3.0
+        KSOptions.preferredForwardBufferDuration = 1.0
         KSOptions.maxBufferDuration = max(60.0, Double(Config.bufferAheadSeconds) * 2)
 
         options.hardwareDecode = true
-        options.asynchronousDecompression = false
-        options.isSecondOpen = false
-        options.probesize = 1024 * 1024 // 1MB stream probe for fast start
-        options.maxAnalyzeDuration = 1_500_000
+        options.asynchronousDecompression = true
+        options.isSecondOpen = true
+        options.syncDecodeAudio = true
+        options.probesize = 1024 * 1024 * 4 // 4MB robust stream probe
+        options.maxAnalyzeDuration = 1_000_000 // 1s analyze duration
         options.formatContextOptions["tcp_nodelay"] = 1
         options.formatContextOptions["reconnect"] = 1
         options.formatContextOptions["reconnect_streamed"] = 1
-        options.formatContextOptions["reconnect_delay_max"] = 5
+        options.formatContextOptions["reconnect_delay_max"] = 3
+        options.formatContextOptions["flush_packets"] = 1
         options.decoderOptions["threads"] = "auto"
-        options.preferredForwardBufferDuration = 3.0
+        options.preferredForwardBufferDuration = 1.0
         options.maxBufferDuration = max(60.0, Double(Config.bufferAheadSeconds) * 2)
-        options.isAccurateSeek = false
+        options.isAccurateSeek = true
         options.isSeekedAutoPlay = true
-        options.autoSelectEmbedSubtitle = false
+        options.autoSelectEmbedSubtitle = true
     }
 
     public func setAudioDelay(_ delay: Double) {
@@ -237,18 +239,14 @@ public class KSPlayerEngine: ObservableObject {
         if let targetId = id, let target = tracks.first(where: { $0.trackID == targetId }) {
             player.select(track: target)
             selectedSubtitleTrackId = targetId
-            if let matched = coordinator.subtitleModel.subtitleInfos.first(where: { $0.subtitleID == "\(targetId)" || $0.name == target.name }) {
-                coordinator.subtitleModel.selectedSubtitleInfo = matched
-            } else {
-                coordinator.subtitleModel.selectedSubtitleInfo?.isEnabled = true
-            }
+            coordinator.subtitleModel.selectedSubtitleInfo?.isEnabled = true
         } else {
             for track in tracks {
                 track.isEnabled = false
             }
             selectedSubtitleTrackId = nil
             currentEmbeddedSubtitleText = nil
-            coordinator.subtitleModel.selectedSubtitleInfo = nil
+            coordinator.subtitleModel.selectedSubtitleInfo?.isEnabled = false
         }
         refreshTracks()
     }

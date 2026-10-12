@@ -452,14 +452,9 @@ struct PlayerView: View {
                     togglePlayPause()
                 }
                 #if os(macOS)
-                .onContinuousHover { phase in
-                    switch phase {
-                    case .active:
-                        if !showControls {
-                            userInteracted()
-                        }
-                    case .ended:
-                        break
+                .onHover { isHovered in
+                    if isHovered && !showControls {
+                        userInteracted()
                     }
                 }
                 #endif
@@ -471,12 +466,9 @@ struct PlayerView: View {
                     .frame(height: 140)
                     .contentShape(Rectangle())
                     #if os(macOS)
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active:
+                    .onHover { isHovered in
+                        if isHovered {
                             userInteracted()
-                        case .ended:
-                            break
                         }
                     }
                     #endif
@@ -1358,6 +1350,12 @@ struct PlayerView: View {
             } else if sel.externalURL != nil {
                 updateSubtitleCue(currentSecond: current)
             }
+        } else if let embedded = ksEngine.currentEmbeddedSubtitleText {
+            if self.currentSubtitleText != embedded {
+                self.currentSubtitleText = embedded
+            }
+        } else if !subtitleCues.isEmpty {
+            updateSubtitleCue(currentSecond: current)
         } else {
             if self.currentSubtitleText != nil {
                 self.currentSubtitleText = nil
@@ -1930,25 +1928,10 @@ struct PlayerView: View {
         }
         let adjusted = currentSecond + subtitleOffsetSeconds
 
-        // High-performance binary search across chronological cues
-        var low = 0
-        var high = subtitleCues.count - 1
-        var matchedCue: SubtitleCue? = nil
+        // Accurate search handling overlapping dialogue and sound cues
+        let matching = subtitleCues.filter { adjusted >= $0.startTime && adjusted <= $0.endTime }
+        let newText: String? = matching.isEmpty ? nil : matching.map(\.text).joined(separator: "\n")
 
-        while low <= high {
-            let mid = (low + high) / 2
-            let cue = subtitleCues[mid]
-            if adjusted < cue.startTime {
-                high = mid - 1
-            } else if adjusted > cue.endTime {
-                low = mid + 1
-            } else {
-                matchedCue = cue
-                break
-            }
-        }
-
-        let newText = matchedCue?.text
         if currentSubtitleText != newText {
             currentSubtitleText = newText
         }

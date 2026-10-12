@@ -87,8 +87,11 @@ class SubtitleService {
             return []
         }
 
-        // Try decoding as UTF-8 or ISO Latin
-        let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) ?? ""
+        // Try decoding as UTF-8, Windows-1252, or ISO Latin
+        let text = String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: .windowsCP1252)
+            ?? String(data: data, encoding: .isoLatin1)
+            ?? ""
         return parseSRTOrVTT(text)
     }
 
@@ -100,7 +103,7 @@ class SubtitleService {
 
         var index = 0
         for block in blocks {
-            let lines = block.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n")
+            let lines = block.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
             guard !lines.isEmpty else { continue }
 
             var timeLineIndex = -1
@@ -116,8 +119,8 @@ class SubtitleService {
             let parts = timeLine.components(separatedBy: "-->")
             guard parts.count == 2 else { continue }
 
-            let startSec = parseTimestamp(parts[0].trimmingCharacters(in: .whitespaces))
-            let endSec = parseTimestamp(parts[1].trimmingCharacters(in: .whitespaces))
+            let startSec = parseTimestamp(parts[0].trimmingCharacters(in: .whitespacesAndNewlines))
+            let endSec = parseTimestamp(parts[1].trimmingCharacters(in: .whitespacesAndNewlines))
 
             guard startSec >= 0 && endSec > startSec else { continue }
 
@@ -132,12 +135,12 @@ class SubtitleService {
             }
         }
 
-        return cues
+        return cues.sorted { $0.startTime < $1.startTime }
     }
 
     private func parseTimestamp(_ str: String) -> Double {
         // e.g. "00:01:23,456" or "01:23.456"
-        let clean = str.components(separatedBy: " ").first ?? str
+        let clean = str.components(separatedBy: CharacterSet.whitespacesAndNewlines).first ?? str
         let parts = clean.replacingOccurrences(of: ",", with: ".").components(separatedBy: ":")
 
         if parts.count == 3 {
