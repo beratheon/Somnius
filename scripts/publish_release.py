@@ -11,16 +11,14 @@ NAME = "Somnius 1.0.0 Beta"
 BODY = """## Somnius 1.0.0 Beta Release 🚀
 
 ### What's New:
-- **Internal libmpv Rendering Engine**: Native Apple Silicon VideoToolbox hardware acceleration, Liquid Retina XDR / EDR peak brightness support, and zero external dependencies for maximum smoothness and efficiency.
-- **One-Click Auto-Play**: Direct playback with automatic stream resolution matching your preferred quality (4K UHD, 1080p, Dolby Vision, HDR10, Surround Audio 5.1/7.1) without manual source selection friction.
-- **Dedicated Media Sources Picker**: Instant access to browse and pick alternate media streams with clean speed indicators and format badges.
-- **Onboarding Auto-Play Configuration**: Intuitive setup step to configure target resolution, Liquid Retina XDR / Dolby Vision preference, surround sound, and file size limits right out of the box.
-- **Pure Agnostic Media Player Shell**: Eliminated legacy torrent terminology across the UI in favor of clean, modern media stream representations.
-- **Strict Content Safeguards & Exact Search**: Enforced adult/NSFW filtering and exact TMDB title matching for clean, accurate search results.
-- **Enhanced Subtitle Engine**: Direct track selection binding and PGS bitmap graphic subtitle rendering support.
+- **Internal libmpv Rendering Engine**: Native Apple Silicon VideoToolbox hardware acceleration, Liquid Retina XDR / EDR peak brightness support, and persistent MetalLayer lifecycle architecture eliminating MoltenVK crashes.
+- **Smart Quality-First Autoplay**: Automatic stream selection finding the best quality (4K UHD > 1080p FHD > 720p HD) and instant cached streams for Debrid accounts, or highest-seeded swarms for Classic mode.
+- **Instant Cached Streams Only Option**: Added toggle in Onboarding Setup and App Settings to strictly auto-play pre-cached, zero-buffer streams without waiting.
+- **Fast 7-Second Buffer Failover**: If a stream stalls or is slow to start, the player immediately pauses without pushing hard and auto-switches to a reliable cached alternative.
+- **HTTP 302 Redirect Pre-Resolution**: Direct CDN streams resolved before passing to the engine, bypassing dead or failed hoster notices automatically.
+- **In-Player Alternative Sources Drawer**: Instant access to browse and pick alternate media streams with clean speed indicators and format badges.
 - **Video Scale Modes & Fullscreen Cropping**: Native support for **Fill Screen (Zoom)** to eliminate black bars without distortion, **Fit to Screen**, **Stretch to Fill**, **16:9**, and **21:9 Cinematic** modes with keyboard shortcuts (`A`/`Z`) and interactive menu.
 - **Instant Player Loading HUD**: Centered loading card upon stream launch showing media title, season/episode, and live buffering progress until video frames begin.
-- **Double-Click Fullscreen**: Double-clicking anywhere on the video player instantly toggles fullscreen.
 - **Zero-Lag Background Optimization**: Fully unmounted background UI during playback, eliminated live window-server blur overhead, and throttled UI dispatch ticks to eliminate frame drops.
 - **Minimalist Pastel Design**: Complete aesthetic overhaul harmonizing all UI elements with the SoftTone pastel palette.
 
