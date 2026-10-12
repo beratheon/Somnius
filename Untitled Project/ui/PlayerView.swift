@@ -212,12 +212,16 @@ struct CenteredKSVideoHost: NSViewRepresentable {
         coordinator.onStateChanged = onStateChanged
         coordinator.onFinish = onFinish
         if coordinator.playerLayer?.url != url {
-            nsView.subviews.forEach { $0.removeFromSuperview() }
-            let playerView = coordinator.makeView(url: url, options: options)
-            playerView.wantsLayer = true
-            playerView.autoresizingMask = [.width, .height]
-            playerView.frame = nsView.bounds
-            nsView.addSubview(playerView)
+            if let playerLayer = coordinator.playerLayer {
+                playerLayer.set(url: url, options: options)
+                playerLayer.play()
+            } else if nsView.subviews.isEmpty {
+                let playerView = coordinator.makeView(url: url, options: options)
+                playerView.wantsLayer = true
+                playerView.autoresizingMask = [.width, .height]
+                playerView.frame = nsView.bounds
+                nsView.addSubview(playerView)
+            }
         }
     }
 
@@ -1248,16 +1252,28 @@ struct PlayerView: View {
                 // If playback is stalled (time not advancing while supposed to play)
                 if self.isBuffering {
                     self.stallSecondsCount += 1.0
-                    if self.stallSecondsCount == 6.0 {
-                        print("[StallWatchdog] Soft kick after 6s")
-                        self.ksEngine.play()
-                    } else if self.stallSecondsCount == 14.0 {
-                        print("[StallWatchdog] Reseeking after 14s")
-                        self.ksEngine.seek(to: self.currentTime)
-                        self.ksEngine.play()
-                    } else if self.stallSecondsCount >= 22.0 {
-                        print("[StallWatchdog] Prolonged stall. Trying auto-recovery.")
-                        self.attemptStallAutoRecovery()
+                    if self.currentTime > 0 {
+                        // Mid-playback stall
+                        if self.stallSecondsCount == 6.0 {
+                            print("[StallWatchdog] Soft kick after 6s")
+                            self.ksEngine.play()
+                        } else if self.stallSecondsCount == 14.0 {
+                            print("[StallWatchdog] Reseeking after 14s")
+                            self.ksEngine.seek(to: self.currentTime)
+                            self.ksEngine.play()
+                        } else if self.stallSecondsCount >= 25.0 {
+                            print("[StallWatchdog] Prolonged stall. Trying auto-recovery.")
+                            self.attemptStallAutoRecovery()
+                        }
+                    } else {
+                        // Initial buffering before playback has started
+                        // P2P / debridless torrent buffering needs patience to discover peers and acquire initial pieces without re-seeking
+                        if self.stallSecondsCount == 15.0 {
+                            self.ksEngine.play()
+                        } else if self.stallSecondsCount >= 45.0 {
+                            print("[StallWatchdog] Initial buffer timeout.")
+                            self.attemptStallAutoRecovery()
+                        }
                     }
                 } else {
                     self.stallSecondsCount = 0
@@ -1268,7 +1284,7 @@ struct PlayerView: View {
 
     private func attemptStallAutoRecovery() {
         stallSecondsCount = 0
-        showToast("Reconnecting Debrid stream buffer...")
+        showToast(Config.isDebridMode ? "Reconnecting Debrid stream buffer..." : "Reconnecting stream buffer...")
         guard let url = activeStreamURL ?? streamURL else { return }
         let saved = currentTime
         ksEngine.loadStream(url: url, startTime: saved)

@@ -19,8 +19,9 @@ struct AggregatedLink: Identifiable, Codable, Sendable {
     let sizeString: String?
     let seeds: Int?
     let fileIdx: Int?
+    let trackers: [String]?
 
-    init(id: String = UUID().uuidString, title: String, rawTitle: String, fileName: String? = nil, url: URL?, infoHash: String?, quality: String, resolutionBadge: String, hdrTag: String?, audioTag: String?, codecTag: String?, source: String, score: Int, isCached: Bool, isBestInCategory: Bool = false, sizeString: String? = nil, seeds: Int? = nil, fileIdx: Int? = nil) {
+    init(id: String = UUID().uuidString, title: String, rawTitle: String, fileName: String? = nil, url: URL?, infoHash: String?, quality: String, resolutionBadge: String, hdrTag: String?, audioTag: String?, codecTag: String?, source: String, score: Int, isCached: Bool, isBestInCategory: Bool = false, sizeString: String? = nil, seeds: Int? = nil, fileIdx: Int? = nil, trackers: [String]? = nil) {
         self.id = id
         self.title = title
         self.rawTitle = rawTitle
@@ -39,6 +40,7 @@ struct AggregatedLink: Identifiable, Codable, Sendable {
         self.sizeString = sizeString
         self.seeds = seeds
         self.fileIdx = fileIdx
+        self.trackers = trackers
     }
 
     static func cleanQuality(from title: String) -> String {
@@ -79,7 +81,7 @@ struct AggregatedLink: Identifiable, Codable, Sendable {
 }
 
 struct StreamParser {
-    static func parse(rawTitle: String, source: String, url: URL?, infoHash: String?, fileIdx: Int? = nil) -> AggregatedLink? {
+    static func parse(rawTitle: String, source: String, url: URL?, infoHash: String?, fileIdx: Int? = nil, trackers: [String]? = nil) -> AggregatedLink? {
         let upper = rawTitle.uppercased()
 
         // 0. Filter out invalid addon configuration error messages & failed access stubs
@@ -247,7 +249,8 @@ struct StreamParser {
             isCached: isCached,
             sizeString: sizeString,
             seeds: seeds,
-            fileIdx: fileIdx
+            fileIdx: fileIdx,
+            trackers: trackers
         )
     }
 

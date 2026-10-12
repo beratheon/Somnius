@@ -373,6 +373,7 @@ class StremioAddonManager: ObservableObject {
             let url: String?
             let infoHash: String?
             let fileIdx: Int?
+            let sources: [String]?
         }
         struct StreamResponse: Decodable {
             let streams: [StreamItem]?
@@ -397,8 +398,14 @@ class StremioAddonManager: ObservableObject {
                         let nameText = stream.name ?? addon.name
                         let combinedText = "\(nameText) \n \(titleText)"
                         let streamURL = stream.url.flatMap { URL(string: $0) }
+                        let customTrackers = stream.sources?.compactMap { src -> String? in
+                            if src.hasPrefix("tracker:") {
+                                return String(src.dropFirst("tracker:".count))
+                            }
+                            return nil
+                        }
 
-                        return StreamParser.parse(rawTitle: combinedText, source: addon.name, url: streamURL, infoHash: stream.infoHash, fileIdx: stream.fileIdx)
+                        return StreamParser.parse(rawTitle: combinedText, source: addon.name, url: streamURL, infoHash: stream.infoHash, fileIdx: stream.fileIdx, trackers: customTrackers)
                     }
                     if !items.isEmpty {
                         return items
@@ -425,6 +432,7 @@ class StremioAddonManager: ObservableObject {
             let url: String?
             let infoHash: String?
             let fileIdx: Int?
+            let sources: [String]?
         }
         struct StreamResponse: Decodable {
             let streams: [StreamItem]?
@@ -451,8 +459,14 @@ class StremioAddonManager: ObservableObject {
 
                 let streamURL = stream.url.flatMap { URL(string: $0) }
                 let finalSource = source ?? nameText
+                let customTrackers = stream.sources?.compactMap { src -> String? in
+                    if src.hasPrefix("tracker:") {
+                        return String(src.dropFirst("tracker:".count))
+                    }
+                    return nil
+                }
 
-                return StreamParser.parse(rawTitle: combinedText, source: finalSource, url: streamURL, infoHash: stream.infoHash, fileIdx: stream.fileIdx)
+                return StreamParser.parse(rawTitle: combinedText, source: finalSource, url: streamURL, infoHash: stream.infoHash, fileIdx: stream.fileIdx, trackers: customTrackers)
             }
         } catch {
             return []

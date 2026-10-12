@@ -206,8 +206,18 @@ class AggregatorService {
                 }
 
                 if let infoHash = hashToResolve, !infoHash.isEmpty {
-                    let fileIdx = candidate.fileIdx ?? 0
-                    if let localStreamURL = URL(string: "http://127.0.0.1:11470/\(infoHash)/\(fileIdx)") {
+                    var allTrackers = candidate.trackers ?? []
+                    if let u = candidate.url, u.scheme?.lowercased() == "magnet" {
+                        allTrackers.append(contentsOf: extractTrackers(from: u))
+                    }
+                    allTrackers.append(contentsOf: Self.defaultTrackers)
+                    var seen = Set<String>()
+                    let uniqueTrackers = allTrackers.filter { seen.insert($0).inserted }
+
+                    // Pre-warm engine to initialize peer connections and auto-select primary video file
+                    let chosenFileIdx = await preWarmTorrentEngine(infoHash: infoHash, requestedFileIdx: candidate.fileIdx, trackers: uniqueTrackers)
+
+                    if let localStreamURL = buildLocalStreamURL(infoHash: infoHash, fileIdx: chosenFileIdx, trackers: uniqueTrackers) {
                         return (localStreamURL, candidate)
                     }
                 }
@@ -315,5 +325,91 @@ class AggregatorService {
         let endIdx = sub.firstIndex(where: { $0 == "&" || $0 == "/" }) ?? sub.endIndex
         let hash = String(sub[..<endIdx])
         return hash.isEmpty ? nil : hash
+    }
+
+    public static let defaultTrackers: [String] = [
+        "udp://tracker.opentrackr.org:1337/announce",
+        "udp://open.demonii.com:1337/announce",
+        "udp://open.stealth.si:80/announce",
+        "udp://tracker.torrent.eu.org:451/announce",
+        "udp://explodie.org:6969/announce",
+        "udp://tracker.coppersurfer.tk:6969/announce",
+        "udp://tracker.tiny-vps.com:6969/announce",
+        "udp://p4p.arenabg.com:1337/announce",
+        "udp://movies.zsw.ca:6969/announce",
+        "http://tracker.openbittorrent.com:80/announce"
+    ]
+
+    private func extractTrackers(from url: URL) -> [String] {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return [] }
+        return components.queryItems?.filter { $0.name == "tr" }.compactMap { $0.value } ?? []
+    }
+
+    private func preWarmTorrentEngine(infoHash: String, requestedFileIdx: Int?, trackers: [String]) async -> Int {
+        guard let url = URL(string: "http://127.0.0.1:11470/\(infoHash)/create") else {
+            return requestedFileIdx ?? 0
+        }
+
+        var magnetStr = "magnet:?xt=urn:btih:\(infoHash)"
+        for tr in trackers {
+            if let encoded = tr.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                magnetStr += "&tr=\(encoded)"
+            }
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 4.0 // Allow up to 4s to fetch torrent metadata
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let payload: [String: Any] = ["torrent": magnetStr]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return requestedFileIdx ?? 0
+            }
+
+            if let requestedIdx = requestedFileIdx {
+                return requestedIdx
+            }
+
+            if let guessedIdx = json["guessedFileIdx"] as? Int {
+                return guessedIdx
+            }
+
+            if let files = json["files"] as? [[String: Any]] {
+                var bestIdx = 0
+                var maxLen: Int64 = -1
+                for (idx, file) in files.enumerated() {
+                    let len = (file["length"] as? NSNumber)?.int64Value ?? 0
+                    let name = (file["name"] as? String)?.lowercased() ?? ""
+                    let isVideo = name.hasSuffix(".mkv") || name.hasSuffix(".mp4") || name.hasSuffix(".avi") || name.hasSuffix(".ts") || name.hasSuffix(".m4v") || name.hasSuffix(".webm") || name.hasSuffix(".mov")
+                    let score = isVideo ? (len * 2) : len
+                    if score > maxLen {
+                        maxLen = score
+                        bestIdx = idx
+                    }
+                }
+                return bestIdx
+            }
+        } catch {
+            print("[AggregatorService] preWarmTorrentEngine timeout/fallback: \(error.localizedDescription)")
+        }
+
+        return requestedFileIdx ?? 0
+    }
+
+    private func buildLocalStreamURL(infoHash: String, fileIdx: Int, trackers: [String]) -> URL? {
+        var components = URLComponents(string: "http://127.0.0.1:11470/\(infoHash)/\(fileIdx)")
+        var queryItems = [URLQueryItem]()
+        for tr in trackers {
+            queryItems.append(URLQueryItem(name: "tr", value: tr))
+        }
+        if !queryItems.isEmpty {
+            components?.queryItems = queryItems
+        }
+        return components?.url
     }
 }
