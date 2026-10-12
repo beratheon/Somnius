@@ -4,6 +4,7 @@ Somnius 1.0.0 Beta Release 🚀
 DEBRID MAKES STREAMING FASTER.
 
 ✅You can subscribe to a debrid account here: http://real-debrid.com/?id=10141263
+Then you will use your apitoken to access debrid sources
 
 What's New:
 
