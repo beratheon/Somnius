@@ -143,17 +143,23 @@ class AggregatorService {
                 if s1 != s2 { return s1 > s2 }
                 return l1.score > l2.score
             } else {
-                // Debridless mode: List strictly according to seeders first (highest seeders at top)!
+                // Debridless mode: Best quality first (4K > 1080p > 720p > SD), then most seeders!
+                // Healthy torrents with active seeds (>= 1) always come before dead 0-seeder torrents
                 let s1 = l1.seeds ?? 0
                 let s2 = l2.seeds ?? 0
-                if s1 != s2 {
-                    return s1 > s2
+                let active1 = s1 > 0
+                let active2 = s2 > 0
+                if active1 != active2 {
+                    return active1 && !active2
                 }
-                // When seeders are equal, rank by resolution & quality, then score
+
                 let rank1 = self.qualityRank(for: l1)
                 let rank2 = self.qualityRank(for: l2)
                 if rank1 != rank2 {
                     return rank1 > rank2
+                }
+                if s1 != s2 {
+                    return s1 > s2
                 }
                 return l1.score > l2.score
             }
@@ -204,7 +210,11 @@ class AggregatorService {
         if let directURL = startingLink.url,
            let scheme = directURL.scheme?.lowercased(),
            (scheme == "http" || scheme == "https") {
-            return (directURL, startingLink)
+            let resolved = await resolveHttpRedirect(url: directURL) ?? directURL
+            let str = resolved.absoluteString.lowercased()
+            if !str.contains("failed_access") && !str.contains("error.mp4") && !str.contains("invalid") {
+                return (resolved, startingLink)
+            }
         }
 
         // 2. Real-Debrid instant cloud resolution (if configured)
@@ -262,7 +272,11 @@ class AggregatorService {
             if let directURL = candidate.url,
                let scheme = directURL.scheme?.lowercased(),
                (scheme == "http" || scheme == "https") {
-                return (directURL, candidate)
+                let resolved = await resolveHttpRedirect(url: directURL) ?? directURL
+                let str = resolved.absoluteString.lowercased()
+                if !str.contains("failed_access") && !str.contains("error.mp4") && !str.contains("invalid") {
+                    return (resolved, candidate)
+                }
             }
         }
 
@@ -273,6 +287,56 @@ class AggregatorService {
                 NSLocalizedDescriptionKey: "No working stream found. In debridless mode, please connect Real-Debrid in Settings or ensure Stremio / IINA / VLC is available."
             ]
         )
+    }
+
+    private func resolveHttpRedirect(url: URL) async -> URL? {
+        if let host = url.host?.lowercased(), host == "127.0.0.1" || host == "localhost" {
+            return url
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "HEAD"
+        req.timeoutInterval = 3.5
+        req.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+
+        final class RedirectDetector: NSObject, URLSessionTaskDelegate {
+            var finalURL: URL?
+            func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+                self.finalURL = request.url
+                completionHandler(nil)
+            }
+        }
+
+        let detector = RedirectDetector()
+        let session = URLSession(configuration: .default, delegate: detector, delegateQueue: nil)
+
+        do {
+            let (_, resp) = try await session.data(for: req)
+            if let target = detector.finalURL {
+                return target
+            }
+            if let http = resp as? HTTPURLResponse, (200...399).contains(http.statusCode) {
+                return url
+            }
+        } catch {
+            var getReq = URLRequest(url: url)
+            getReq.httpMethod = "GET"
+            getReq.timeoutInterval = 3.5
+            getReq.setValue("bytes=0-1", forHTTPHeaderField: "Range")
+            getReq.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+            do {
+                let (_, resp) = try await session.data(for: getReq)
+                if let target = detector.finalURL {
+                    return target
+                }
+                if let http = resp as? HTTPURLResponse, (200...399).contains(http.statusCode) {
+                    return url
+                }
+            } catch {
+                return url
+            }
+        }
+        return detector.finalURL ?? url
     }
 
     func isLocalStreamingEngineAlive() async -> Bool {

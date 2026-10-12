@@ -185,12 +185,16 @@ struct CenteredMPVVideoHost: NSViewRepresentable {
         container.layer?.backgroundColor = NSColor.black.cgColor
         container.autoresizingMask = [.width, .height]
 
-        let videoView = MPVVideoView()
-        videoView.frame = container.bounds
-        videoView.autoresizingMask = [.width, .height]
-        container.addSubview(videoView)
+        let videoView = engine.videoView
+        if videoView.superview != container {
+            videoView.removeFromSuperview()
+            videoView.frame = container.bounds
+            videoView.autoresizingMask = [.width, .height]
+            container.addSubview(videoView)
+        }
 
-        engine.attachView(videoView)
+        engine.attachView()
+        videoView.updateLayerGeometry()
         if engine.currentURL == nil {
             engine.loadStream(url: url)
         }
@@ -199,13 +203,21 @@ struct CenteredMPVVideoHost: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
+        let videoView = engine.videoView
+        if videoView.superview != nsView {
+            videoView.removeFromSuperview()
+            videoView.frame = nsView.bounds
+            videoView.autoresizingMask = [.width, .height]
+            nsView.addSubview(videoView)
+        }
+        videoView.updateLayerGeometry()
         if engine.currentURL?.absoluteString != url.absoluteString {
             engine.loadStream(url: url)
         }
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: ()) {
-        nsView.subviews.forEach { $0.removeFromSuperview() }
+        MPVPlayerEngine.shared.videoView.removeFromSuperview()
     }
 }
 #endif
@@ -1325,23 +1337,11 @@ struct PlayerView: View {
                     self.stallSecondsCount += 1.0
                     if self.currentTime > 0 {
                         // Mid-playback stall
-                        if self.stallSecondsCount == 6.0 {
-                            print("[StallWatchdog] Soft kick after 6s")
+                        if self.stallSecondsCount == 4.0 {
+                            print("[StallWatchdog] Soft kick after 4s")
                             self.ksEngine.play()
-                        } else if self.stallSecondsCount == 14.0 {
-                            print("[StallWatchdog] Reseeking after 14s")
-                            self.ksEngine.seek(to: self.currentTime)
-                            self.ksEngine.play()
-                        } else if self.stallSecondsCount >= 25.0 {
-                            print("[StallWatchdog] Prolonged stall. Trying auto-recovery.")
-                            self.attemptStallAutoRecovery()
-                        }
-                    } else {
-                        // Initial buffering before playback has started
-                        if self.stallSecondsCount == 12.0 {
-                            self.ksEngine.play()
-                        } else if self.stallSecondsCount >= 22.0 {
-                            print("[StallWatchdog] Initial buffer timeout on unseeded stream. Attempting next candidate...")
+                        } else if self.stallSecondsCount >= 10.0 {
+                            print("[StallWatchdog] Mid-playback stall (10s). Don't push hard, switching to reliable alternative...")
                             if let curr = self.currentActiveLinkID {
                                 self.failedLinkIDs.insert(curr)
                             }
@@ -1349,7 +1349,23 @@ struct PlayerView: View {
                                 self.failedStreamURLs.insert(direct)
                             }
                             self.stallSecondsCount = 0
-                            self.showToast("Stream buffer stalled. Trying next media source...")
+                            self.ksEngine.pause()
+                            self.showToast("Stream stalled. Auto-switching to reliable alternative...")
+                            self.autoPlayNextBestLink()
+                        }
+                    } else {
+                        // Initial buffering before playback has started - max 7s so we don't push hard or lock player
+                        if self.stallSecondsCount >= 7.0 {
+                            print("[StallWatchdog] Initial buffer timeout (7s). Switching to reliable cached candidate...")
+                            if let curr = self.currentActiveLinkID {
+                                self.failedLinkIDs.insert(curr)
+                            }
+                            if let direct = (self.activeStreamURL ?? self.streamURL)?.absoluteString {
+                                self.failedStreamURLs.insert(direct)
+                            }
+                            self.stallSecondsCount = 0
+                            self.ksEngine.pause()
+                            self.showToast("Source slow to start. Auto-switching to reliable cached stream...")
                             self.autoPlayNextBestLink()
                         }
                     }
@@ -1477,8 +1493,26 @@ struct PlayerView: View {
         } else if state == .error {
             self.isBuffering = false
             self.isPlaying = false
-            self.playbackError = ksEngine.playbackError ?? "Playback error"
-            self.showPlaybackErrorSheet = true
+            print("[PlayerView] Stream error reported by engine. Auto-switching to reliable alternative...")
+            if let curr = self.currentActiveLinkID {
+                self.failedLinkIDs.insert(curr)
+            }
+            if let direct = (self.activeStreamURL ?? self.streamURL)?.absoluteString {
+                self.failedStreamURLs.insert(direct)
+            }
+            self.ksEngine.pause()
+
+            // If we have remaining alternative sources, seamlessly switch without breaking playback
+            let remaining = self.availableStreamLinks.filter { !self.failedLinkIDs.contains($0.id) && $0.id != self.currentActiveLinkID }
+            if !remaining.isEmpty {
+                self.showToast("Source unavailable. Switching to reliable alternative...")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    self.autoPlayNextBestLink()
+                }
+            } else {
+                self.playbackError = ksEngine.playbackError ?? "Playback error"
+                self.showPlaybackErrorSheet = true
+            }
         }
     }
 
@@ -1706,110 +1740,26 @@ struct PlayerView: View {
                     }
                 }
 
-                let maxSize = Config.autoPlayMaxGbSize
-                let prefQuality = Config.autoPlayPreferredQuality.lowercased()
-                let preferHDR = Config.autoPlayPreferHDR
-                let preferDolbyVision = Config.autoPlayPreferDolbyVision
-                let preferSurround = Config.autoPlayPreferSurround
-                let cachedOnly = Config.autoPlayCachedOnly
-
                 var candidates = self.availableStreamLinks.filter { link in
                     // Filter out already failed link IDs or current link
                     if self.failedLinkIDs.contains(link.id) { return false }
                     if let cur = self.currentActiveLinkID, link.id == cur { return false }
                     if let direct = link.url?.absoluteString, self.failedStreamURLs.contains(direct) { return false }
-
-                    // Filter cached only if active
-                    if Config.isDebridMode && cachedOnly && !link.isCached { return false }
-
-                    // Filter by max file size limit (e.g. 8 GB)
-                    if maxSize > 0, let gb = link.sizeInGigabytes, gb > maxSize {
-                        return false
-                    }
-
                     return true
                 }
 
-                // If all candidate streams exceeded size limit, fallback to remaining un-failed candidates
+                // If all candidate streams were filtered, fallback to remaining un-failed candidates
                 if candidates.isEmpty {
                     candidates = self.availableStreamLinks.filter { link in
                         if self.failedLinkIDs.contains(link.id) { return false }
-                        if let cur = self.currentActiveLinkID, link.id == cur { return false }
                         return true
                     }
                 }
 
-                // In Debrid mode, isolate instant cached streams
-                if Config.isDebridMode {
-                    let cached = candidates.filter { $0.isCached }
-                    if !cached.isEmpty {
-                        candidates = cached
-                    }
-                } else {
-                    // In classic mode, isolate streams with active seeders (>= 3)
-                    let seeded = candidates.filter { ($0.seeds ?? 0) >= 3 }
-                    if !seeded.isEmpty {
-                        candidates = seeded
-                    }
-                }
-
-                // Sort candidates based on playability and user preferences:
-                candidates.sort { a, b in
-                    // 1. Playability / Instant Cached status
-                    if Config.isDebridMode && a.isCached != b.isCached {
-                        return a.isCached && !b.isCached
-                    }
-
-                    // 2. Swarm health in classic mode
-                    if !Config.isDebridMode {
-                        let sA = a.seeds ?? 0
-                        let sB = b.seeds ?? 0
-                        if (sA >= 5) != (sB >= 5) {
-                            return sA >= 5
-                        }
-                        if abs(sA - sB) > 15 {
-                            return sA > sB
-                        }
-                    }
-
-                    // 3. Preferred quality match
-                    let aQuality = a.quality.lowercased()
-                    let bQuality = b.quality.lowercased()
-                    let aMatch = (aQuality == prefQuality || (prefQuality == "4k" && a.quality == "4K") || (prefQuality == "1080p" && a.quality == "FHD") || (prefQuality == "720p" && a.quality == "HD"))
-                    let bMatch = (bQuality == prefQuality || (prefQuality == "4k" && b.quality == "4K") || (prefQuality == "1080p" && b.quality == "FHD") || (prefQuality == "720p" && b.quality == "HD"))
-                    if aMatch != bMatch { return aMatch && !bMatch }
-
-                    // 4. Dolby Vision preference (Liquid Retina XDR)
-                    if preferDolbyVision {
-                        let aDV = (a.hdrTag == "DV" || a.rawTitle.localizedCaseInsensitiveContains("dolby vision") || a.rawTitle.localizedCaseInsensitiveContains("dovi"))
-                        let bDV = (b.hdrTag == "DV" || b.rawTitle.localizedCaseInsensitiveContains("dolby vision") || b.rawTitle.localizedCaseInsensitiveContains("dovi"))
-                        if aDV != bDV { return aDV && !bDV }
-                    }
-
-                    // 5. HDR10 preference
-                    if preferHDR {
-                        let aHDR = a.hdrTag != nil
-                        let bHDR = b.hdrTag != nil
-                        if aHDR != bHDR { return aHDR && !bHDR }
-                    }
-
-                    // 6. Surround sound preference
-                    if preferSurround {
-                        let aSurround = (a.audioTag?.contains("5.1") == true || a.audioTag?.contains("7.1") == true || a.audioTag?.contains("ATMOS") == true)
-                        let bSurround = (b.audioTag?.contains("5.1") == true || b.audioTag?.contains("7.1") == true || b.audioTag?.contains("ATMOS") == true)
-                        if aSurround != bSurround { return aSurround && !bSurround }
-                    }
-
-                    let sA = a.seeds ?? 0
-                    let sB = b.seeds ?? 0
-                    if sA != sB { return sA > sB }
-                    return a.score > b.score
-                }
-
-                guard let firstChoice = candidates.first else {
+                guard let firstChoice = AggregatedLink.selectBestStream(from: candidates) ?? candidates.first else {
                     await MainActor.run {
                         self.isBuffering = false
-                        self.showToast("No high-speed media sources available for this title.")
+                        self.showToast("No playable media sources available for this title.")
                         self.isSkippingFakeStream = false
                     }
                     return

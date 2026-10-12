@@ -191,8 +191,8 @@ public class MPVPlayerEngine: ObservableObject {
     @Published public var edrRange: Double = 1.0
 
     private var mpv: OpaquePointer? = nil
-    private weak var attachedView: MPVVideoView? = nil
-    private var activeMetalLayer: MetalLayer? = nil
+    public let videoView = MPVVideoView()
+    public var metalLayer: MetalLayer { videoView.metalLayer }
     private let eventQueue = DispatchQueue(label: "com.somnius.mpv.events", qos: .userInitiated)
     private var pendingURL: URL? = nil
     private var pendingStartTime: Double? = nil
@@ -204,22 +204,16 @@ public class MPVPlayerEngine: ObservableObject {
     }
 
     // MARK: - Setup & Initialization
-    public func attachView(_ view: MPVVideoView) {
-        self.attachedView = view
-        self.activeMetalLayer = view.metalLayer
+    public func attachView(_ view: MPVVideoView? = nil) {
         ensureEngineInitialized()
 
         if let pending = self.pendingURL, self.mpv != nil {
-            print("🚀 [MPVPlayerEngine] Executing pending stream load upon view attachment: \(pending.absoluteString)")
+            print("🚀 [MPVPlayerEngine] Executing pending stream load: \(pending.absoluteString)")
             loadStreamNow(url: pending, startTime: self.pendingStartTime ?? 0)
         }
     }
 
     private func ensureEngineInitialized() {
-        guard let view = attachedView else {
-            print("⏳ [MPVPlayerEngine] ensureEngineInitialized: attachedView is nil, waiting for view attachment")
-            return
-        }
         if mpv != nil { return }
 
         guard let handle = mpv_create() else {
@@ -227,10 +221,11 @@ public class MPVPlayerEngine: ObservableObject {
             return
         }
 
-        // On macOS Cocoa, wid must be the pointer to the host NSView!
-        var viewInt: Int64 = Int64(Int(bitPattern: Unmanaged.passUnretained(view).toOpaque()))
+        // On macOS Cocoa with vo=gpu-next (MoltenVK), wid expects a retained CAMetalLayer* pointer!
+        // We pass the permanently owned metalLayer pointer.
+        var layerInt: Int64 = Int64(Int(bitPattern: Unmanaged.passUnretained(videoView.metalLayer).toOpaque()))
 
-        let widStatus = mpv_set_option(handle, "wid", MPV_FORMAT_INT64, &viewInt)
+        let widStatus = mpv_set_option(handle, "wid", MPV_FORMAT_INT64, &layerInt)
         if widStatus < 0 {
             print("❌ [MPVPlayerEngine] wid set_option failed: \(String(cString: mpv_error_string(widStatus)))")
         }
@@ -312,7 +307,7 @@ public class MPVPlayerEngine: ObservableObject {
         let maxEDR = screen.maximumPotentialExtendedDynamicRangeColorComponentValue
         self.edrRange = Double(maxEDR)
         if maxEDR > 1.0 {
-            self.activeMetalLayer?.wantsExtendedDynamicRangeContent = true
+            self.metalLayer.wantsExtendedDynamicRangeContent = true
         }
     }
 
@@ -447,7 +442,7 @@ public class MPVPlayerEngine: ObservableObject {
                 let isHDR = peak > 1.0
                 self.hdrAvailable = isHDR && maxEDR > 1.0
                 if self.hdrAvailable {
-                    self.activeMetalLayer?.wantsExtendedDynamicRangeContent = true
+                    self.metalLayer.wantsExtendedDynamicRangeContent = true
                 }
             }
 

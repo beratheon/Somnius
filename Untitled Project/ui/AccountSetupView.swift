@@ -30,6 +30,7 @@ struct AccountSetupView: View {
     @State private var autoPlayPreferDolbyVision: Bool = Config.autoPlayPreferDolbyVision
     @State private var autoPlayPreferSurround: Bool = Config.autoPlayPreferSurround
     @State private var autoPlayMaxSize: Double = Config.autoPlayMaxGbSize
+    @State private var autoPlayCachedOnly: Bool = Config.autoPlayCachedOnly
 
     // Addon install state in onboarding
     @State private var isInstallingCommunityPack: Bool = false
@@ -1008,6 +1009,19 @@ struct AccountSetupView: View {
                 .cornerRadius(12)
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
 
+                // Instant Cached Streams Only Toggle
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle("Instant Cached Streams Only", isOn: $autoPlayCachedOnly)
+                        .toggleStyle(.switch)
+                    Text("Auto-play strictly selects pre-cached, zero-buffer streams to ensure immediate, crash-free playback. Alternative sources remain accessible anytime in the player.")
+                        .font(.custom("Helvetica", size: 11))
+                        .foregroundColor(.white.opacity(0.55))
+                }
+                .padding(16)
+                .background(Color.white.opacity(0.04))
+                .cornerRadius(12)
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
+
                 // Max File Size Limit
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
@@ -1165,6 +1179,7 @@ struct AccountSetupView: View {
         Config.autoPlayPreferDolbyVision = autoPlayPreferDolbyVision
         Config.autoPlayPreferSurround = autoPlayPreferSurround
         Config.autoPlayMaxGbSize = autoPlayMaxSize
+        Config.autoPlayCachedOnly = autoPlayCachedOnly
 
         let mode = (!cleanDebrid.isEmpty && isDebridMode) ? "debrid" : "classic"
 
@@ -1196,5 +1211,6 @@ struct AccountSetupView: View {
         autoPlayPreferDolbyVision = true
         autoPlayPreferSurround = true
         autoPlayMaxSize = 8.0
+        autoPlayCachedOnly = true
     }
 }

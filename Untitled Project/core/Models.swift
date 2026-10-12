@@ -68,15 +68,142 @@ struct AggregatedLink: Identifiable, Codable, Sendable {
 
     static func checkIsCached(url: URL?, title: String) -> Bool {
         let upper = title.uppercased()
-        if upper.contains("[RD+]") || upper.contains("RD+") || upper.contains("⚡") || upper.contains("REALDEBRID") || upper.contains("CACHED") {
+
+        // 1. Explicitly check for non-cached indicators first
+        if upper.contains("DOWNLOAD") || upper.contains("[RD DOWNLOAD]") || upper.contains("[AD DOWNLOAD]") ||
+           upper.contains("⏳") || upper.contains("0%") || upper.contains("DOWNLOADING") {
+            return false
+        }
+
+        // 2. Check for positive cached badges from all supported debrid indexers
+        if upper.contains("[RD+]") || upper.contains("RD+") ||
+           upper.contains("[AD+]") || upper.contains("AD+") ||
+           upper.contains("[PM+]") || upper.contains("[TB+]") ||
+           upper.contains("⚡") || upper.contains("CACHED") ||
+           upper.contains("INSTANT") {
             return true
         }
-        if let urlStr = url?.absoluteString.lowercased() {
-            if urlStr.contains("realdebrid") || urlStr.contains("strem.fun") || urlStr.contains("stremthru") || urlStr.contains("comet") || urlStr.contains("elfhosted") {
-                return true
-            }
+
+        // 3. Direct CDN link already un-restricted by RealDebrid
+        if let host = url?.host?.lowercased(), host.contains("download.real-debrid.com") {
+            return true
         }
+
         return false
+    }
+
+    public static func selectBestStream(from links: [AggregatedLink], preferredQuality: String? = nil, maxGbSize: Double? = nil) -> AggregatedLink? {
+        guard !links.isEmpty else { return nil }
+
+        let isDebrid = Config.isDebridMode
+        let maxGb = maxGbSize ?? Config.autoPlayMaxGbSize
+
+        // Filter out oversized files if configured
+        var validLinks = links.filter { link in
+            if maxGb > 0, let gb = link.sizeInGigabytes, gb > maxGb {
+                return false
+            }
+            return true
+        }
+        if validLinks.isEmpty {
+            validLinks = links
+        }
+
+        if isDebrid {
+            // Debrid Mode: Cached reliable streams first!
+            let cachedOnly = Config.autoPlayCachedOnly
+            let cachedLinks = validLinks.filter { $0.isCached }
+            let pool = (cachedOnly && !cachedLinks.isEmpty) ? cachedLinks : (cachedLinks.isEmpty ? validLinks : cachedLinks)
+
+            let pref = (preferredQuality ?? Config.autoPlayPreferredQuality).lowercased()
+
+            return pool.sorted { a, b in
+                // 1. Cached stream status first
+                if a.isCached != b.isCached {
+                    return a.isCached && !b.isCached
+                }
+
+                // 2. User target quality match first (e.g. 1080p FHD vs 4K UHD)
+                let aMatch = matchesQuality(a.quality, target: pref)
+                let bMatch = matchesQuality(b.quality, target: pref)
+                if aMatch != bMatch { return aMatch && !bMatch }
+
+                // 3. Best quality rank (4K > FHD > HD > SD)
+                let qA = qualityRankScore(a.quality)
+                let qB = qualityRankScore(b.quality)
+                if qA != qB { return qA > qB }
+
+                // 4. Reliability Guard: Prefer stable, decent-sized streams (<= 35 GB) over 80GB bloated discs for instant autoplay
+                let aSize = a.sizeInGigabytes ?? 0
+                let bSize = b.sizeInGigabytes ?? 0
+                let aReasonable = aSize > 0 && aSize <= 35.0
+                let bReasonable = bSize > 0 && bSize <= 35.0
+                if aReasonable != bReasonable {
+                    return aReasonable && !bReasonable
+                }
+
+                // 5. Dolby Vision / HDR
+                let aDV = a.hdrTag == "DV" || a.rawTitle.localizedCaseInsensitiveContains("dolby vision") || a.rawTitle.localizedCaseInsensitiveContains("dovi")
+                let bDV = b.hdrTag == "DV" || b.rawTitle.localizedCaseInsensitiveContains("dolby vision") || b.rawTitle.localizedCaseInsensitiveContains("dovi")
+                if aDV != bDV { return aDV && !bDV }
+
+                let aHDR = a.hdrTag != nil
+                let bHDR = b.hdrTag != nil
+                if aHDR != bHDR { return aHDR && !bHDR }
+
+                let sA = a.seeds ?? 0
+                let sB = b.seeds ?? 0
+                if sA != sB { return sA > sB }
+                return a.score > b.score
+            }.first
+        } else {
+            // Classic (Non-Debrid) Mode: Best quality first (4K > 1080p > 720p > SD), then most seeders!
+            // Never pick 0-seeder streams when seeded streams exist.
+            let tiers = ["4K", "FHD", "HD", "SD"]
+            for tier in tiers {
+                let tierLinks = validLinks.filter { matchesTier($0.quality, tier: tier) }
+                // Only consider healthy streams with active seeders (>= 3 seeds)
+                let healthy = tierLinks.filter { ($0.seeds ?? 0) >= 3 }
+                if let best = healthy.max(by: { ($0.seeds ?? 0) < ($1.seeds ?? 0) }) {
+                    return best
+                }
+            }
+
+            // Fallback: If no tier has >= 3 seeds, pick the link with the highest seeders (> 0)
+            let anySeeded = validLinks.filter { ($0.seeds ?? 0) > 0 }
+            if let bestOverall = anySeeded.max(by: { ($0.seeds ?? 0) < ($1.seeds ?? 0) }) {
+                return bestOverall
+            }
+
+            return validLinks.first
+        }
+    }
+
+    private static func qualityRankScore(_ quality: String) -> Int {
+        switch quality.uppercased() {
+        case "4K": return 4000
+        case "FHD", "1080P": return 3000
+        case "HD", "720P": return 2000
+        default: return 1000
+        }
+    }
+
+    private static func matchesTier(_ quality: String, tier: String) -> Bool {
+        let q = quality.uppercased()
+        let t = tier.uppercased()
+        if t == "4K" { return q == "4K" }
+        if t == "FHD" { return q == "FHD" || q == "1080P" }
+        if t == "HD" { return q == "HD" || q == "720P" }
+        return q == "SD" || (q != "4K" && q != "FHD" && q != "HD")
+    }
+
+    private static func matchesQuality(_ quality: String, target: String) -> Bool {
+        let q = quality.lowercased()
+        let t = target.lowercased()
+        if t == "4k" { return q == "4k" }
+        if t == "1080p" { return q == "fhd" || q == "1080p" }
+        if t == "720p" { return q == "hd" || q == "720p" }
+        return q == t
     }
 
     var cleanDisplayTitle: String {

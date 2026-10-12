@@ -578,90 +578,7 @@ struct ContentView: View {
         }
         isFetchingStreams = true
 
-        let maxSize = Config.autoPlayMaxGbSize
-        let prefQuality = Config.autoPlayPreferredQuality.lowercased()
-        let preferHDR = Config.autoPlayPreferHDR
-        let preferDolbyVision = Config.autoPlayPreferDolbyVision
-        let preferSurround = Config.autoPlayPreferSurround
-        let cachedOnly = Config.autoPlayCachedOnly
-
-        var candidates = scrapedLinks.filter { link in
-            if Config.isDebridMode && cachedOnly && !link.isCached { return false }
-            if maxSize > 0, let gb = link.sizeInGigabytes, gb > maxSize { return false }
-            return true
-        }
-
-        if candidates.isEmpty {
-            candidates = scrapedLinks
-        }
-
-        // In Debrid mode, isolate instant cached streams so uncached files are never picked
-        if Config.isDebridMode {
-            let cached = candidates.filter { $0.isCached }
-            if !cached.isEmpty {
-                candidates = cached
-            }
-        } else {
-            // In classic mode, isolate streams with active seeders (>= 3)
-            let seeded = candidates.filter { ($0.seeds ?? 0) >= 3 }
-            if !seeded.isEmpty {
-                candidates = seeded
-            }
-        }
-
-        candidates.sort { a, b in
-            // 1. Playability / Instant Cached status (Crucial for Debrid mode)
-            if Config.isDebridMode && a.isCached != b.isCached {
-                return a.isCached && !b.isCached
-            }
-
-            // 2. Swarm health (Crucial for Classic mode: avoid dead swarms)
-            if !Config.isDebridMode {
-                let sA = a.seeds ?? 0
-                let sB = b.seeds ?? 0
-                if (sA >= 5) != (sB >= 5) {
-                    return sA >= 5
-                }
-                if abs(sA - sB) > 15 {
-                    return sA > sB
-                }
-            }
-
-            // 3. User Target Quality Match (e.g. 1080p FHD vs 4K UHD)
-            let aQuality = a.quality.lowercased()
-            let bQuality = b.quality.lowercased()
-            let aMatch = (aQuality == prefQuality || (prefQuality == "4k" && a.quality == "4K") || (prefQuality == "1080p" && a.quality == "FHD") || (prefQuality == "720p" && a.quality == "HD"))
-            let bMatch = (bQuality == prefQuality || (prefQuality == "4k" && b.quality == "4K") || (prefQuality == "1080p" && b.quality == "FHD") || (prefQuality == "720p" && b.quality == "HD"))
-            if aMatch != bMatch { return aMatch && !bMatch }
-
-            // 4. Dolby Vision Preference (Liquid Retina XDR)
-            if preferDolbyVision {
-                let aDV = (a.hdrTag == "DV" || a.rawTitle.localizedCaseInsensitiveContains("dolby vision") || a.rawTitle.localizedCaseInsensitiveContains("dovi"))
-                let bDV = (b.hdrTag == "DV" || b.rawTitle.localizedCaseInsensitiveContains("dolby vision") || b.rawTitle.localizedCaseInsensitiveContains("dovi"))
-                if aDV != bDV { return aDV && !bDV }
-            }
-
-            // 5. HDR10 Preference
-            if preferHDR {
-                let aHDR = a.hdrTag != nil
-                let bHDR = b.hdrTag != nil
-                if aHDR != bHDR { return aHDR && !bHDR }
-            }
-
-            // 6. Surround Sound Preference
-            if preferSurround {
-                let aSurround = (a.audioTag?.contains("5.1") == true || a.audioTag?.contains("7.1") == true || a.audioTag?.contains("ATMOS") == true)
-                let bSurround = (b.audioTag?.contains("5.1") == true || b.audioTag?.contains("7.1") == true || b.audioTag?.contains("ATMOS") == true)
-                if aSurround != bSurround { return aSurround && !bSurround }
-            }
-
-            let sA = a.seeds ?? 0
-            let sB = b.seeds ?? 0
-            if sA != sB { return sA > sB }
-            return a.score > b.score
-        }
-
-        guard let bestLink = candidates.first ?? scrapedLinks.first else {
+        guard let bestLink = AggregatedLink.selectBestStream(from: scrapedLinks) ?? scrapedLinks.first else {
             isFetchingStreams = false
             withAnimation(.easeInOut(duration: 0.25)) {
                 self.isPreparingStream = false
@@ -675,7 +592,7 @@ struct ContentView: View {
         }
 
         do {
-            let (url, resolvedLink) = try await AggregatorService().resolveStreamURLWithFallback(startingLink: bestLink, allLinks: candidates)
+            let (url, resolvedLink) = try await AggregatorService().resolveStreamURLWithFallback(startingLink: bestLink, allLinks: scrapedLinks)
             isFetchingStreams = false
             print("Successfully resolved stream via fallback: \(resolvedLink.title)")
 

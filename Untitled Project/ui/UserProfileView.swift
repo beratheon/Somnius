@@ -1028,6 +1028,17 @@ struct UserProfileView: View {
                     .onChange(of: autoPlaySkipShortClips) { _, val in
                         Config.autoPlaySkipShortClips = val
                     }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Instant Cached Streams Only", isOn: $autoPlayCachedOnly)
+                        .toggleStyle(.switch)
+                        .onChange(of: autoPlayCachedOnly) { _, val in
+                            Config.autoPlayCachedOnly = val
+                        }
+                    Text("Auto-play strictly selects pre-cached, zero-buffer streams to ensure immediate, crash-free playback. Alternative sources remain accessible anytime in the player.")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
             }
             .padding(14)
             .background(Color.white.opacity(0.04))
