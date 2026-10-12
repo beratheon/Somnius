@@ -340,6 +340,8 @@ public class MPVPlayerEngine: ObservableObject {
 
                 case MPV_EVENT_FILE_LOADED:
                     print("✅ [MPVPlayerEngine] MPV_EVENT_FILE_LOADED")
+                    self.pendingURL = nil
+                    self.play()
                     DispatchQueue.main.async {
                         self.isBuffering = false
                         self.isPlaying = true
@@ -352,6 +354,7 @@ public class MPVPlayerEngine: ObservableObject {
 
                 case MPV_EVENT_PLAYBACK_RESTART:
                     print("▶️ [MPVPlayerEngine] MPV_EVENT_PLAYBACK_RESTART")
+                    self.pendingURL = nil
                     DispatchQueue.main.async {
                         self.isBuffering = false
                         self.isPlaying = true
@@ -364,16 +367,21 @@ public class MPVPlayerEngine: ObservableObject {
                             let errStr = String(cString: mpv_error_string(endFile.error))
                             print("❌ [MPVPlayerEngine] File ended with error: \(errStr)")
                             DispatchQueue.main.async {
-                                self.isPlaying = false
-                                self.isBuffering = false
-                                self.playbackError = "Media stream playback failed (\(errStr))."
+                                if self.pendingURL == nil {
+                                    self.isPlaying = false
+                                    self.isBuffering = false
+                                    self.playbackError = "Media stream playback failed (\(errStr))."
+                                }
                             }
                             break
                         }
                     }
                     DispatchQueue.main.async {
-                        self.isPlaying = false
-                        self.isBuffering = false
+                        // Only reset state if there is no pending stream currently loading
+                        if self.pendingURL == nil {
+                            self.isPlaying = false
+                            self.isBuffering = false
+                        }
                     }
 
                 case MPV_EVENT_SHUTDOWN:
@@ -512,6 +520,12 @@ public class MPVPlayerEngine: ObservableObject {
             args.append("start=\(Int(startTime))")
         }
         executeCommandAsync(args)
+        // Explicitly clear pause property in libmpv so sequential playback starts unpaused immediately
+        eventQueue.async { [weak self] in
+            guard let handle = self?.mpv else { return }
+            var flag: Int32 = 0
+            mpv_set_property(handle, "pause", MPV_FORMAT_FLAG, &flag)
+        }
         applyAudioFilters()
         setScaleMode(currentScaleMode)
     }
@@ -802,6 +816,11 @@ public class MPVPlayerEngine: ObservableObject {
     // MARK: - Shutdown & Teardown
     public func reset() {
         executeCommandAsync(["stop"])
+        eventQueue.async { [weak self] in
+            guard let handle = self?.mpv else { return }
+            var flag: Int32 = 0
+            mpv_set_property(handle, "pause", MPV_FORMAT_FLAG, &flag)
+        }
         currentURL = nil
         pendingURL = nil
         pendingStartTime = nil

@@ -572,22 +572,26 @@ class AggregatorService {
         }
     }
 
-    /// Stops all running background torrent swarms, shuts down child engine processes, and removes cached data (used on player exit / app quit)
-    public static func stopAndCleanAllTorrentMissions() {
+    /// Stops all running background torrent swarms on the engine. On full app termination, also terminates the child process and cleans disk cache.
+    public static func stopAndCleanAllTorrentMissions(terminateDaemon: Bool = false) {
         Task {
             await stopAllTorrentMissions()
-            terminateActiveEngineProcess()
+            if terminateDaemon {
+                terminateActiveEngineProcess()
+            }
         }
 
-        // Clear any lingering torrent cache in stremio-cache directory in the background
-        DispatchQueue.global(qos: .utility).async {
-            let cachePath = ("~/Library/Application Support/stremio-server/stremio-cache" as NSString).expandingTildeInPath
-            let fm = FileManager.default
-            guard fm.fileExists(atPath: cachePath) else { return }
-            if let items = try? fm.contentsOfDirectory(atPath: cachePath) {
-                for item in items {
-                    let fullPath = (cachePath as NSString).appendingPathComponent(item)
-                    try? fm.removeItem(atPath: fullPath)
+        if terminateDaemon {
+            // Clear any lingering torrent cache in stremio-cache directory on full app exit
+            DispatchQueue.global(qos: .utility).async {
+                let cachePath = ("~/Library/Application Support/stremio-server/stremio-cache" as NSString).expandingTildeInPath
+                let fm = FileManager.default
+                guard fm.fileExists(atPath: cachePath) else { return }
+                if let items = try? fm.contentsOfDirectory(atPath: cachePath) {
+                    for item in items {
+                        let fullPath = (cachePath as NSString).appendingPathComponent(item)
+                        try? fm.removeItem(atPath: fullPath)
+                    }
                 }
             }
         }

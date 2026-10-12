@@ -4,7 +4,7 @@ import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
-        AggregatorService.stopAndCleanAllTorrentMissions()
+        AggregatorService.stopAndCleanAllTorrentMissions(terminateDaemon: true)
     }
 }
 #endif

@@ -1359,6 +1359,7 @@ struct PlayerView: View {
         let savedResume = resumeTimeAvailable ?? 0.0
 
         ksEngine.loadStream(url: url, startTime: savedResume, imdbID: targetIMDb)
+        ksEngine.play()
         self.isPlaying = true
         setupStallWatchdog()
     }
@@ -1665,7 +1666,6 @@ struct PlayerView: View {
         }
         NSCursor.unhide()
         #endif
-        ksEngine.pause()
         ksEngine.reset()
         AggregatorService.stopAndCleanAllTorrentMissions()
     }
@@ -1756,6 +1756,7 @@ struct PlayerView: View {
                     self.activeStreamURL = newURL
                     self.isSkippingFakeStream = false
                     self.ksEngine.loadStream(url: newURL, startTime: savedTime)
+                    self.ksEngine.play()
                     self.showToast("Switched to \(link.resolutionBadge) at \(formatTime(savedTime))")
                 }
             } catch {
@@ -1822,6 +1823,7 @@ struct PlayerView: View {
                     self.activeStreamURL = newURL
                     self.isSkippingFakeStream = false
                     self.ksEngine.loadStream(url: newURL, startTime: savedTime)
+                    self.ksEngine.play()
                     let sz = pickedLink.sizeString != nil ? " • \(pickedLink.sizeString!)" : ""
                     self.showToast("Auto-playing \(pickedLink.resolutionBadge)\(sz)")
                 }

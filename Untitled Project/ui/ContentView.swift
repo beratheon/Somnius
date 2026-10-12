@@ -266,7 +266,6 @@ struct ContentView: View {
                         showPlayer = false
                         selectedStreamURL = nil
                         isPreparingStream = false
-                        KSPlayerEngine.shared.pause()
                         KSPlayerEngine.shared.reset()
                         AggregatorService.stopAndCleanAllTorrentMissions()
                         if let sel = selectedMediaItem {
@@ -274,6 +273,7 @@ struct ContentView: View {
                         }
                     }
                 )
+                .id(url.absoluteString + "_\(playingSeason ?? 0)_\(playingEpisode ?? 0)")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea()
                 .transition(.opacity)
