@@ -32,22 +32,44 @@ public class MetalLayer: CAMetalLayer {
     }
 }
 
+// MARK: - Video Scaling & Aspect Modes
+public enum VideoScaleMode: String, CaseIterable, Identifiable {
+    case fit = "Fit to Screen"
+    case fill = "Fill Screen (Zoom)"
+    case stretch = "Stretch to Fill"
+    case widescreen16_9 = "16:9 Widescreen"
+    case cinema21_9 = "21:9 Cinema"
+    case classic4_3 = "4:3 Classic"
+
+    public var id: String { rawValue }
+
+    public var iconName: String {
+        switch self {
+        case .fit: return "arrow.down.right.and.arrow.up.left"
+        case .fill: return "arrow.up.left.and.arrow.down.right"
+        case .stretch: return "rectangle.expand.vertical"
+        case .widescreen16_9: return "rectangle.ratio.16.to.9"
+        case .cinema21_9: return "film"
+        case .classic4_3: return "rectangle.ratio.4.to.3"
+        }
+    }
+}
+
 // MARK: - MPV Video View
 public class MPVVideoView: NSView {
     public let metalLayer = MetalLayer()
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        wantsLayer = true
-        metalLayer.frame = bounds
-        metalLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
-        metalLayer.framebufferOnly = true
-        metalLayer.backgroundColor = NSColor.black.cgColor
-        layer = metalLayer
+        setupLayer()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        setupLayer()
+    }
+
+    private func setupLayer() {
         wantsLayer = true
         metalLayer.frame = bounds
         metalLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
@@ -58,17 +80,46 @@ public class MPVVideoView: NSView {
 
     public override func layout() {
         super.layout()
-        metalLayer.frame = bounds
-        if let window = window {
-            let scale = window.screen?.backingScaleFactor ?? 2.0
-            metalLayer.contentsScale = scale
-            metalLayer.drawableSize = CGSize(width: max(1, bounds.width * scale), height: max(1, bounds.height * scale))
-        }
+        updateLayerGeometry()
     }
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        layout()
+        updateLayerGeometry()
+        if let win = window {
+            NotificationCenter.default.removeObserver(self, name: NSWindow.didResizeNotification, object: nil)
+            NotificationCenter.default.removeObserver(self, name: NSWindow.didEnterFullScreenNotification, object: nil)
+            NotificationCenter.default.removeObserver(self, name: NSWindow.didExitFullScreenNotification, object: nil)
+
+            NotificationCenter.default.addObserver(self, selector: #selector(windowGeometryChanged), name: NSWindow.didResizeNotification, object: win)
+            NotificationCenter.default.addObserver(self, selector: #selector(windowGeometryChanged), name: NSWindow.didEnterFullScreenNotification, object: win)
+            NotificationCenter.default.addObserver(self, selector: #selector(windowGeometryChanged), name: NSWindow.didExitFullScreenNotification, object: win)
+        }
+    }
+
+    @objc private func windowGeometryChanged() {
+        updateLayerGeometry()
+    }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateLayerGeometry()
+    }
+
+    public override func setBoundsSize(_ newSize: NSSize) {
+        super.setBoundsSize(newSize)
+        updateLayerGeometry()
+    }
+
+    public func updateLayerGeometry() {
+        metalLayer.frame = bounds
+        let scale = window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        metalLayer.contentsScale = scale
+        metalLayer.drawableSize = CGSize(width: max(1, bounds.width * scale), height: max(1, bounds.height * scale))
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 }
 
@@ -114,6 +165,7 @@ public class MPVPlayerEngine: ObservableObject {
     @Published public var volume: Double = 1.0
     @Published public var isMuted: Bool = false
     @Published public var isAspectFill: Bool = false
+    @Published public var currentScaleMode: VideoScaleMode = .fit
     @Published public var isPipActive: Bool = false
     @Published public var playbackError: String? = nil
     @Published public var currentURL: URL? = nil
@@ -453,6 +505,7 @@ public class MPVPlayerEngine: ObservableObject {
         }
         executeCommand(args)
         applyAudioFilters()
+        setScaleMode(currentScaleMode)
     }
 
     public func play() {
@@ -512,11 +565,67 @@ public class MPVPlayerEngine: ObservableObject {
         mpv_set_property(handle, "mute", MPV_FORMAT_FLAG, &m)
     }
 
-    public func toggleAspect() {
-        isAspectFill.toggle()
+    public func setScaleMode(_ mode: VideoScaleMode) {
+        currentScaleMode = mode
         guard let handle = mpv else { return }
-        // "no" resets aspect override, "16:9" forces widescreen fill
-        mpv_set_property_string(handle, "video-aspect-override", isAspectFill ? "16:9" : "no")
+
+        switch mode {
+        case .fit:
+            mpv_set_property_string(handle, "panscan", "0.0")
+            mpv_set_property_string(handle, "keepaspect", "yes")
+            mpv_set_property_string(handle, "video-aspect-override", "-1")
+            mpv_set_property_string(handle, "video-zoom", "0")
+            isAspectFill = false
+
+        case .fill:
+            // Crop letterbox/pillarbox black bars to fill 100% of the screen/window seamlessly
+            mpv_set_property_string(handle, "panscan", "1.0")
+            mpv_set_property_string(handle, "keepaspect", "yes")
+            mpv_set_property_string(handle, "video-aspect-override", "-1")
+            mpv_set_property_string(handle, "video-zoom", "0")
+            isAspectFill = true
+
+        case .stretch:
+            // Disregard native aspect ratio and stretch to window bounds
+            mpv_set_property_string(handle, "panscan", "0.0")
+            mpv_set_property_string(handle, "keepaspect", "no")
+            mpv_set_property_string(handle, "video-aspect-override", "-1")
+            mpv_set_property_string(handle, "video-zoom", "0")
+            isAspectFill = true
+
+        case .widescreen16_9:
+            mpv_set_property_string(handle, "panscan", "0.0")
+            mpv_set_property_string(handle, "keepaspect", "yes")
+            mpv_set_property_string(handle, "video-aspect-override", "16:9")
+            mpv_set_property_string(handle, "video-zoom", "0")
+            isAspectFill = false
+
+        case .cinema21_9:
+            mpv_set_property_string(handle, "panscan", "0.0")
+            mpv_set_property_string(handle, "keepaspect", "yes")
+            mpv_set_property_string(handle, "video-aspect-override", "2.39:1")
+            mpv_set_property_string(handle, "video-zoom", "0")
+            isAspectFill = false
+
+        case .classic4_3:
+            mpv_set_property_string(handle, "panscan", "0.0")
+            mpv_set_property_string(handle, "keepaspect", "yes")
+            mpv_set_property_string(handle, "video-aspect-override", "4:3")
+            mpv_set_property_string(handle, "video-zoom", "0")
+            isAspectFill = false
+        }
+    }
+
+    public func cycleScaleMode() -> VideoScaleMode {
+        let all = VideoScaleMode.allCases
+        let nextIndex = (all.firstIndex(of: currentScaleMode).map { ($0 + 1) % all.count }) ?? 0
+        let next = all[nextIndex]
+        setScaleMode(next)
+        return next
+    }
+
+    public func toggleAspect() {
+        _ = cycleScaleMode()
     }
 
     public func togglePiP() {

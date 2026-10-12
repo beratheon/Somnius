@@ -332,14 +332,15 @@ struct PlayerView: View {
     @State private var failedStreamURLs: Set<String> = []
     @State private var isSkippingFakeStream: Bool = false
 
-    @State private var isPlaying: Bool = true
+    @State private var isPlaying: Bool = false
     @State private var currentTime: Double = 0
     @State private var duration: Double = 0
     @State private var bufferedSeconds: Double = 0
     @State private var bufferedFraction: Double = 0
 
     // Buffer stall detection & recovery
-    @State private var isBuffering: Bool = false
+    @State private var isBuffering: Bool = true
+    @State private var selectedScaleMode: VideoScaleMode = .fit
     @State private var stallSecondsCount: Double = 0
     @State private var stallTimer: Timer? = nil
     @State private var cancellables = Set<AnyCancellable>()
@@ -418,6 +419,30 @@ struct PlayerView: View {
     private let aggregatorService = AggregatorService()
     private let subtitleService = SubtitleService.shared
 
+    private var isPlayerLoadingOrStalled: Bool {
+        if isSwitchingEpisode { return false }
+        if currentTime == 0 && (!isPlaying || isBuffering) { return true }
+        if isBuffering && (currentTime == 0 || stallSecondsCount > 2) { return true }
+        return false
+    }
+
+    private var playerLoadingTitle: String {
+        mediaItem?.title ?? "Media Stream"
+    }
+
+    private var playerLoadingSubtitle: String {
+        if isSwitchingEpisode {
+            return switchingEpisodeTitle
+        }
+        if mediaItem?.type == .series && playingSeasonNumber > 0 && playingEpisodeNumber > 0 {
+            return "Season \(playingSeasonNumber), Episode \(playingEpisodeNumber)"
+        }
+        if stallSecondsCount > 2 {
+            return "Buffering media stream..."
+        }
+        return "Loading media stream..."
+    }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -435,18 +460,31 @@ struct PlayerView: View {
                     ProgressView()
                         .tint(.white)
                         .scaleEffect(1.3)
-
                 }
             }
 
-            // 2. Active Buffer / Stall Overlay Spinner (Dead-Center Window Overlay)
-            if isBuffering && !isSwitchingEpisode && (currentTime == 0 || stallSecondsCount > 2) {
+            // 2. Active Buffer / Loading Overlay Spinner (Dead-Center Window Overlay)
+            if isPlayerLoadingOrStalled {
                 ZStack {
-                    Color.black.opacity(0.35).ignoresSafeArea()
+                    Color.black.opacity(currentTime > 0 ? 0.40 : 0.90).ignoresSafeArea()
+
                     VStack(spacing: 16) {
                         ProgressView()
                             .tint(.white)
                             .scaleEffect(1.3)
+
+                        VStack(spacing: 6) {
+                            Text(playerLoadingTitle)
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.white)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+
+                            Text(playerLoadingSubtitle)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(SoftTone.mist.color)
+                                .multilineTextAlignment(.center)
+                        }
 
                         // [SDK Integration Point]: Non-intrusive sponsor banner during stream buffering
                         if let ad = adManager.activePlayerLoadingAd, adManager.isAdsEnabled {
@@ -455,14 +493,17 @@ struct PlayerView: View {
                                 .transition(.opacity)
                         }
                     }
-                    .padding(24)
-                    .background(Color(red: 0.1, green: 0.1, blue: 0.12).opacity(0.85))
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                    .padding(.horizontal, 32)
+                    .padding(.vertical, 24)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color(red: 0.1, green: 0.1, blue: 0.12).opacity(0.92))
                     )
-                    .shadow(color: .black.opacity(0.8), radius: 24, x: 0, y: 10)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.85), radius: 30, x: 0, y: 12)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 .ignoresSafeArea()
@@ -513,7 +554,15 @@ struct PlayerView: View {
             // 4. User interaction overlay
             Color.black.opacity(0.001)
                 .ignoresSafeArea()
-                .onTapGesture {
+                .onTapGesture(count: 2) {
+                    userInteracted()
+                    #if os(macOS)
+                    if let window = NSApp.keyWindow {
+                        window.toggleFullScreen(nil)
+                    }
+                    #endif
+                }
+                .onTapGesture(count: 1) {
                     userInteracted()
                     togglePlayPause()
                 }
@@ -1024,20 +1073,35 @@ struct PlayerView: View {
                         }
                         .buttonStyle(.plain)
 
-                        // Aspect Ratio Toggle
-                        Button(action: {
-                            userInteracted()
-                            cycleVideoGravity()
-                        }) {
-                            Image(systemName: "aspectratio")
+                        // Video Scale & Aspect Ratio Button
+                        Menu {
+                            ForEach(VideoScaleMode.allCases) { mode in
+                                Button(action: {
+                                    userInteracted()
+                                    selectedScaleMode = mode
+                                    ksEngine.setScaleMode(mode)
+                                    showToast("Scale: \(mode.rawValue)")
+                                }) {
+                                    HStack {
+                                        Text(mode.rawValue)
+                                        if selectedScaleMode == mode {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: selectedScaleMode == .fill ? "arrow.up.left.and.arrow.down.right" : "aspectratio")
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.9))
+                                .foregroundColor(selectedScaleMode == .fit ? .white.opacity(0.9) : .white)
                                 .frame(width: 32, height: 32)
-                                .background(Color.white.opacity(0.12))
+                                .background(selectedScaleMode == .fit ? Color.white.opacity(0.12) : Color.white.opacity(0.24))
                                 .clipShape(Circle())
                                 .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                         }
+                        .menuStyle(.borderlessButton)
                         .buttonStyle(.plain)
+                        .help("Video Scale & Aspect Ratio (Press 'A' to cycle)")
 
                         #if os(macOS)
                         // Picture-in-Picture Button (Isolated observed subview)
@@ -1164,7 +1228,12 @@ struct PlayerView: View {
                 self.showPlaybackErrorSheet = true
             }
         }
+        .onReceive(ksEngine.$currentScaleMode) { mode in
+            self.selectedScaleMode = mode
+        }
         .onAppear {
+            self.selectedScaleMode = ksEngine.currentScaleMode
+            self.isBuffering = true
             #if os(macOS)
             DispatchQueue.main.async {
                 if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) {
@@ -1426,8 +1495,9 @@ struct PlayerView: View {
     }
 
     private func cycleVideoGravity() {
-        ksEngine.toggleAspect()
-        showToast(ksEngine.isAspectFill ? "Aspect: Fill Screen (Zoom)" : "Aspect: Fit (Original Aspect)")
+        let next = ksEngine.cycleScaleMode()
+        selectedScaleMode = next
+        showToast("Scale: \(next.rawValue)")
     }
 
     private func cyclePlaybackSpeed() {
@@ -1983,6 +2053,9 @@ struct PlayerView: View {
                 if let window = NSApp.keyWindow {
                     window.toggleFullScreen(nil)
                 }
+                return nil
+            case 0, 6: // 'A' or 'Z' - Cycle Aspect Ratio / Video Scale
+                self.cycleVideoGravity()
                 return nil
             case 8: // 'C'
                 if self.selectedSubtitle != nil {
