@@ -11,17 +11,18 @@ NAME = "Somnius 1.0.0 Beta"
 BODY = """## Somnius 1.0.0 Beta Release 🚀
 
 ### What's New:
-- **P2P & Debrid Streaming Engine**: Instant peer pre-warming, top-tier tracker aggregation, and adaptive video stream selection.
-- **Support Us on Patreon**: Added direct Patreon support button in Settings to support future development.
-- **Dual Video Engines**: Native KSPlayer + AVPlayer with fast audio & subtitle track switching and intelligent stall protection.
-- **Unified Metadata Engine**: TMDB & TVDB API integration for accurate TV shows, series, docuseries, and movies.
-- **Universal Auto-Play**: Smart source selection, seeder-prioritized ranking, and automatic hoster notice-clip skipping.
-- **Decentralized Streaming Add-ons**: Built-in support for Torrentio, Comet v2, Meteor, and Knaben.
-- **Native Downloads**: Built-in torrent and debrid download manager with background transmission.
+- **Zero-Lag Video Playback**: Fully unmounted background UI during playback, eliminated live window-server blur overhead, decoupled player state subscriptions, and throttled UI dispatch ticks to eliminate frame drops.
+- **Enhanced Subtitle Engine**: Direct track selection binding and PGS bitmap graphic subtitle rendering support.
+- **Debrid & P2P Stream Volume**: Restored ElfHosted Comet integration with Base64 Real-Debrid token routing, returning thousands of high-speed 4K Remux and Dolby Vision streams.
+- **Reliable Torrent Engine Lifecycle**: Serialized torrent mission cleanup prior to start, decoupling cache wiping from active stream startup.
+- **Minimalist Pastel Design**: Complete aesthetic overhaul harmonizing all UI elements with the SoftTone pastel palette.
+- **Patreon Supporter Integration**: Added direct Patreon supporter button next to Settings.
+- **Dual Video Engines**: Native KSPlayer + AVPlayer with instant audio track synchronization and stall protection.
+- **Unified Metadata Engine**: TMDB & TVDB API integration for accurate TV shows, series, and movies.
 
 ### Installation (macOS):
-1. Download **`Somnius-1.0.0.dmg`** below.
-2. Open the disk image and drag **`Somnius.app`** into your **`Applications`** folder.
+1. Download **`Somnius-1.0.0.dmg`** or **`Somnius-1.0.0.pkg`** below.
+2. If using the DMG, open it and drag **`Somnius.app`** into your **`Applications`** folder.
 3. On first launch, **Right-click** (Control-click) `Somnius.app` in `/Applications` and select **Open** to approve macOS Gatekeeper.
 """
 
@@ -50,7 +51,7 @@ def main():
     print("🚀 Pushing repository (app_status.json, code, and updater config) to GitHub...")
     remote_url = f"https://x-access-token:{token}@github.com/{REPO}.git"
     try:
-        subprocess.run(["git", "push", remote_url, "main", "--force"], check=True)
+        subprocess.run(["git", "push", remote_url, "main"], check=True)
         print("✅ Git push succeeded!")
     except subprocess.CalledProcessError as e:
         print("⚠️ Git push failed or branch up to date:", e)
@@ -75,10 +76,22 @@ def main():
             print(f"✅ Created release: {release_data.get('html_url')}")
     except urllib.error.HTTPError as e:
         if e.code == 422:
-            print("ℹ️ Release tag already exists, fetching existing release...")
+            print("ℹ️ Release tag already exists, fetching and updating existing release...")
             get_req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/releases/tags/{TAG}", headers=headers)
             with urllib.request.urlopen(get_req) as resp:
                 release_data = json.loads(resp.read().decode())
+            try:
+                patch_req = urllib.request.Request(
+                    f"https://api.github.com/repos/{REPO}/releases/{release_data['id']}",
+                    data=json.dumps({"body": BODY, "name": NAME}).encode(),
+                    headers=headers,
+                    method="PATCH"
+                )
+                with urllib.request.urlopen(patch_req) as p_resp:
+                    release_data = json.loads(p_resp.read().decode())
+                    print(f"✅ Updated release description for {TAG}")
+            except Exception as pe:
+                print(f"⚠️ Note on updating release metadata: {pe}")
         else:
             print(f"❌ Failed to create release: {e}")
             sys.exit(1)
