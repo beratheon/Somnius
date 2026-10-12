@@ -348,6 +348,9 @@ class StremioAddonManager: ObservableObject {
                 group.addTask {
                     return await self.queryTorrentio(typeString: typeString, targetID: targetID, rdParam: rdParam)
                 }
+                group.addTask {
+                    return await self.queryComet(typeString: typeString, targetID: targetID, rdKey: rdKey)
+                }
             }
 
             // 2. High-Speed Torrentio P2P (All 17 providers uncached/p2p)
@@ -366,7 +369,7 @@ class StremioAddonManager: ObservableObject {
             for addon in self.installedAddons where addon.isEnabled && addon.supportedResources.contains("stream") {
                 // If user installed a Torrentio instance with RD already, let it run
                 group.addTask {
-                    return await self.queryGenericAddon(addon: addon, typeString: typeString, targetID: targetID)
+                    return await self.queryAddonStreams(addon: addon, typeString: typeString, targetID: targetID, rdParam: isTurbo ? rdParam : "")
                 }
             }
 
@@ -515,6 +518,48 @@ class StremioAddonManager: ObservableObject {
         let allProviders = "providers=yts,eztv,rarbg,1337x,thepiratebay,kickasstorrents,torrentgalaxy,magnetdl,horriblesubs,nyaasi,tokyotosho,anidex,rutor,rutracker,torrent9,mejortorrent,cinecalidad|sort=qualitysize"
         guard let url = URL(string: "https://torrentio.strem.fun/\(allProviders)/stream/\(typeString)/\(targetID).json") else { return [] }
         return await queryRawStreamEndpoint(url: url, source: "Torrentio")
+    }
+
+    // MARK: - 3. Comet Debrid Provider (ElfHosted)
+    private func queryComet(typeString: String, targetID: String, rdKey: String) async -> [AggregatedLink] {
+        guard !rdKey.isEmpty else { return [] }
+
+        let cometConfig: [String: Any] = [
+            "maxResultsPerResolution": 0,
+            "maxSize": 0,
+            "cachedOnly": false,
+            "sortCachedUncachedTogether": false,
+            "removeTrash": false,
+            "resultFormat": ["all"],
+            "debridServices": [
+                ["service": "realdebrid", "apiKey": rdKey]
+            ],
+            "enableTorrent": true,
+            "deduplicateStreams": false,
+            "scrapeDebridAccountTorrents": false,
+            "debridStreamProxyPassword": "",
+            "languages": [
+                "required": [String](),
+                "allowed": [String](),
+                "exclude": [String](),
+                "preferred": [String]()
+            ],
+            "resolutions": [String: Bool](),
+            "options": [
+                "remove_ranks_under": -10000000000,
+                "allow_english_in_languages": true,
+                "remove_unknown_languages": false
+            ]
+        ]
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: cometConfig),
+              let b64 = jsonData.base64EncodedString() as String? else {
+            return []
+        }
+
+        let base = "https://comet.elfhosted.com/\(b64)"
+        guard let url = URL(string: "\(base)/stream/\(typeString)/\(targetID).json") else { return [] }
+        return await queryRawStreamEndpoint(url: url, source: "Comet")
     }
 
     // MARK: - 3. ThePirateBay Direct API (Fast & Reliable Fallback)

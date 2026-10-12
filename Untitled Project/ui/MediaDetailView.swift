@@ -264,16 +264,16 @@ struct MediaDetailView: View {
                         }) {
                             HStack(spacing: 7) {
                                 Image(systemName: "arrow.down.circle")
-                                    .font(.system(size: 13, weight: .bold))
+                                    .font(.system(size: 13, weight: .semibold))
                                 Text("Download")
                                     .font(.system(size: 13, weight: .semibold))
                             }
-                            .foregroundColor(Color(red: 1.0, green: 0.45, blue: 0.45))
+                            .foregroundColor(SoftTone.mist.color)
                             .padding(.horizontal, 18)
                             .padding(.vertical, 12)
-                            .background(Color(red: 1.0, green: 0.4, blue: 0.4).opacity(0.12))
+                            .background(SoftTone.mist.color.opacity(0.14))
                             .clipShape(Capsule())
-                            .overlay(Capsule().stroke(Color(red: 1.0, green: 0.4, blue: 0.4).opacity(0.35), lineWidth: 1))
+                            .overlay(Capsule().stroke(SoftTone.mist.color.opacity(0.35), lineWidth: 1))
                         }
                         .buttonStyle(ShiningDownloadButtonStyle())
 
@@ -1370,7 +1370,7 @@ struct MediaDetailView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
                             Image(systemName: "arrow.down.circle.fill")
-                                .foregroundColor(Color(red: 1.0, green: 0.35, blue: 0.35))
+                                .foregroundColor(SoftTone.mist.color)
                             Text("Download Source Selection")
                                 .font(.system(size: 16, weight: .bold))
                                 .foregroundColor(.white)
@@ -1394,12 +1394,13 @@ struct MediaDetailView: View {
                                 Image(systemName: "bolt.fill")
                                 Text("Auto Play")
                             }
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.system(size: 11, weight: .semibold))
                             .padding(.horizontal, 11)
                             .padding(.vertical, 6)
-                            .background(Color.white)
-                            .foregroundColor(.black)
+                            .background(SoftTone.sage.color.opacity(0.18))
+                            .foregroundColor(SoftTone.sage.color)
                             .clipShape(Capsule())
+                            .overlay(Capsule().stroke(SoftTone.sage.color.opacity(0.35), lineWidth: 0.8))
                         }
                         .buttonStyle(.plain)
 
@@ -1411,12 +1412,13 @@ struct MediaDetailView: View {
                                 Image(systemName: "arrow.down.circle.fill")
                                 Text("Auto Download")
                             }
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.system(size: 11, weight: .semibold))
                             .padding(.horizontal, 11)
                             .padding(.vertical, 6)
-                            .background(Color(red: 1.0, green: 0.35, blue: 0.35))
-                            .foregroundColor(.white)
+                            .background(SoftTone.mist.color.opacity(0.18))
+                            .foregroundColor(SoftTone.mist.color)
                             .clipShape(Capsule())
+                            .overlay(Capsule().stroke(SoftTone.mist.color.opacity(0.35), lineWidth: 0.8))
                         }
                         .buttonStyle(.plain)
                     }
@@ -1477,7 +1479,7 @@ struct MediaDetailView: View {
                                             if let sz = link.sizeString {
                                                 Text(sz)
                                                     .font(.system(size: 11, weight: .medium))
-                                                    .foregroundColor(Color(red: 1.0, green: 0.4, blue: 0.4))
+                                                    .foregroundColor(SoftTone.mist.color)
                                             }
                                             
                                             Text(link.source)
@@ -1504,13 +1506,14 @@ struct MediaDetailView: View {
                                             Image(systemName: "arrow.down.circle.fill")
                                                 .font(.system(size: 13, weight: .bold))
                                             Text("Download")
-                                                .font(.system(size: 12, weight: .bold))
+                                                .font(.system(size: 12, weight: .semibold))
                                         }
-                                        .foregroundColor(.white)
+                                        .foregroundColor(SoftTone.mist.color)
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 8)
-                                        .background(Color(red: 1.0, green: 0.35, blue: 0.35))
+                                        .background(SoftTone.mist.color.opacity(0.18))
                                         .clipShape(Capsule())
+                                        .overlay(Capsule().stroke(SoftTone.mist.color.opacity(0.35), lineWidth: 0.8))
                                     }
                                     .buttonStyle(.plain)
                                 }
@@ -2102,7 +2105,7 @@ struct ShiningDownloadButtonStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
             .shadow(
-                color: configuration.isPressed ? Color(red: 1.0, green: 0.3, blue: 0.3).opacity(0.9) : Color.clear,
+                color: configuration.isPressed ? SoftTone.mist.color.opacity(0.6) : Color.clear,
                 radius: configuration.isPressed ? 14 : 0,
                 x: 0,
                 y: 0

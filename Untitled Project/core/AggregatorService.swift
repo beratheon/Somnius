@@ -230,8 +230,8 @@ class AggregatorService {
         // 3. Local P2P Streaming Engine resolution (127.0.0.1:11470) for debridless playback
         let isEngineReady = await ensureLocalTorrentEngineIsRunning()
         if isEngineReady {
-            // Terminate previous background swarms so network and disk bandwidth belong 100% to this stream
-            Self.stopAndCleanAllTorrentMissions()
+            // Await terminating previous background swarms so /removeAll completes before /create is sent
+            await Self.stopAllTorrentMissions()
             for candidate in candidates {
                 var hashToResolve = candidate.infoHash
                 if (hashToResolve == nil || hashToResolve!.isEmpty), let u = candidate.url, u.scheme?.lowercased() == "magnet" {
@@ -446,16 +446,21 @@ class AggregatorService {
         return components?.url
     }
 
-    /// Stops all running background torrent swarms and removes cached data
+    /// Stops all running background torrent swarms on the local engine. Awaits completion so subsequent /create doesn't race.
+    public static func stopAllTorrentMissions() async {
+        guard let url = URL(string: "http://127.0.0.1:11470/removeAll") else { return }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 1.0
+        _ = try? await URLSession.shared.data(for: request)
+    }
+
+    /// Stops all running background torrent swarms and removes cached data (used on player exit / app quit)
     public static func stopAndCleanAllTorrentMissions() {
-        // 1. Tell local streaming engine to remove all active torrent swarms immediately
-        if let url = URL(string: "http://127.0.0.1:11470/removeAll") {
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 1.0
-            URLSession.shared.dataTask(with: request) { _, _, _ in }.resume()
+        Task {
+            await stopAllTorrentMissions()
         }
 
-        // 2. Clear any lingering torrent cache in stremio-cache directory in the background
+        // Clear any lingering torrent cache in stremio-cache directory in the background
         DispatchQueue.global(qos: .utility).async {
             let cachePath = ("~/Library/Application Support/stremio-server/stremio-cache" as NSString).expandingTildeInPath
             let fm = FileManager.default

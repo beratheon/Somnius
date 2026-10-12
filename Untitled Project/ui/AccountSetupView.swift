@@ -40,7 +40,7 @@ struct AccountSetupView: View {
             RadialGradient(
                 colors: [
                     AccountManager.colorForName(selectedColor).opacity(0.18),
-                    Color.blue.opacity(0.06),
+                    SoftTone.mist.color.opacity(0.06),
                     Color.clear
                 ],
                 center: .top,
@@ -261,9 +261,10 @@ struct AccountSetupView: View {
                     .font(.custom("Helvetica", size: 14).weight(.bold))
                     .padding(.horizontal, 30)
                     .padding(.vertical, 10)
-                    .background(profileName.isEmpty ? Color.gray.opacity(0.3) : Color.blue)
-                    .foregroundColor(.white)
+                    .background(profileName.isEmpty ? Color.gray.opacity(0.3) : SoftTone.mist.color.opacity(0.18))
+                    .foregroundColor(profileName.isEmpty ? .white.opacity(0.5) : SoftTone.mist.color)
                     .cornerRadius(10)
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(profileName.isEmpty ? Color.clear : SoftTone.mist.color.opacity(0.35), lineWidth: 0.8))
                     .buttonStyle(PlainButtonStyle())
                     .disabled(profileName.isEmpty)
                 } else {
@@ -285,12 +286,10 @@ struct AccountSetupView: View {
                         .font(.custom("Helvetica", size: 14).weight(.bold))
                         .padding(.horizontal, 28)
                         .padding(.vertical, 12)
-                        .background(
-                            LinearGradient(colors: [Color.blue, Color.purple], startPoint: .leading, endPoint: .trailing)
-                        )
-                        .foregroundColor(.white)
+                        .background(SoftTone.mist.color.opacity(0.22))
+                        .foregroundColor(SoftTone.mist.color)
                         .cornerRadius(12)
-                        .shadow(color: Color.purple.opacity(0.4), radius: 10, x: 0, y: 4)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(SoftTone.mist.color.opacity(0.35), lineWidth: 0.8))
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
@@ -475,11 +474,11 @@ struct AccountSetupView: View {
                 HStack(spacing: 12) {
                     ZStack {
                         Circle()
-                            .fill(Color.blue.opacity(0.2))
+                            .fill(SoftTone.mist.color.opacity(0.18))
                             .frame(width: 44, height: 44)
                         Image(systemName: "puzzlepiece.extension.fill")
                             .font(.system(size: 20))
-                            .foregroundColor(.blue)
+                            .foregroundColor(SoftTone.mist.color)
                     }
 
                     VStack(alignment: .leading, spacing: 3) {
@@ -586,9 +585,10 @@ struct AccountSetupView: View {
                         .font(.caption.bold())
                         .padding(.horizontal, 14)
                         .padding(.vertical, 9)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
+                        .background(SoftTone.mist.color.opacity(0.18))
+                        .foregroundColor(SoftTone.mist.color)
                         .cornerRadius(8)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(SoftTone.mist.color.opacity(0.35), lineWidth: 0.8))
                     }
 
                     if let err = addonInstallError {
@@ -789,9 +789,10 @@ struct AccountSetupView: View {
                             .font(.custom("Helvetica", size: 12).weight(.bold))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
-                            .background(debridApiKeyInput.isEmpty ? Color.gray.opacity(0.3) : Color.blue)
-                            .foregroundColor(.white)
+                            .background(debridApiKeyInput.isEmpty ? Color.gray.opacity(0.3) : SoftTone.mist.color.opacity(0.18))
+                            .foregroundColor(debridApiKeyInput.isEmpty ? .white.opacity(0.5) : SoftTone.mist.color)
                             .cornerRadius(8)
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(debridApiKeyInput.isEmpty ? Color.clear : SoftTone.mist.color.opacity(0.35), lineWidth: 0.8))
                         }
                         .buttonStyle(PlainButtonStyle())
                         .disabled(debridApiKeyInput.isEmpty || isVerifyingDebrid)
@@ -930,11 +931,11 @@ struct AccountSetupView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
-            .background(preferredQuality == tag ? Color.blue.opacity(0.3) : Color.white.opacity(0.05))
+            .background(preferredQuality == tag ? SoftTone.mist.color.opacity(0.18) : Color.white.opacity(0.05))
             .cornerRadius(10)
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .stroke(preferredQuality == tag ? Color.blue : Color.clear, lineWidth: 2)
+                    .stroke(preferredQuality == tag ? SoftTone.mist.color : Color.clear, lineWidth: 1.5)
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -947,11 +948,11 @@ struct AccountSetupView: View {
                 .foregroundColor(preferredLanguage == code ? .white : .white.opacity(0.7))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(preferredLanguage == code ? Color.blue.opacity(0.3) : Color.white.opacity(0.05))
+                .background(preferredLanguage == code ? SoftTone.mist.color.opacity(0.18) : Color.white.opacity(0.05))
                 .cornerRadius(8)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(preferredLanguage == code ? Color.blue : Color.clear, lineWidth: 1.5)
+                        .stroke(preferredLanguage == code ? SoftTone.mist.color : Color.clear, lineWidth: 1.2)
                 )
         }
         .buttonStyle(PlainButtonStyle())
@@ -1008,7 +1009,7 @@ struct AccountSetupView: View {
         HStack(spacing: 6) {
             ZStack {
                 Circle()
-                    .fill(step >= num ? Color.blue : Color.white.opacity(0.1))
+                    .fill(step >= num ? SoftTone.mist.color : Color.white.opacity(0.1))
                     .frame(width: 22, height: 22)
                 Text("\(num)")
                     .font(.caption2.bold())

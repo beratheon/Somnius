@@ -47,92 +47,87 @@ struct ContentView: View {
                 Color(red: 0.07, green: 0.07, blue: 0.08)
                     .ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    // Header Bar (Apple TV+ / macOS Native Aesthetic)
-                    HStack(spacing: 16) {
-                        // Somnius Branding & Top Nav Tabs
-                        HStack(spacing: 12) {
-                            // Claude-like minimalist full moon icon (no emoji) - 25% larger
-                            ZStack {
-                                Circle()
-                                    .fill(
-                                        RadialGradient(
-                                            gradient: Gradient(colors: [Color.white, Color(white: 0.85)]),
-                                            center: .center,
-                                            startRadius: 2,
-                                            endRadius: 11
+                if !showPlayer {
+                    VStack(spacing: 0) {
+                        // Header Bar (Apple TV+ / macOS Native Aesthetic)
+                        HStack(spacing: 16) {
+                            // Somnius Branding & Top Nav Tabs
+                            HStack(spacing: 12) {
+                                // Claude-like minimalist full moon icon (no emoji) - 25% larger
+                                ZStack {
+                                    Circle()
+                                        .fill(
+                                            RadialGradient(
+                                                gradient: Gradient(colors: [Color.white, Color(white: 0.85)]),
+                                                center: .center,
+                                                startRadius: 2,
+                                                endRadius: 11
+                                            )
                                         )
-                                    )
-                                    .frame(width: 21, height: 21)
-                                    .shadow(color: Color.white.opacity(0.45), radius: 6, x: 0, y: 0)
+                                        .frame(width: 21, height: 21)
+                                        .shadow(color: Color.white.opacity(0.45), radius: 6, x: 0, y: 0)
+                                }
+
+                                Text("Somnius")
+                                    .font(.custom("Baskerville", size: 26))
+                                    .foregroundColor(.white)
+                                    .tracking(0.6)
                             }
 
-                            Text("Somnius")
-                                .font(.custom("Baskerville", size: 26))
-                                .foregroundColor(.white)
-                                .tracking(0.6)
-                        }
+                            // Top Navigation Links (Home, Movies, Series, Watchlist, Settings)
+                            HStack(spacing: 20) {
+                                ForEach(MainNavigationTab.allCases, id: \.self) { tab in
+                                    Button(action: {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            currentTab = tab
+                                        }
+                                    }) {
+                                        VStack(spacing: 4) {
+                                            Text(tab.rawValue)
+                                                .font(.system(size: 13, weight: currentTab == tab ? .bold : .medium))
+                                                .foregroundColor(currentTab == tab ? .white : .white.opacity(0.55))
 
-                        // Top Navigation Links (Home, Movies, Series, Watchlist, Settings)
-                        HStack(spacing: 20) {
-                            ForEach(MainNavigationTab.allCases, id: \.self) { tab in
-                                Button(action: {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        currentTab = tab
-                                    }
-                                }) {
-                                    VStack(spacing: 4) {
-                                        Text(tab.rawValue)
-                                            .font(.system(size: 13, weight: currentTab == tab ? .bold : .medium))
-                                            .foregroundColor(currentTab == tab ? .white : .white.opacity(0.55))
-
-                                        if currentTab == tab {
-                                            Capsule()
-                                                .fill(Color.white)
-                                                .frame(width: 18, height: 2)
-                                        } else {
-                                            Capsule()
-                                                .fill(Color.clear)
-                                                .frame(width: 18, height: 2)
+                                            if currentTab == tab {
+                                                Capsule()
+                                                    .fill(Color.white)
+                                                    .frame(width: 18, height: 2)
+                                            } else {
+                                                Capsule()
+                                                    .fill(Color.clear)
+                                                    .frame(width: 18, height: 2)
+                                            }
                                         }
                                     }
+                                    .buttonStyle(PlainButtonStyle())
+                                }
+
+                                // Support Patreon Button (Directly next to Settings)
+                                Button(action: {
+                                    if let url = URL(string: "https://www.patreon.com/cw/infage") {
+                                        NSWorkspace.shared.open(url)
+                                    }
+                                }) {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "heart.fill")
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundColor(Color(red: 0.88, green: 0.68, blue: 0.72))
+                                        Text("Support on Patreon")
+                                            .font(.system(size: 11.5, weight: .medium))
+                                            .foregroundColor(Color(white: 0.88))
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(Color(red: 0.88, green: 0.68, blue: 0.72).opacity(0.12))
+                                    .clipShape(Capsule())
+                                    .overlay(
+                                        Capsule()
+                                            .stroke(Color(red: 0.88, green: 0.68, blue: 0.72).opacity(0.25), lineWidth: 0.8)
+                                    )
                                 }
                                 .buttonStyle(PlainButtonStyle())
+                                .help("Support our projects on Patreon (https://www.patreon.com/cw/infage)")
                             }
-
-                            // Support Patreon Button (Directly next to Settings)
-                            Button(action: {
-                                if let url = URL(string: "https://www.patreon.com/cw/infage") {
-                                    NSWorkspace.shared.open(url)
-                                }
-                            }) {
-                                HStack(spacing: 5) {
-                                    Image(systemName: "heart.fill")
-                                        .font(.system(size: 10, weight: .bold))
-                                        .foregroundColor(Color(red: 1.0, green: 0.35, blue: 0.42))
-                                    Text("Support on Patreon")
-                                        .font(.system(size: 11.5, weight: .bold))
-                                        .foregroundColor(.white)
-                                }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(
-                                    LinearGradient(
-                                        colors: [Color(red: 1.0, green: 0.3, blue: 0.4).opacity(0.25), Color(red: 0.95, green: 0.45, blue: 0.2).opacity(0.2)],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .clipShape(Capsule())
-                                .overlay(
-                                    Capsule()
-                                        .stroke(Color(red: 1.0, green: 0.35, blue: 0.45).opacity(0.45), lineWidth: 0.8)
-                                )
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .help("Support our projects on Patreon (https://www.patreon.com/cw/infage)")
-                        }
-                        .padding(.leading, 10)
+                            .padding(.leading, 10)
 
                         Spacer()
 
@@ -253,6 +248,7 @@ struct ContentView: View {
                         )
                     }
                 }
+            }
             }
 
             // Internal Player View Fullscreen Sheet / Overlay
@@ -690,12 +686,13 @@ struct StreamSelectionSheet: View {
                                 dismiss()
                                 NotificationCenter.default.post(name: NSNotification.Name("OpenProfileSettings"), object: nil)
                             }
-                            .font(.custom("Helvetica", size: 13).weight(.bold))
+                            .font(.custom("Helvetica", size: 13).weight(.semibold))
                             .padding(.horizontal, 18)
                             .padding(.vertical, 8)
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
+                            .background(SoftTone.mist.color.opacity(0.18))
+                            .foregroundColor(SoftTone.mist.color)
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(SoftTone.mist.color.opacity(0.35), lineWidth: 0.8))
                             .buttonStyle(.plain)
                             .padding(.top, 6)
                         }
@@ -736,14 +733,15 @@ struct StreamSelectionSheet: View {
                                 Button(action: { onSelect(bestUHD) }) {
                                     HStack(spacing: 5) {
                                         Image(systemName: "sparkles")
-                                        Text("Play Best UHD")
+                                        Text("Best UHD")
                                     }
-                                    .font(.caption.weight(.bold))
+                                    .font(.caption.weight(.semibold))
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 7)
-                                    .background(Color.purple.opacity(0.85))
-                                    .foregroundColor(.white)
+                                    .background(SoftTone.sand.color.opacity(0.18))
+                                    .foregroundColor(SoftTone.sand.color)
                                     .clipShape(Capsule())
+                                    .overlay(Capsule().stroke(SoftTone.sand.color.opacity(0.35), lineWidth: 0.8))
                                 }
                                 .buttonStyle(PlainButtonStyle())
                             }
@@ -753,14 +751,15 @@ struct StreamSelectionSheet: View {
                                 Button(action: { onSelect(bestFHD) }) {
                                     HStack(spacing: 5) {
                                         Image(systemName: "play.circle.fill")
-                                        Text("Play Best FHD")
+                                        Text("Best FHD")
                                     }
-                                    .font(.caption.weight(.bold))
+                                    .font(.caption.weight(.semibold))
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 7)
-                                    .background(Color.blue.opacity(0.85))
-                                    .foregroundColor(.white)
+                                    .background(SoftTone.mist.color.opacity(0.18))
+                                    .foregroundColor(SoftTone.mist.color)
                                     .clipShape(Capsule())
+                                    .overlay(Capsule().stroke(SoftTone.mist.color.opacity(0.35), lineWidth: 0.8))
                                 }
                                 .buttonStyle(PlainButtonStyle())
                             }
@@ -770,12 +769,13 @@ struct StreamSelectionSheet: View {
                                     Image(systemName: "bolt.fill")
                                     Text("Auto Play")
                                 }
-                                .font(.system(size: 11, weight: .bold))
+                                .font(.system(size: 11, weight: .semibold))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 7)
-                                .background(Color.white)
-                                .foregroundColor(.black)
+                                .background(SoftTone.sage.color.opacity(0.18))
+                                .foregroundColor(SoftTone.sage.color)
                                 .clipShape(Capsule())
+                                .overlay(Capsule().stroke(SoftTone.sage.color.opacity(0.35), lineWidth: 0.8))
                             }
                             .buttonStyle(PlainButtonStyle())
                         }

@@ -312,11 +312,11 @@ struct UserProfileView: View {
                         HStack {
                             Image(systemName: "play.circle.fill")
                                 .font(.title2)
-                                .foregroundColor(.blue)
+                                .foregroundColor(SoftTone.mist.color)
                             Spacer()
                             if setupMode == "classic" {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(SoftTone.mist.color)
                             }
                         }
                         Text("Classic Streaming")
@@ -329,11 +329,11 @@ struct UserProfileView: View {
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .background(setupMode == "classic" ? Color.blue.opacity(0.15) : Color.white.opacity(0.04))
+                    .background(setupMode == "classic" ? SoftTone.mist.color.opacity(0.15) : Color.white.opacity(0.04))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(setupMode == "classic" ? Color.blue : Color.white.opacity(0.08), lineWidth: 1.5)
+                            .stroke(setupMode == "classic" ? SoftTone.mist.color : Color.white.opacity(0.08), lineWidth: 1.5)
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -347,11 +347,11 @@ struct UserProfileView: View {
                         HStack {
                             Image(systemName: "bolt.shield.fill")
                                 .font(.title2)
-                                .foregroundColor(.purple)
+                                .foregroundColor(SoftTone.lavender.color)
                             Spacer()
                             if setupMode == "debrid" {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.purple)
+                                    .foregroundColor(SoftTone.lavender.color)
                             }
                         }
                         Text("Real-Debrid Streaming")
@@ -364,11 +364,11 @@ struct UserProfileView: View {
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .background(setupMode == "debrid" ? Color.purple.opacity(0.15) : Color.white.opacity(0.04))
+                    .background(setupMode == "debrid" ? SoftTone.lavender.color.opacity(0.15) : Color.white.opacity(0.04))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(setupMode == "debrid" ? Color.purple : Color.white.opacity(0.08), lineWidth: 1.5)
+                            .stroke(setupMode == "debrid" ? SoftTone.lavender.color : Color.white.opacity(0.08), lineWidth: 1.5)
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -397,7 +397,7 @@ struct UserProfileView: View {
                             viewModel.fetchContent()
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(.purple)
+                        .tint(SoftTone.lavender.color)
                         
                         if let url = URL(string: "https://real-debrid.com/apitoken") {
                             Button("Get Token") {
@@ -445,7 +445,7 @@ struct UserProfileView: View {
                             Image(systemName: "arrow.up.right.square")
                         }
                         .font(.caption.bold())
-                        .foregroundColor(.cyan)
+                        .foregroundColor(SoftTone.mist.color)
                     }
                     .buttonStyle(.plain)
                 }
@@ -467,7 +467,7 @@ struct UserProfileView: View {
                         viewModel.fetchContent()
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.purple)
+                    .tint(SoftTone.lavender.color)
 
                     if !inputKey.isEmpty {
                         Button("Clear") {
@@ -595,7 +595,7 @@ struct UserProfileView: View {
                                 Config.realDebridAffiliateId = affiliateIdInput.trimmingCharacters(in: .whitespacesAndNewlines)
                             }
                             .buttonStyle(.borderedProminent)
-                            .tint(.orange)
+                            .tint(SoftTone.sand.color)
                         }
 
                         HStack(spacing: 10) {
@@ -683,7 +683,7 @@ struct UserProfileView: View {
                     Spacer()
                     Text("\(Int(bufferSeconds)) seconds")
                         .font(.caption.bold())
-                        .foregroundColor(.cyan)
+                        .foregroundColor(SoftTone.mist.color)
                 }
                 Slider(value: $bufferSeconds, in: 10...120, step: 5)
                     .onChange(of: bufferSeconds) { _, val in
@@ -781,7 +781,7 @@ struct UserProfileView: View {
                     Spacer()
                     Text("\(Int(subtitleFontSize)) pt")
                         .font(.caption.bold())
-                        .foregroundColor(.cyan)
+                        .foregroundColor(SoftTone.mist.color)
                 }
                 Slider(value: $subtitleFontSize, in: 14...36, step: 2)
                     .onChange(of: subtitleFontSize) { _, val in
@@ -858,7 +858,7 @@ struct UserProfileView: View {
             HStack(spacing: 12) {
                 Image(systemName: "antenna.radiowaves.left.and.right")
                     .font(.system(size: 20))
-                    .foregroundColor(.blue)
+                    .foregroundColor(SoftTone.lavender.color)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Local HLS Audio Proxy Engine")
@@ -1031,7 +1031,7 @@ struct UserProfileView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "puzzlepiece.extension.fill")
                         .font(.system(size: 22))
-                        .foregroundColor(.blue)
+                        .foregroundColor(SoftTone.mist.color)
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Community Add-ons Made for Streaming")
@@ -1061,9 +1061,10 @@ struct UserProfileView: View {
                         .font(.caption.bold())
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
+                        .background(SoftTone.mist.color.opacity(0.18))
+                        .foregroundColor(SoftTone.mist.color)
                         .cornerRadius(8)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(SoftTone.mist.color.opacity(0.35), lineWidth: 0.8))
                     }
                     .buttonStyle(PlainButtonStyle())
                     .disabled(addonManager.isInstalling)
@@ -1125,9 +1126,10 @@ struct UserProfileView: View {
                         .font(.subheadline.bold())
                         .padding(.horizontal, 16)
                         .padding(.vertical, 9)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
+                        .background(SoftTone.mist.color.opacity(0.18))
+                        .foregroundColor(SoftTone.mist.color)
                         .cornerRadius(8)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(SoftTone.mist.color.opacity(0.35), lineWidth: 0.8))
                     }
                     .buttonStyle(PlainButtonStyle())
                     .disabled(addonManager.isInstalling || newAddonUrlInput.isEmpty)
@@ -1163,7 +1165,7 @@ struct UserProfileView: View {
                             HStack(spacing: 12) {
                                 Image(systemName: "puzzlepiece.fill")
                                     .font(.title3)
-                                    .foregroundColor(addon.isEnabled ? .cyan : .gray)
+                                    .foregroundColor(addon.isEnabled ? SoftTone.mist.color : .gray)
                                     .frame(width: 32)
 
                                 VStack(alignment: .leading, spacing: 3) {
@@ -1246,7 +1248,7 @@ struct UserProfileView: View {
                             HStack(spacing: 12) {
                                 Image(systemName: template.icon)
                                     .font(.title3)
-                                    .foregroundColor(.purple)
+                                    .foregroundColor(SoftTone.lavender.color)
                                     .frame(width: 28)
 
                                 VStack(alignment: .leading, spacing: 3) {
@@ -1270,9 +1272,10 @@ struct UserProfileView: View {
                                         .font(.caption.bold())
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 5)
-                                        .background(isInstalled ? Color.white.opacity(0.08) : Color.blue.opacity(0.25))
-                                        .foregroundColor(isInstalled ? .gray : .cyan)
+                                        .background(isInstalled ? Color.white.opacity(0.08) : SoftTone.mist.color.opacity(0.18))
+                                        .foregroundColor(isInstalled ? .gray : SoftTone.mist.color)
                                         .cornerRadius(6)
+                                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(isInstalled ? Color.clear : SoftTone.mist.color.opacity(0.35), lineWidth: 0.8))
                                 }
                                 .buttonStyle(PlainButtonStyle())
                                 .disabled(isInstalled)
@@ -1302,9 +1305,10 @@ struct UserProfileView: View {
                     .font(.caption.bold())
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)
-                    .background(Color.blue)
-                    .foregroundColor(.white)
+                    .background(SoftTone.mist.color.opacity(0.18))
+                    .foregroundColor(SoftTone.mist.color)
                     .cornerRadius(8)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(SoftTone.mist.color.opacity(0.35), lineWidth: 0.8))
                 }
                 .buttonStyle(PlainButtonStyle())
 
@@ -1318,9 +1322,10 @@ struct UserProfileView: View {
                     .font(.caption.bold())
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
-                    .background(Color.blue.opacity(0.2))
-                    .foregroundColor(.cyan)
+                    .background(SoftTone.mist.color.opacity(0.12))
+                    .foregroundColor(SoftTone.mist.color)
                     .cornerRadius(8)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(SoftTone.mist.color.opacity(0.25), lineWidth: 0.8))
                 }
                 .buttonStyle(PlainButtonStyle())
 
@@ -1390,7 +1395,7 @@ struct UserProfileView: View {
                 ForEach(liveCatalogService.catalogs) { catalog in
                     HStack(spacing: 12) {
                         Image(systemName: catalog.type == "series" ? "tv" : "film")
-                            .foregroundColor(.purple)
+                            .foregroundColor(SoftTone.lavender.color)
                             .frame(width: 20)
 
                         VStack(alignment: .leading, spacing: 2) {
@@ -1407,7 +1412,7 @@ struct UserProfileView: View {
                                     .foregroundColor(.gray)
                                 Text("\(catalog.items.count) titles")
                                     .font(.caption2)
-                                    .foregroundColor(.cyan)
+                                    .foregroundColor(SoftTone.mist.color)
                             }
                         }
 
@@ -1465,7 +1470,7 @@ struct UserProfileView: View {
                         Text("Refresh Cloud")
                     }
                     .font(.caption.bold())
-                    .foregroundColor(.cyan)
+                    .foregroundColor(SoftTone.mist.color)
                 }
                 .buttonStyle(.plain)
             }
@@ -1512,9 +1517,10 @@ struct UserProfileView: View {
                             .font(.caption.bold())
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
-                            .background(Color.blue)
-                            .foregroundColor(.white)
+                            .background(SoftTone.sage.color.opacity(0.18))
+                            .foregroundColor(SoftTone.sage.color)
                             .clipShape(Capsule())
+                            .overlay(Capsule().stroke(SoftTone.sage.color.opacity(0.35), lineWidth: 0.8))
                             .buttonStyle(.plain)
                         }
                     }
@@ -1596,7 +1602,7 @@ struct UserProfileView: View {
                                         }
                                         Text("\(Int(historyItem.progressFraction * 100))% completed")
                                             .font(.caption2)
-                                            .foregroundColor(.cyan)
+                                            .foregroundColor(SoftTone.mist.color)
                                     }
 
                                     Button(action: {
@@ -1730,7 +1736,7 @@ struct UserProfileView: View {
             HStack(spacing: 16) {
                 Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
                     .font(.system(size: 38))
-                    .foregroundColor(.blue)
+                    .foregroundColor(SoftTone.mist.color)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Somnius Auto-Updater")
@@ -1753,9 +1759,10 @@ struct UserProfileView: View {
                     .font(.subheadline.bold())
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Color.blue)
-                    .foregroundColor(.white)
+                    .background(SoftTone.mist.color.opacity(0.18))
+                    .foregroundColor(SoftTone.mist.color)
                     .clipShape(Capsule())
+                    .overlay(Capsule().stroke(SoftTone.mist.color.opacity(0.35), lineWidth: 0.8))
                 }
                 .buttonStyle(PlainButtonStyle())
             }
@@ -1942,8 +1949,8 @@ struct UserProfileView: View {
                                 .font(.system(size: 9, weight: .bold))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Color.purple.opacity(0.2))
-                                .foregroundColor(Color.purple)
+                                .background(SoftTone.lavender.color.opacity(0.18))
+                                .foregroundColor(SoftTone.lavender.color)
                                 .clipShape(Capsule())
                         }
                         Text("Permanent zero-ad experience across all devices plus early beta builds and supporter profile badge.")
@@ -2033,7 +2040,7 @@ struct UserProfileView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.blue)
+                .tint(SoftTone.mist.color)
             }
         }
         .padding(20)
@@ -2167,7 +2174,7 @@ struct AddCatalogModalView: View {
                     HStack(spacing: 12) {
                         Image(systemName: preset.icon)
                             .font(.title3)
-                            .foregroundColor(.cyan)
+                            .foregroundColor(SoftTone.mist.color)
                             .frame(width: 28)
 
                         VStack(alignment: .leading, spacing: 3) {
@@ -2177,7 +2184,7 @@ struct AddCatalogModalView: View {
                             HStack(spacing: 6) {
                                 Text(preset.source)
                                     .font(.caption2.bold())
-                                    .foregroundColor(.purple)
+                                    .foregroundColor(SoftTone.lavender.color)
                                 Text("•")
                                     .font(.caption2)
                                     .foregroundColor(.gray)
@@ -2206,9 +2213,10 @@ struct AddCatalogModalView: View {
                                 .font(.caption.bold())
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
-                                .background(isAlreadyAdded ? Color.white.opacity(0.08) : Color.blue)
-                                .foregroundColor(isAlreadyAdded ? .gray : .white)
+                                .background(isAlreadyAdded ? Color.white.opacity(0.08) : SoftTone.mist.color.opacity(0.18))
+                                .foregroundColor(isAlreadyAdded ? .gray : SoftTone.mist.color)
                                 .cornerRadius(6)
+                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(isAlreadyAdded ? Color.clear : SoftTone.mist.color.opacity(0.35), lineWidth: 0.8))
                         }
                         .buttonStyle(PlainButtonStyle())
                         .disabled(isAlreadyAdded)
@@ -2297,9 +2305,10 @@ struct AddCatalogModalView: View {
                 .font(.headline)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
-                .background(customName.isEmpty || customEndpoint.isEmpty ? Color.gray.opacity(0.3) : Color.blue)
-                .foregroundColor(.white)
+                .background(customName.isEmpty || customEndpoint.isEmpty ? Color.gray.opacity(0.3) : SoftTone.mist.color.opacity(0.18))
+                .foregroundColor(customName.isEmpty || customEndpoint.isEmpty ? .white.opacity(0.5) : SoftTone.mist.color)
                 .cornerRadius(10)
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(customName.isEmpty || customEndpoint.isEmpty ? Color.clear : SoftTone.mist.color.opacity(0.35), lineWidth: 0.8))
             }
             .buttonStyle(PlainButtonStyle())
             .disabled(customName.isEmpty || customEndpoint.isEmpty)
@@ -2321,10 +2330,10 @@ struct AddonSettingsModalView: View {
             HStack(spacing: 12) {
                 ZStack {
                     Circle()
-                        .fill(Color.purple.opacity(0.2))
+                        .fill(SoftTone.lavender.color.opacity(0.18))
                         .frame(width: 44, height: 44)
                     Image(systemName: "gearshape.2.fill")
-                        .foregroundColor(.purple)
+                        .foregroundColor(SoftTone.lavender.color)
                         .font(.title3)
                 }
 
@@ -2376,7 +2385,7 @@ struct AddonSettingsModalView: View {
                     Spacer()
                     Link("Get API Token ↗", destination: URL(string: "https://real-debrid.com/apitoken")!)
                         .font(.custom("Helvetica", size: 11))
-                        .foregroundColor(.cyan)
+                        .foregroundColor(SoftTone.mist.color)
                 }
 
                 Text("If this add-on indexes torrent or restricted streams, entering your debrid token allows the add-on to convert them into instant encrypted HTTPS streams.")
@@ -2402,9 +2411,10 @@ struct AddonSettingsModalView: View {
                             .font(.custom("Helvetica", size: 13).weight(.bold))
                             .padding(.horizontal, 16)
                             .padding(.vertical, 9)
-                            .background(Color.purple)
-                            .foregroundColor(.white)
+                            .background(SoftTone.lavender.color.opacity(0.18))
+                            .foregroundColor(SoftTone.lavender.color)
                             .cornerRadius(8)
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(SoftTone.lavender.color.opacity(0.35), lineWidth: 0.8))
                     }
                     .buttonStyle(PlainButtonStyle())
                 }

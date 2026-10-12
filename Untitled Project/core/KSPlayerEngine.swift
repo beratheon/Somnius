@@ -43,6 +43,7 @@ public class KSPlayerEngine: ObservableObject {
     @Published public var availableSubtitleTracks: [KSPlayerTrackInfo] = []
     @Published public var selectedSubtitleTrackId: Int32? = nil
     @Published public var currentEmbeddedSubtitleText: String? = nil
+    @Published public var currentEmbeddedSubtitleImage: NSImage? = nil
 
     @Published public var audioDelay: Double = 0.0 // in seconds (-3.0 to +3.0)
     @Published public var palSpeedupEnabled: Bool = false
@@ -63,31 +64,27 @@ public class KSPlayerEngine: ObservableObject {
         KSOptions.firstPlayerType = KSMEPlayer.self
         KSOptions.secondPlayerType = KSAVPlayer.self
         KSOptions.hardwareDecode = true
-        KSOptions.asynchronousDecompression = true
+        KSOptions.asynchronousDecompression = false
         KSOptions.isSecondOpen = true
-        KSOptions.isAccurateSeek = true
+        KSOptions.isAccurateSeek = false
         KSOptions.isSeekedAutoPlay = true
         KSOptions.canStartPictureInPictureAutomaticallyFromInline = true
-        KSOptions.preferredForwardBufferDuration = 1.0
+        KSOptions.preferredForwardBufferDuration = 3.0
         KSOptions.maxBufferDuration = max(60.0, Double(Config.bufferAheadSeconds) * 2)
 
         options.hardwareDecode = true
-        options.asynchronousDecompression = true
+        options.asynchronousDecompression = false
         options.isSecondOpen = true
-        options.syncDecodeAudio = true
-        options.probesize = 1024 * 1024 * 4 // 4MB robust stream probe
-        options.maxAnalyzeDuration = 1_000_000 // 1s analyze duration
         options.formatContextOptions["tcp_nodelay"] = 1
         options.formatContextOptions["reconnect"] = 1
         options.formatContextOptions["reconnect_streamed"] = 1
         options.formatContextOptions["reconnect_delay_max"] = 3
-        options.formatContextOptions["flush_packets"] = 1
         options.decoderOptions["threads"] = "auto"
-        options.preferredForwardBufferDuration = 1.0
+        options.preferredForwardBufferDuration = 3.0
         options.maxBufferDuration = max(60.0, Double(Config.bufferAheadSeconds) * 2)
-        options.isAccurateSeek = true
+        options.isAccurateSeek = false
         options.isSeekedAutoPlay = true
-        options.autoSelectEmbedSubtitle = true
+        options.autoSelectEmbedSubtitle = false
     }
 
     public func setAudioDelay(_ delay: Double) {
@@ -239,14 +236,17 @@ public class KSPlayerEngine: ObservableObject {
         if let targetId = id, let target = tracks.first(where: { $0.trackID == targetId }) {
             player.select(track: target)
             selectedSubtitleTrackId = targetId
-            coordinator.subtitleModel.selectedSubtitleInfo?.isEnabled = true
+            if let info = target as? (any SubtitleInfo) {
+                coordinator.subtitleModel.selectedSubtitleInfo = info
+            }
         } else {
             for track in tracks {
                 track.isEnabled = false
             }
             selectedSubtitleTrackId = nil
             currentEmbeddedSubtitleText = nil
-            coordinator.subtitleModel.selectedSubtitleInfo?.isEnabled = false
+            currentEmbeddedSubtitleImage = nil
+            coordinator.subtitleModel.selectedSubtitleInfo = nil
         }
         refreshTracks()
     }
@@ -300,9 +300,9 @@ public class KSPlayerEngine: ObservableObject {
     public func onPlayTick(current: TimeInterval, total: TimeInterval) {
         guard current > 0 && !current.isNaN && !current.isInfinite else { return }
 
-        // Throttle updates to @Published properties to avoid thrashing SwiftUI observers (4Hz updates)
+        // Throttle updates to @Published properties to avoid thrashing SwiftUI observers (1Hz updates)
         let timeDiff = abs(current - self.currentTime)
-        let shouldUpdate = timeDiff >= 0.25 || self.currentTime == 0
+        let shouldUpdate = timeDiff >= 1.0 || self.currentTime == 0
 
         if shouldUpdate {
             self.currentTime = current
@@ -322,7 +322,7 @@ public class KSPlayerEngine: ObservableObject {
                 }
                 if duration > 0 {
                     let fraction = min(1.0, max(0.0, playable / duration))
-                    if abs(fraction - self.bufferedFraction) >= 0.02 {
+                    if abs(fraction - self.bufferedFraction) >= 0.05 {
                         self.bufferedFraction = fraction
                     }
                 }
@@ -335,7 +335,7 @@ public class KSPlayerEngine: ObservableObject {
             pendingStartTime = nil
         }
 
-        // Update embedded subtitle text only when content actually changes
+        // Update embedded subtitle text and image only when content actually changes
         if selectedSubtitleTrackId != nil {
             let parts = coordinator.subtitleModel.parts
             let text = parts.compactMap { $0.text?.string }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -343,8 +343,17 @@ public class KSPlayerEngine: ObservableObject {
             if self.currentEmbeddedSubtitleText != newText {
                 self.currentEmbeddedSubtitleText = newText
             }
-        } else if self.currentEmbeddedSubtitleText != nil {
-            self.currentEmbeddedSubtitleText = nil
+            let newImage = parts.compactMap { $0.image }.first
+            if self.currentEmbeddedSubtitleImage !== newImage {
+                self.currentEmbeddedSubtitleImage = newImage
+            }
+        } else {
+            if self.currentEmbeddedSubtitleText != nil {
+                self.currentEmbeddedSubtitleText = nil
+            }
+            if self.currentEmbeddedSubtitleImage != nil {
+                self.currentEmbeddedSubtitleImage = nil
+            }
         }
     }
 
@@ -400,5 +409,6 @@ public class KSPlayerEngine: ObservableObject {
         availableAudioTracks.removeAll()
         availableSubtitleTracks.removeAll()
         currentEmbeddedSubtitleText = nil
+        currentEmbeddedSubtitleImage = nil
     }
 }

@@ -231,6 +231,111 @@ struct CenteredKSVideoHost: NSViewRepresentable {
 }
 #endif
 
+final class InteractionClock {
+    var lastInteractionTime: TimeInterval = 0
+}
+
+struct PlayerPiPButton: View {
+    @ObservedObject var engine = KSPlayerEngine.shared
+    var onAction: () -> Void
+
+    var body: some View {
+        Button(action: onAction) {
+            Image(systemName: engine.isPipActive ? "pip.exit" : "pip.enter")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white.opacity(0.9))
+                .frame(width: 32, height: 32)
+                .background(Color.white.opacity(0.12))
+                .clipShape(Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+        }
+        .buttonStyle(.plain)
+        .help("Picture-in-Picture")
+    }
+}
+
+struct PlayerBookmarkButton: View {
+    let mediaItem: MediaItem
+    @ObservedObject var watchlistManager = WatchlistManager.shared
+    var onToggle: () -> Void
+
+    var body: some View {
+        Button(action: onToggle) {
+            Image(systemName: watchlistManager.isWatchlisted(id: mediaItem.id) ? "bookmark.fill" : "bookmark")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 36, height: 36)
+                .background(Color.white.opacity(0.12))
+                .clipShape(Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct PlayerAudioSyncControls: View {
+    @ObservedObject var engine = KSPlayerEngine.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Lip-Sync Audio Delay")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Text(String(format: "%+.0f ms", engine.audioDelay * 1000))
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(SoftTone.mist.color)
+            }
+
+            Slider(
+                value: Binding(
+                    get: { engine.audioDelay },
+                    set: { engine.setAudioDelay($0) }
+                ),
+                in: -3.0...3.0,
+                step: 0.05
+            )
+            .tint(SoftTone.mist.color)
+
+            HStack {
+                Text("-3.0s")
+                    .font(.system(size: 9))
+                    .foregroundColor(.gray)
+                Spacer()
+                Button("Reset (0 ms)") {
+                    engine.setAudioDelay(0.0)
+                }
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.gray)
+                .buttonStyle(.plain)
+                Spacer()
+                Text("+3.0s")
+                    .font(.system(size: 9))
+                    .foregroundColor(.gray)
+            }
+
+            Divider().background(Color.white.opacity(0.1))
+
+            // PAL speedup correction toggle
+            Toggle(isOn: Binding(
+                get: { engine.palSpeedupEnabled },
+                set: { engine.setPALSpeedup($0) }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("PAL 25fps Speedup Fix")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.white)
+                    Text("Pitch-corrects European 25fps broadcasts to 23.976fps")
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray)
+                }
+            }
+            .toggleStyle(SwitchToggleStyle(tint: SoftTone.sage.color))
+        }
+    }
+}
+
 struct PlayerView: View {
     var streamURL: URL?
     var mediaItem: MediaItem?
@@ -239,8 +344,9 @@ struct PlayerView: View {
     var initialLinks: [AggregatedLink] = []
     var onDismiss: () -> Void
 
-    @StateObject private var ksEngine = KSPlayerEngine.shared
-    @StateObject private var watchlistManager = WatchlistManager.shared
+    private let ksEngine = KSPlayerEngine.shared
+    private let watchlistManager = WatchlistManager.shared
+    @State private var interactionClock = InteractionClock()
     @State private var activeStreamURL: URL? = nil
     @State private var currentActiveLinkID: String? = nil
     @State private var failedLinkIDs: Set<String> = []
@@ -400,7 +506,7 @@ struct PlayerView: View {
                         }
                     }
                     .padding(24)
-                    .background(.ultraThinMaterial)
+                    .background(Color(red: 0.1, green: 0.1, blue: 0.12).opacity(0.85))
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -424,8 +530,7 @@ struct PlayerView: View {
                 }
             }
 
-            // 3. On-Screen Subtitle Text Overlay
-            // 3. On-Screen Subtitle Text Overlay (Static, Crisp, No Motion Animation)
+            // 3. On-Screen Subtitle Text / PGS Image Overlay
             if let text = currentSubtitleText, !text.isEmpty {
                 VStack {
                     Spacer()
@@ -438,6 +543,17 @@ struct PlayerView: View {
                         .background(Color.black.opacity(0.85))
                         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                         .shadow(color: .black.opacity(0.9), radius: 4, x: 0, y: 2)
+                        .padding(.bottom, showControls ? 110 : 45)
+                }
+                .frame(maxWidth: .infinity)
+                .ignoresSafeArea()
+            } else if let img = ksEngine.currentEmbeddedSubtitleImage {
+                VStack {
+                    Spacer()
+                    Image(nsImage: img)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 900)
                         .padding(.bottom, showControls ? 110 : 45)
                 }
                 .frame(maxWidth: .infinity)
@@ -540,7 +656,7 @@ struct PlayerView: View {
                         .foregroundColor(.gray)
                     }
                     .padding(14)
-                    .background(.ultraThinMaterial)
+                    .background(Color(red: 0.1, green: 0.1, blue: 0.12).opacity(0.85))
                     .cornerRadius(14)
                     .frame(maxWidth: 420)
                     .padding(.top, 70)
@@ -596,7 +712,7 @@ struct PlayerView: View {
                             }
                         }
                         .padding(16)
-                        .background(.ultraThinMaterial)
+                        .background(Color(red: 0.1, green: 0.1, blue: 0.12).opacity(0.85))
                         .cornerRadius(16)
                         .frame(width: 260)
                         .padding(24)
@@ -661,9 +777,10 @@ struct PlayerView: View {
                                 .font(.headline)
                                 .frame(maxWidth: 380)
                                 .padding(.vertical, 12)
-                                .background(Color.blue)
-                                .foregroundColor(.white)
+                                .background(SoftTone.sage.color.opacity(0.2))
+                                .foregroundColor(SoftTone.sage.color)
                                 .cornerRadius(12)
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(SoftTone.sage.color.opacity(0.35), lineWidth: 0.8))
                             }
                             .buttonStyle(.plain)
 
@@ -758,7 +875,7 @@ struct PlayerView: View {
                             .font(.system(size: 15, weight: .bold))
                             .foregroundColor(.white)
                             .frame(width: 38, height: 38)
-                            .background(.ultraThinMaterial)
+                            .background(Color.white.opacity(0.12))
                             .clipShape(Circle())
                             .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                     }
@@ -785,19 +902,10 @@ struct PlayerView: View {
                     HStack(spacing: 10) {
                         // Quick Watchlist Toggle
                         if let media = mediaItem {
-                            Button(action: {
+                            PlayerBookmarkButton(mediaItem: media) {
                                 userInteracted()
                                 watchlistManager.toggleWatchlist(media)
-                            }) {
-                                Image(systemName: watchlistManager.isWatchlisted(id: media.id) ? "bookmark.fill" : "bookmark")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.white)
-                                    .frame(width: 36, height: 36)
-                                    .background(.ultraThinMaterial)
-                                    .clipShape(Circle())
-                                    .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                             }
-                            .buttonStyle(.plain)
                         }
 
                         // TV Show Episodes Drawer Button
@@ -817,7 +925,7 @@ struct PlayerView: View {
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
-                                .background(.ultraThinMaterial)
+                                .background(Color.white.opacity(0.12))
                                 .clipShape(Capsule())
                                 .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                             }
@@ -839,7 +947,7 @@ struct PlayerView: View {
                             .foregroundColor(.white)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
-                            .background(.ultraThinMaterial)
+                            .background(Color.white.opacity(0.12))
                             .clipShape(Capsule())
                             .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                         }
@@ -870,7 +978,7 @@ struct PlayerView: View {
                             .foregroundColor(.white)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
-                            .background(.ultraThinMaterial)
+                            .background(Color.white.opacity(0.12))
                             .clipShape(Capsule())
                             .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                         }
@@ -885,7 +993,7 @@ struct PlayerView: View {
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(.white)
                                 .frame(width: 36, height: 36)
-                                .background(.ultraThinMaterial)
+                                .background(Color.white.opacity(0.12))
                                 .clipShape(Circle())
                                 .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                         }
@@ -1023,7 +1131,7 @@ struct PlayerView: View {
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 9)
                                 .padding(.vertical, 5)
-                                .background(.ultraThinMaterial)
+                                .background(Color.white.opacity(0.12))
                                 .clipShape(Capsule())
                                 .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                         }
@@ -1038,27 +1146,18 @@ struct PlayerView: View {
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(.white.opacity(0.9))
                                 .frame(width: 32, height: 32)
-                                .background(.ultraThinMaterial)
+                                .background(Color.white.opacity(0.12))
                                 .clipShape(Circle())
                                 .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                         }
                         .buttonStyle(.plain)
 
                         #if os(macOS)
-                        // Picture-in-Picture Button
-                        Button(action: {
+                        // Picture-in-Picture Button (Isolated observed subview)
+                        PlayerPiPButton {
                             userInteracted()
                             ksEngine.togglePiP()
-                        }) {
-                            Image(systemName: ksEngine.isPipActive ? "pip.exit" : "pip.enter")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.9))
-                                .frame(width: 32, height: 32)
-                                .background(.ultraThinMaterial)
-                                .clipShape(Circle())
-                                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                         }
-                        .buttonStyle(.plain)
                         #endif
 
                         // Volume / Mute
@@ -1098,7 +1197,7 @@ struct PlayerView: View {
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(.white.opacity(0.9))
                                 .frame(width: 32, height: 32)
-                                .background(.ultraThinMaterial)
+                                .background(Color.white.opacity(0.12))
                                 .clipShape(Circle())
                                 .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                         }
@@ -1113,17 +1212,15 @@ struct PlayerView: View {
                     LinearGradient(colors: [.clear, .black.opacity(0.4), .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
                 )
                 #if os(macOS)
-                .onContinuousHover { phase in
-                    switch phase {
-                    case .active:
+                .onHover { isHovered in
+                    if isHovered {
                         userInteracted()
-                    case .ended:
-                        break
                     }
                 }
                 #endif
             }
             .opacity(showControls ? 1.0 : 0.0)
+            .allowsHitTesting(showControls)
             .animation(.easeInOut(duration: 0.25), value: showControls)
 
             // 11. TV Show Seasons & Episodes Side Drawer
@@ -1292,9 +1389,9 @@ struct PlayerView: View {
     private func onPlayerTick(current: Double, total: Double) {
         guard current > 0 && !current.isNaN && !current.isInfinite else { return }
 
-        // Throttle UI re-renders: only update state every ~0.25s or when jump/seek occurs
+        // Throttle UI re-renders: update state every 1.0s or when significant jump/seek occurs
         let timeDiff = abs(current - self.currentTime)
-        let shouldUpdateUI = timeDiff >= 0.25 || self.currentTime == 0
+        let shouldUpdateUI = timeDiff >= 1.0 || self.currentTime == 0
 
         if shouldUpdateUI {
             self.currentTime = current
@@ -1322,7 +1419,7 @@ struct PlayerView: View {
                 self.bufferedSeconds = bSec
             }
             let bFrac = ksEngine.bufferedFraction
-            if abs(bFrac - self.bufferedFraction) >= 0.02 {
+            if abs(bFrac - self.bufferedFraction) >= 0.05 {
                 self.bufferedFraction = bFrac
             }
             if self.isPlaying != ksEngine.isPlaying {
@@ -1362,8 +1459,8 @@ struct PlayerView: View {
             }
         }
 
-        // Auto-save history every 5 seconds while playing
-        if self.isPlaying && current > 5 && Date().timeIntervalSince(self.lastHistorySaveTime) > 5.0 {
+        // Auto-save history every 25 seconds while playing (and on exit) to avoid main-thread disk churn
+        if self.isPlaying && current > 5 && Date().timeIntervalSince(self.lastHistorySaveTime) > 25.0 {
             self.saveCurrentHistoryProgress()
         }
 
@@ -1722,12 +1819,13 @@ struct PlayerView: View {
                         Image(systemName: "bolt.fill")
                         Text("Auto Play")
                     }
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 11, weight: .semibold))
                     .padding(.horizontal, 11)
                     .padding(.vertical, 6)
-                    .background(Color.white)
-                    .foregroundColor(.black)
+                    .background(SoftTone.sage.color.opacity(0.18))
+                    .foregroundColor(SoftTone.sage.color)
                     .clipShape(Capsule())
+                    .overlay(Capsule().stroke(SoftTone.sage.color.opacity(0.35), lineWidth: 0.8))
                 }
                 .buttonStyle(.plain)
 
@@ -1737,12 +1835,13 @@ struct PlayerView: View {
                             Image(systemName: "sparkles")
                             Text("Best UHD")
                         }
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 11, weight: .semibold))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(Color.purple.opacity(0.85))
-                        .foregroundColor(.white)
+                        .background(SoftTone.sand.color.opacity(0.18))
+                        .foregroundColor(SoftTone.sand.color)
                         .clipShape(Capsule())
+                        .overlay(Capsule().stroke(SoftTone.sand.color.opacity(0.35), lineWidth: 0.8))
                     }
                     .buttonStyle(.plain)
                 }
@@ -1753,12 +1852,13 @@ struct PlayerView: View {
                             Image(systemName: "play.circle.fill")
                             Text("Best FHD")
                         }
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 11, weight: .semibold))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(Color.blue.opacity(0.85))
-                        .foregroundColor(.white)
+                        .background(SoftTone.mist.color.opacity(0.18))
+                        .foregroundColor(SoftTone.mist.color)
                         .clipShape(Capsule())
+                        .overlay(Capsule().stroke(SoftTone.mist.color.opacity(0.35), lineWidth: 0.8))
                     }
                     .buttonStyle(.plain)
                 }
@@ -1833,10 +1933,10 @@ struct PlayerView: View {
                                             showToast("Downloading \(link.resolutionBadge) source...")
                                         }) {
                                             Image(systemName: "arrow.down.circle.fill")
-                                                .font(.system(size: 16, weight: .bold))
-                                                .foregroundColor(Color(red: 1.0, green: 0.4, blue: 0.4))
+                                                .font(.system(size: 16, weight: .semibold))
+                                                .foregroundColor(SoftTone.mist.color)
                                                 .frame(width: 32, height: 32)
-                                                .background(Color(red: 1.0, green: 0.4, blue: 0.4).opacity(0.18))
+                                                .background(SoftTone.mist.color.opacity(0.15))
                                                 .clipShape(Circle())
                                         }
                                         .buttonStyle(.plain)
@@ -2017,7 +2117,13 @@ struct PlayerView: View {
     }
 
     // MARK: - Auto-Hide Controls & Inactivity
-    private func userInteracted() {
+    private func userInteracted(force: Bool = false) {
+        let now = ProcessInfo.processInfo.systemUptime
+        if !force && (now - interactionClock.lastInteractionTime < 0.5) {
+            return
+        }
+        interactionClock.lastInteractionTime = now
+
         if !showControls {
             showControls = true
         }
@@ -2196,7 +2302,7 @@ struct PlayerView: View {
                                 Text(track.displayName)
                                 Spacer()
                                 if selectedAudioTrack?.id == track.id {
-                                    Image(systemName: "checkmark").foregroundColor(.blue)
+                                    Image(systemName: "checkmark").foregroundColor(SoftTone.mist.color)
                                 }
                             }
                         }
@@ -2207,63 +2313,8 @@ struct PlayerView: View {
                 Divider().background(Color.white.opacity(0.1))
             }
 
-            // Audio Sync & Lip-Sync Controls
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Lip-Sync Audio Delay")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.white)
-                    Spacer()
-                    Text(String(format: "%+.0f ms", ksEngine.audioDelay * 1000))
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(.blue)
-                }
-
-                Slider(
-                    value: Binding(
-                        get: { ksEngine.audioDelay },
-                        set: { ksEngine.setAudioDelay($0) }
-                    ),
-                    in: -3.0...3.0,
-                    step: 0.05
-                )
-                .tint(.blue)
-
-                HStack {
-                    Text("-3.0s")
-                        .font(.system(size: 9))
-                        .foregroundColor(.gray)
-                    Spacer()
-                    Button("Reset (0 ms)") {
-                        ksEngine.setAudioDelay(0.0)
-                    }
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.7))
-                    .buttonStyle(.plain)
-                    Spacer()
-                    Text("+3.0s")
-                        .font(.system(size: 9))
-                        .foregroundColor(.gray)
-                }
-            }
-
-            Divider().background(Color.white.opacity(0.1))
-
-            // PAL Speedup Correction
-            Toggle(isOn: Binding(
-                get: { ksEngine.palSpeedupEnabled },
-                set: { ksEngine.setPALSpeedup($0) }
-            )) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("PAL Speedup Correction")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.white)
-                    Text("25fps → 23.976fps (atempo=0.95904)")
-                        .font(.system(size: 9))
-                        .foregroundColor(.gray)
-                }
-            }
-            .toggleStyle(.switch)
+            // Audio Sync & Lip-Sync Controls (Isolated observed subview)
+            PlayerAudioSyncControls()
         }
     }
 
@@ -2297,13 +2348,13 @@ struct PlayerView: View {
                                 .foregroundColor(.gray)
                             HStack(spacing: 6) {
                                 Circle().fill(Color.white).frame(width: 18, height: 18)
-                                    .overlay(Circle().stroke(Color.blue, lineWidth: subtitleColor == .white ? 2 : 0))
+                                    .overlay(Circle().stroke(Color.white, lineWidth: subtitleColor == .white ? 2 : 0))
                                     .onTapGesture { subtitleColor = .white }
                                 Circle().fill(Color.yellow).frame(width: 18, height: 18)
-                                    .overlay(Circle().stroke(Color.blue, lineWidth: subtitleColor == .yellow ? 2 : 0))
+                                    .overlay(Circle().stroke(Color.white, lineWidth: subtitleColor == .yellow ? 2 : 0))
                                     .onTapGesture { subtitleColor = .yellow }
                                 Circle().fill(Color.cyan).frame(width: 18, height: 18)
-                                    .overlay(Circle().stroke(Color.blue, lineWidth: subtitleColor == .cyan ? 2 : 0))
+                                    .overlay(Circle().stroke(Color.white, lineWidth: subtitleColor == .cyan ? 2 : 0))
                                     .onTapGesture { subtitleColor = .cyan }
                             }
                         }
@@ -2364,7 +2415,7 @@ struct PlayerView: View {
                                     Spacer()
                                     if selectedSubtitle == nil {
                                         Image(systemName: "checkmark")
-                                            .foregroundColor(.blue)
+                                            .foregroundColor(SoftTone.mist.color)
                                             .font(.system(size: 12, weight: .bold))
                                     }
                                 }
@@ -2383,7 +2434,7 @@ struct PlayerView: View {
                                         Spacer()
                                         if selectedSubtitle?.id == track.id {
                                             Image(systemName: "checkmark")
-                                                .foregroundColor(.blue)
+                                                .foregroundColor(SoftTone.mist.color)
                                                 .font(.system(size: 12, weight: .bold))
                                         }
                                     }
@@ -2563,7 +2614,7 @@ struct PlayerView: View {
             }
         }
         .frame(width: 380)
-        .background(.ultraThinMaterial)
+        .background(Color(red: 0.1, green: 0.1, blue: 0.12).opacity(0.95))
         .preferredColorScheme(.dark)
         .shadow(color: .black.opacity(0.7), radius: -10, y: 0)
     }

@@ -28,7 +28,7 @@ class ThemeManager: ObservableObject {
         case .miniLEDBlack:
             return .white
         case .liquidGlass:
-            return .blue
+            return SoftTone.mist.color
         }
     }
     
