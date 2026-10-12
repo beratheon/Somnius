@@ -361,8 +361,16 @@ class AggregatorService {
     }
 
     private func preWarmTorrentEngine(infoHash: String, requestedFileIdx: Int?, trackers: [String]) async -> Int {
+        if let requestedIdx = requestedFileIdx {
+            // Addon already specified the target video file: fire pre-warm in the background without blocking player launch
+            Task.detached {
+                await Self.pingCreateEndpoint(infoHash: infoHash, trackers: trackers)
+            }
+            return requestedIdx
+        }
+
         guard let url = URL(string: "http://127.0.0.1:11470/\(infoHash)/create") else {
-            return requestedFileIdx ?? 0
+            return 0
         }
 
         var magnetStr = "magnet:?xt=urn:btih:\(infoHash)"
@@ -374,7 +382,7 @@ class AggregatorService {
 
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.timeoutInterval = 4.0 // Allow up to 4s to fetch torrent metadata
+        req.timeoutInterval = 2.0 // Fast 2s timeout so we never freeze the UI
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let payload: [String: Any] = ["torrent": magnetStr]
         req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
@@ -383,11 +391,7 @@ class AggregatorService {
             let (data, resp) = try await URLSession.shared.data(for: req)
             guard (resp as? HTTPURLResponse)?.statusCode == 200,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                return requestedFileIdx ?? 0
-            }
-
-            if let requestedIdx = requestedFileIdx {
-                return requestedIdx
+                return 0
             }
 
             if let guessedIdx = json["guessedFileIdx"] as? Int {
@@ -410,10 +414,26 @@ class AggregatorService {
                 return bestIdx
             }
         } catch {
-            print("[AggregatorService] preWarmTorrentEngine timeout/fallback: \(error.localizedDescription)")
+            print("[AggregatorService] preWarmTorrentEngine fast fallback: \(error.localizedDescription)")
         }
 
-        return requestedFileIdx ?? 0
+        return 0
+    }
+
+    private static func pingCreateEndpoint(infoHash: String, trackers: [String]) async {
+        guard let url = URL(string: "http://127.0.0.1:11470/\(infoHash)/create") else { return }
+        var magnetStr = "magnet:?xt=urn:btih:\(infoHash)"
+        for tr in trackers {
+            if let encoded = tr.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                magnetStr += "&tr=\(encoded)"
+            }
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 2.0
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["torrent": magnetStr])
+        _ = try? await URLSession.shared.data(for: req)
     }
 
     private func buildLocalStreamURL(infoHash: String, fileIdx: Int, trackers: [String]) -> URL? {

@@ -137,7 +137,10 @@ public class MPVPlayerEngine: ObservableObject {
     private var mpv: OpaquePointer? = nil
     private var activeMetalLayer: MetalLayer? = nil
     private let eventQueue = DispatchQueue(label: "com.somnius.mpv.events", qos: .userInitiated)
+    private var pendingURL: URL? = nil
     private var pendingStartTime: Double? = nil
+    private var pendingIMDbID: String? = nil
+    private var pendingIsExternalAudio: Bool = false
     private var lastObservedTime: Double = 0
 
     public init() {
@@ -147,10 +150,18 @@ public class MPVPlayerEngine: ObservableObject {
     public func attachView(_ view: MPVVideoView) {
         self.activeMetalLayer = view.metalLayer
         ensureEngineInitialized()
+
+        if let pending = self.pendingURL, self.mpv != nil {
+            print("🚀 [MPVPlayerEngine] Executing pending stream load upon view attachment: \(pending.absoluteString)")
+            loadStreamNow(url: pending, startTime: self.pendingStartTime ?? 0)
+        }
     }
 
     private func ensureEngineInitialized() {
-        guard let layer = activeMetalLayer else { return }
+        guard let layer = activeMetalLayer else {
+            print("⏳ [MPVPlayerEngine] ensureEngineInitialized: activeMetalLayer is nil, waiting for view attachment")
+            return
+        }
         if mpv != nil { return }
 
         guard let handle = mpv_create() else {
@@ -161,7 +172,10 @@ public class MPVPlayerEngine: ObservableObject {
         var layerInt: Int64 = Int64(Int(bitPattern: Unmanaged.passUnretained(layer).toOpaque()))
 
         // Video Output: gpu-next + Vulkan (MoltenVK) for zero-overhead direct CAMetalLayer rendering
-        mpv_set_option(handle, "wid", MPV_FORMAT_INT64, &layerInt)
+        let widStatus = mpv_set_option(handle, "wid", MPV_FORMAT_INT64, &layerInt)
+        if widStatus < 0 {
+            print("❌ [MPVPlayerEngine] wid set_option failed: \(String(cString: mpv_error_string(widStatus)))")
+        }
         mpv_set_option_string(handle, "vo", "gpu-next")
         mpv_set_option_string(handle, "gpu-api", "vulkan")
         mpv_set_option_string(handle, "gpu-context", "moltenvk")
@@ -193,7 +207,7 @@ public class MPVPlayerEngine: ObservableObject {
         mpv_set_option_string(handle, "input-media-keys", "yes")
 
         #if DEBUG
-        mpv_request_log_messages(handle, "warn")
+        mpv_request_log_messages(handle, "info")
         #else
         mpv_request_log_messages(handle, "no")
         #endif
@@ -201,8 +215,12 @@ public class MPVPlayerEngine: ObservableObject {
         let initStatus = mpv_initialize(handle)
         if initStatus < 0 {
             print("❌ [MPVPlayerEngine] mpv_initialize error: \(String(cString: mpv_error_string(initStatus)))")
+            mpv_terminate_destroy(handle)
             return
         }
+
+        self.mpv = handle
+        print("✅ [MPVPlayerEngine] mpv initialized successfully with handle: \(handle)")
 
         // Observe Properties
         mpv_observe_property(handle, 1, "time-pos", MPV_FORMAT_DOUBLE)
@@ -261,6 +279,7 @@ public class MPVPlayerEngine: ObservableObject {
                     }
 
                 case MPV_EVENT_FILE_LOADED:
+                    print("✅ [MPVPlayerEngine] MPV_EVENT_FILE_LOADED")
                     DispatchQueue.main.async {
                         self.isBuffering = false
                         self.isPlaying = true
@@ -271,7 +290,15 @@ public class MPVPlayerEngine: ObservableObject {
                         }
                     }
 
+                case MPV_EVENT_PLAYBACK_RESTART:
+                    print("▶️ [MPVPlayerEngine] MPV_EVENT_PLAYBACK_RESTART")
+                    DispatchQueue.main.async {
+                        self.isBuffering = false
+                        self.isPlaying = true
+                    }
+
                 case MPV_EVENT_END_FILE:
+                    print("⏹️ [MPVPlayerEngine] MPV_EVENT_END_FILE")
                     DispatchQueue.main.async {
                         self.isPlaying = false
                         self.isBuffering = false
@@ -284,6 +311,13 @@ public class MPVPlayerEngine: ObservableObject {
                         self.mpv = nil
                     }
                     break
+
+                case MPV_EVENT_LOG_MESSAGE:
+                    if let log = UnsafePointer<mpv_event_log_message>(OpaquePointer(event.data))?.pointee {
+                        let prefix = String(cString: log.prefix)
+                        let text = String(cString: log.text)
+                        print("🪵 [mpv:\(prefix)] \(text)", terminator: "")
+                    }
 
                 default:
                     break
@@ -300,10 +334,12 @@ public class MPVPlayerEngine: ObservableObject {
             let time = data.assumingMemoryBound(to: Double.self).pointee
             guard time >= 0 && !time.isNaN && !time.isInfinite else { return }
             let diff = abs(time - self.lastObservedTime)
-            if diff >= 0.5 || self.currentTime == 0 {
+            if diff >= 0.25 || self.currentTime == 0 {
                 self.lastObservedTime = time
                 DispatchQueue.main.async {
                     self.currentTime = time
+                    self.isBuffering = false
+                    self.isPlaying = true
                     if self.duration > 0 {
                         self.bufferedFraction = min(1.0, max(0.0, (time + self.bufferedTime) / self.duration))
                     }
@@ -348,10 +384,15 @@ public class MPVPlayerEngine: ObservableObject {
             }
 
         case "sub-text":
-            let cstr = data.assumingMemoryBound(to: UnsafePointer<CChar>.self).pointee
-            let text = String(cString: cstr).trimmingCharacters(in: .whitespacesAndNewlines)
-            DispatchQueue.main.async {
-                self.currentEmbeddedSubtitleText = text.isEmpty ? nil : text
+            if let cstr = data.assumingMemoryBound(to: UnsafePointer<CChar>?.self).pointee {
+                let text = String(cString: cstr).trimmingCharacters(in: .whitespacesAndNewlines)
+                DispatchQueue.main.async {
+                    self.currentEmbeddedSubtitleText = text.isEmpty ? nil : text
+                }
+            } else {
+                DispatchQueue.main.async {
+                    self.currentEmbeddedSubtitleText = nil
+                }
             }
 
         case "track-list/count":
@@ -366,10 +407,12 @@ public class MPVPlayerEngine: ObservableObject {
 
     // MARK: - Playback Control
     public func loadStream(url: URL, startTime: Double = 0, imdbID: String? = nil, isExternalAudio: Bool = false) {
+        print("🎬 [MPVPlayerEngine] loadStream requested for: \(url.absoluteString), startTime: \(startTime)")
         self.currentURL = url
         self.playbackError = nil
         self.isBuffering = true
         self.currentTime = startTime
+        self.pendingURL = url
         self.pendingStartTime = startTime > 0 ? startTime : nil
         self.activeIMDbID = imdbID
         self.isExternalAudioInjected = isExternalAudio
@@ -382,15 +425,21 @@ public class MPVPlayerEngine: ObservableObject {
         self.palSpeedupEnabled = Config.enablePALSpeedupCorrection
 
         ensureEngineInitialized()
-        guard let handle = mpv else { return }
-
-        // Start file with position hint
-        if startTime > 0 {
-            executeCommand(["loadfile", url.absoluteString, "replace", "start=\(Int(startTime))"])
-        } else {
-            executeCommand(["loadfile", url.absoluteString, "replace"])
+        guard let _ = mpv else {
+            print("⏳ [MPVPlayerEngine] View not yet attached; queuing stream for attachment.")
+            return
         }
 
+        loadStreamNow(url: url, startTime: startTime)
+    }
+
+    private func loadStreamNow(url: URL, startTime: Double) {
+        var args = ["loadfile", url.absoluteString, "replace"]
+        if startTime > 0 {
+            args.append("-1")
+            args.append("start=\(Int(startTime))")
+        }
+        executeCommand(args)
         applyAudioFilters()
     }
 
@@ -577,8 +626,12 @@ public class MPVPlayerEngine: ObservableObject {
     }
 
     // MARK: - Helper Commands
-    public func executeCommand(_ args: [String]) {
-        guard let handle = mpv else { return }
+    @discardableResult
+    public func executeCommand(_ args: [String]) -> Int32 {
+        guard let handle = mpv else {
+            print("⚠️ [MPVPlayerEngine] executeCommand dropped because mpv is nil: \(args.joined(separator: " "))")
+            return -1
+        }
         var cArgs: [UnsafePointer<CChar>?] = args.map { UnsafePointer<CChar>(strdup($0)) }
         cArgs.append(nil)
         defer {
@@ -586,15 +639,25 @@ public class MPVPlayerEngine: ObservableObject {
                 free(UnsafeMutablePointer(mutating: ptr!))
             }
         }
-        mpv_command(handle, &cArgs)
+        let status = mpv_command(handle, &cArgs)
+        if status < 0 {
+            print("❌ [MPVPlayerEngine] mpv_command '\(args.joined(separator: " "))' failed (\(status)): \(String(cString: mpv_error_string(status)))")
+        } else {
+            print("✅ [MPVPlayerEngine] mpv_command '\(args.joined(separator: " "))' succeeded")
+        }
+        return status
     }
 
     // MARK: - Shutdown & Teardown
     public func reset() {
-        if let handle = mpv {
+        if let _ = mpv {
             executeCommand(["stop"])
         }
         currentURL = nil
+        pendingURL = nil
+        pendingStartTime = nil
+        pendingIMDbID = nil
+        pendingIsExternalAudio = false
         currentTime = 0
         duration = 0
         bufferedTime = 0

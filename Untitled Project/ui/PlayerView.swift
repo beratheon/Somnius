@@ -191,7 +191,9 @@ struct CenteredMPVVideoHost: NSViewRepresentable {
         container.addSubview(videoView)
 
         engine.attachView(videoView)
-        engine.loadStream(url: url)
+        if engine.currentURL == nil {
+            engine.loadStream(url: url)
+        }
 
         return container
     }
@@ -203,9 +205,7 @@ struct CenteredMPVVideoHost: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: ()) {
-        MPVPlayerEngine.shared.reset()
         nsView.subviews.forEach { $0.removeFromSuperview() }
-        AggregatorService.stopAndCleanAllTorrentMissions()
     }
 }
 #endif
