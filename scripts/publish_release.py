@@ -19,6 +19,7 @@ BODY = """## Somnius 1.0.0 Beta Release 🚀
 - **Patreon Supporter Integration**: Added direct Patreon supporter button next to Settings.
 - **Dual Video Engines**: Native KSPlayer + AVPlayer with instant audio track synchronization and stall protection.
 - **Unified Metadata Engine**: TMDB & TVDB API integration for accurate TV shows, series, and movies.
+- **Accurate Search & Adult Content Elimination**: Strict exclusion of adult/NSFW content across all API and stream endpoints, elimination of un-indexed tracker queries, and exact title match prioritization for flawless search results.
 
 ### Installation (macOS):
 1. Download **`Somnius-1.0.0.dmg`** or **`Somnius-1.0.0.pkg`** below.

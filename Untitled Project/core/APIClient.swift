@@ -1067,6 +1067,7 @@ class TMDBService {
             var items = components?.queryItems ?? []
             items.append(contentsOf: queryItems)
             items.append(URLQueryItem(name: "api_key", value: key))
+            items.append(URLQueryItem(name: "include_adult", value: "false"))
             components?.queryItems = items
 
             guard let url = components?.url else { continue }
@@ -1209,109 +1210,14 @@ class TMDBService {
     func searchMedia(query: String) async -> [MediaItem] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
+        let lowerQuery = trimmed.lowercased()
 
-        // 1. Check if the user is searching for an acclaimed director or actor (e.g., "Tarantino", "Nolan", "Scorsese")
-        if let (pData, _) = try? await executeRequest(endpoint: "/search/person", queryItems: [URLQueryItem(name: "query", value: trimmed)]) {
-            struct PersonSearch: Decodable {
-                struct P: Decodable { let id: Int; let name: String; let popularity: Double? }
-                let results: [P]?
-            }
-            if let pRes = try? JSONDecoder().decode(PersonSearch.self, from: pData),
-               let personList = pRes.results {
-                let sortedPersons = personList.sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
-                if let topPerson = sortedPersons.first, (topPerson.popularity ?? 0) > 3.0 {
-                    if let (cData, _) = try? await executeRequest(endpoint: "/person/\(topPerson.id)/combined_credits") {
-                        struct Credits: Decodable {
-                        struct CreditItem: Decodable {
-                            let id: Int
-                            let title: String?
-                            let name: String?
-                            let overview: String?
-                            let poster_path: String?
-                            let backdrop_path: String?
-                            let media_type: String?
-                            let vote_average: Double?
-                            let vote_count: Int?
-                            let job: String?
-                            let release_date: String?
-                            let first_air_date: String?
-                        }
-                        let crew: [CreditItem]?
-                        let cast: [CreditItem]?
-                    }
-                    if let cRes = try? JSONDecoder().decode(Credits.self, from: cData) {
-                        let df = DateFormatter()
-                        df.dateFormat = "yyyy-MM-dd"
-
-                        var creditList: [Credits.CreditItem] = []
-                        if let crew = cRes.crew {
-                            let directedOrWritten = crew.filter { $0.job == "Director" || $0.job == "Writer" }
-                            creditList.append(contentsOf: directedOrWritten)
-                        }
-                        if let cast = cRes.cast {
-                            creditList.append(contentsOf: cast)
-                        }
-
-                        creditList.sort(by: { ($0.vote_count ?? 0) > ($1.vote_count ?? 0) })
-
-                        var seenIDs = Set<Int>()
-                        var topCredits: [Credits.CreditItem] = []
-                        for item in creditList {
-                            if !seenIDs.contains(item.id) && (item.vote_count ?? 0) > 50 {
-                                seenIDs.insert(item.id)
-                                topCredits.append(item)
-                                if topCredits.count >= 24 { break }
-                            }
-                        }
-
-                        if !topCredits.isEmpty {
-                            // Concurrently resolve IMDb IDs
-                            var imdbMap: [Int: String] = [:]
-                            await withTaskGroup(of: (Int, String?).self) { group in
-                                for item in topCredits.prefix(12) {
-                                    let isTV = item.media_type == "tv"
-                                    group.addTask {
-                                        let imdb = await self.resolveIMDbID(tmdbID: item.id, type: isTV ? .series : .movie)
-                                        return (item.id, imdb)
-                                    }
-                                }
-                                for await (mID, imdb) in group {
-                                    if let imdb = imdb { imdbMap[mID] = imdb }
-                                }
-                            }
-
-                            return topCredits.compactMap { res in
-                                let isTV = res.media_type == "tv"
-                                let title = res.title ?? res.name ?? "Untitled"
-                                let pURL = res.poster_path.flatMap { URL(string: "https://image.tmdb.org/t/p/w500\($0)") }
-                                let bURL = res.backdrop_path.flatMap { URL(string: "https://image.tmdb.org/t/p/w1280\($0)") }
-                                let rawDate = res.release_date ?? res.first_air_date
-                                let date = rawDate.flatMap { df.date(from: $0) }
-                                let imdb = imdbMap[res.id]
-
-                                return MediaItem(
-                                    id: imdb ?? "\(res.id)",
-                                    title: title,
-                                    description: res.overview,
-                                    releaseDate: date,
-                                    rating: res.vote_average,
-                                    type: isTV ? .series : .movie,
-                                    imdbID: imdb,
-                                    posterURL: pURL,
-                                    backdropURL: bURL,
-                                    voteCount: res.vote_count
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-        // 2. Standard Search: Query Movies & TV Sorted by Vote Count & Popularity (Filter out obscure/camrip noise)
+        // 1. Standard Search: Query Movies & TV first
         do {
-            let items = [URLQueryItem(name: "query", value: trimmed)]
+            let items = [
+                URLQueryItem(name: "query", value: trimmed),
+                URLQueryItem(name: "include_adult", value: "false")
+            ]
             let (data, _) = try await executeRequest(endpoint: "/search/multi", queryItems: items)
 
             struct TMDBMultiResponse: Decodable {
@@ -1330,57 +1236,176 @@ class TMDBService {
                 let popularity: Double?
                 let release_date: String?
                 let first_air_date: String?
+                let adult: Bool?
             }
 
             let decoded = try JSONDecoder().decode(TMDBMultiResponse.self, from: data)
-            guard let raw = decoded.results else { return [] }
+            let raw = decoded.results ?? []
 
-            let filtered = raw.filter { $0.media_type == "movie" || $0.media_type == "tv" }
-                .sorted { ($0.vote_count ?? 0) > ($1.vote_count ?? 0) }
+            // Strictly filter out any adult/NSFW content and keep only movies & TV series
+            let filtered = raw.filter { item in
+                guard item.adult != true else { return false }
+                return item.media_type == "movie" || item.media_type == "tv"
+            }
+            .sorted { a, b in
+                let aTitle = (a.title ?? a.name ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                let bTitle = (b.title ?? b.name ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                let aExact = (aTitle == lowerQuery)
+                let bExact = (bTitle == lowerQuery)
+                if aExact != bExact { return aExact }
+
+                let aPrefix = aTitle.hasPrefix(lowerQuery)
+                let bPrefix = bTitle.hasPrefix(lowerQuery)
+                if aPrefix != bPrefix { return aPrefix }
+
+                return (a.vote_count ?? 0) > (b.vote_count ?? 0)
+            }
 
             let df = DateFormatter()
             df.dateFormat = "yyyy-MM-dd"
 
-            // Concurrently resolve IMDb IDs for top results using proper media type
-            var imdbMap: [Int: String] = [:]
-            await withTaskGroup(of: (Int, String?).self) { group in
-                for item in filtered.prefix(20) {
-                    let isTV = item.media_type == "tv"
-                    group.addTask {
-                        let imdb = await self.resolveIMDbID(tmdbID: item.id, type: isTV ? .series : .movie)
-                        return (item.id, imdb)
+            if !filtered.isEmpty {
+                // Concurrently resolve IMDb IDs for top results using proper media type
+                var imdbMap: [Int: String] = [:]
+                await withTaskGroup(of: (Int, String?).self) { group in
+                    for item in filtered.prefix(20) {
+                        let isTV = item.media_type == "tv"
+                        group.addTask {
+                            let imdb = await self.resolveIMDbID(tmdbID: item.id, type: isTV ? .series : .movie)
+                            return (item.id, imdb)
+                        }
+                    }
+                    for await (mID, imdb) in group {
+                        if let imdb = imdb { imdbMap[mID] = imdb }
                     }
                 }
-                for await (mID, imdb) in group {
-                    if let imdb = imdb { imdbMap[mID] = imdb }
+
+                return filtered.compactMap { res -> MediaItem? in
+                    let title = res.title ?? res.name ?? "Untitled"
+                    let pURL = res.poster_path.flatMap { URL(string: "https://image.tmdb.org/t/p/w500\($0)") }
+                    let bURL = res.backdrop_path.flatMap { URL(string: "https://image.tmdb.org/t/p/w1280\($0)") }
+                    let type: MediaItem.MediaType = (res.media_type == "tv") ? .series : .movie
+                    let rawDate = res.release_date ?? res.first_air_date
+                    let date = rawDate.flatMap { df.date(from: $0) }
+                    let imdb = imdbMap[res.id]
+
+                    return MediaItem(
+                        id: imdb ?? "\(res.id)",
+                        title: title,
+                        description: res.overview,
+                        releaseDate: date,
+                        rating: res.vote_average,
+                        type: type,
+                        imdbID: imdb,
+                        posterURL: pURL,
+                        backdropURL: bURL,
+                        voteCount: res.vote_count
+                    )
                 }
             }
 
-            return filtered.compactMap { res -> MediaItem? in
-                let title = res.title ?? res.name ?? "Untitled"
-                let pURL = res.poster_path.flatMap { URL(string: "https://image.tmdb.org/t/p/w500\($0)") }
-                let bURL = res.backdrop_path.flatMap { URL(string: "https://image.tmdb.org/t/p/w1280\($0)") }
-                let type: MediaItem.MediaType = (res.media_type == "tv") ? .series : .movie
-                let rawDate = res.release_date ?? res.first_air_date
-                let date = rawDate.flatMap { df.date(from: $0) }
-                let imdb = imdbMap[res.id]
+            // 2. Fallback: Only if NO movies or TV series were found, check if user searched for an acclaimed director or actor
+            if let (pData, _) = try? await executeRequest(endpoint: "/search/person", queryItems: [
+                URLQueryItem(name: "query", value: trimmed),
+                URLQueryItem(name: "include_adult", value: "false")
+            ]) {
+                struct PersonSearch: Decodable {
+                    struct P: Decodable { let id: Int; let name: String; let popularity: Double?; let adult: Bool? }
+                    let results: [P]?
+                }
+                if let pRes = try? JSONDecoder().decode(PersonSearch.self, from: pData),
+                   let personList = pRes.results?.filter({ $0.adult != true }) {
+                    let sortedPersons = personList.sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
+                    if let topPerson = sortedPersons.first, (topPerson.popularity ?? 0) > 3.0 {
+                        if let (cData, _) = try? await executeRequest(endpoint: "/person/\(topPerson.id)/combined_credits") {
+                            struct Credits: Decodable {
+                                struct CreditItem: Decodable {
+                                    let id: Int
+                                    let title: String?
+                                    let name: String?
+                                    let overview: String?
+                                    let poster_path: String?
+                                    let backdrop_path: String?
+                                    let media_type: String?
+                                    let vote_average: Double?
+                                    let vote_count: Int?
+                                    let job: String?
+                                    let release_date: String?
+                                    let first_air_date: String?
+                                    let adult: Bool?
+                                }
+                                let crew: [CreditItem]?
+                                let cast: [CreditItem]?
+                            }
+                            if let cRes = try? JSONDecoder().decode(Credits.self, from: cData) {
+                                var creditList: [Credits.CreditItem] = []
+                                if let crew = cRes.crew?.filter({ $0.adult != true }) {
+                                    let directedOrWritten = crew.filter { $0.job == "Director" || $0.job == "Writer" }
+                                    creditList.append(contentsOf: directedOrWritten)
+                                }
+                                if let cast = cRes.cast?.filter({ $0.adult != true }) {
+                                    creditList.append(contentsOf: cast)
+                                }
 
-                return MediaItem(
-                    id: imdb ?? "\(res.id)",
-                    title: title,
-                    description: res.overview,
-                    releaseDate: date,
-                    rating: res.vote_average,
-                    type: type,
-                    imdbID: imdb,
-                    posterURL: pURL,
-                    backdropURL: bURL,
-                    voteCount: res.vote_count
-                )
+                                creditList.sort(by: { ($0.vote_count ?? 0) > ($1.vote_count ?? 0) })
+
+                                var seenIDs = Set<Int>()
+                                var topCredits: [Credits.CreditItem] = []
+                                for item in creditList {
+                                    if !seenIDs.contains(item.id) && (item.vote_count ?? 0) > 50 {
+                                        seenIDs.insert(item.id)
+                                        topCredits.append(item)
+                                        if topCredits.count >= 24 { break }
+                                    }
+                                }
+
+                                if !topCredits.isEmpty {
+                                    var imdbMap: [Int: String] = [:]
+                                    await withTaskGroup(of: (Int, String?).self) { group in
+                                        for item in topCredits.prefix(12) {
+                                            let isTV = item.media_type == "tv"
+                                            group.addTask {
+                                                let imdb = await self.resolveIMDbID(tmdbID: item.id, type: isTV ? .series : .movie)
+                                                return (item.id, imdb)
+                                            }
+                                        }
+                                        for await (mID, imdb) in group {
+                                            if let imdb = imdb { imdbMap[mID] = imdb }
+                                        }
+                                    }
+
+                                    return topCredits.compactMap { res in
+                                        let isTV = res.media_type == "tv"
+                                        let title = res.title ?? res.name ?? "Untitled"
+                                        let pURL = res.poster_path.flatMap { URL(string: "https://image.tmdb.org/t/p/w500\($0)") }
+                                        let bURL = res.backdrop_path.flatMap { URL(string: "https://image.tmdb.org/t/p/w1280\($0)") }
+                                        let rawDate = res.release_date ?? res.first_air_date
+                                        let date = rawDate.flatMap { df.date(from: $0) }
+                                        let imdb = imdbMap[res.id]
+
+                                        return MediaItem(
+                                            id: imdb ?? "\(res.id)",
+                                            title: title,
+                                            description: res.overview,
+                                            releaseDate: date,
+                                            rating: res.vote_average,
+                                            type: isTV ? .series : .movie,
+                                            imdbID: imdb,
+                                            posterURL: pURL,
+                                            backdropURL: bURL,
+                                            voteCount: res.vote_count
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         } catch {
             return []
         }
+        return []
     }
 
     // Cinemeta Series metadata structures for instant, comprehensive seasons & episodes
@@ -1623,6 +1648,7 @@ class TMDBService {
             let vote_average: Double?
             let release_date: String?
             let first_air_date: String?
+            let adult: Bool?
         }
 
         guard let decoded = try? JSONDecoder().decode(TMDBPageResponse.self, from: data),
@@ -1632,6 +1658,7 @@ class TMDBService {
         df.dateFormat = "yyyy-MM-dd"
 
         return raw.compactMap { res in
+            guard res.adult != true else { return nil }
             let title = res.title ?? res.name ?? "Untitled"
             let pURL = res.poster_path.flatMap { URL(string: "https://image.tmdb.org/t/p/w500\( $0 )") }
             let bURL = res.backdrop_path.flatMap { URL(string: "https://image.tmdb.org/t/p/w1280\( $0 )") }
@@ -1696,6 +1723,7 @@ class TMDBService {
                 let backdrop_path: String?
                 let vote_average: Double?
                 let release_date: String?
+                let adult: Bool?
             }
 
             guard let colRes = try? JSONDecoder().decode(CollectionResponse.self, from: colData),
@@ -1709,7 +1737,7 @@ class TMDBService {
             // Concurrently resolve IMDb IDs for each part so btttr.cc poster provider and stream scrapers work seamlessly
             var imdbMap: [Int: String] = [:]
             await withTaskGroup(of: (Int, String?).self) { group in
-                for part in parts {
+                for part in parts where part.adult != true {
                     group.addTask {
                         let imdb = await self.resolveIMDbIDForMovie(tmdbID: part.id)
                         return (part.id, imdb)
@@ -1720,7 +1748,7 @@ class TMDBService {
                 }
             }
 
-            let items: [MediaItem] = parts.compactMap { part in
+            let items: [MediaItem] = parts.filter({ $0.adult != true }).compactMap { part in
                 let pURL = part.poster_path.flatMap { URL(string: "https://image.tmdb.org/t/p/w500\($0)") }
                 let bURL = part.backdrop_path.flatMap { URL(string: "https://image.tmdb.org/t/p/w1280\($0)") }
                 let date = part.release_date.flatMap { df.date(from: $0) }
@@ -2080,6 +2108,7 @@ class TMDBService {
                 let first_air_date: String?
                 let job: String?
                 let character: String?
+                let adult: Bool?
             }
             let cast: [RawCreditItem]?
             let crew: [RawCreditItem]?
@@ -2092,17 +2121,20 @@ class TMDBService {
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
 
+        let cleanCrew = (decoded.crew ?? []).filter { $0.adult != true }
+        let cleanCast = (decoded.cast ?? []).filter { $0.adult != true }
+
         // 1. Filter directed works (strictly Director or Creator)
-        let rawDirected = (decoded.crew ?? []).filter { $0.job == "Director" || $0.job == "Creator" }
+        let rawDirected = cleanCrew.filter { $0.job == "Director" || $0.job == "Creator" }
 
         // 2. Filter produced works (strictly Producer, Executive Producer, Co-Producer, etc.)
-        let rawProduced = (decoded.crew ?? []).filter {
+        let rawProduced = cleanCrew.filter {
             guard let job = $0.job else { return false }
             return (job.contains("Producer") || job == "Production") && job != "Director"
         }
 
         // 3. Filter acted works (exclude "Self", empty characters if other roles exist, etc.)
-        let rawCast = (decoded.cast ?? [])
+        let rawCast = cleanCast
         let legitCast = rawCast.filter {
             let char = ($0.character ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             return !char.isEmpty && char != "self" && char != "himself" && char != "herself"

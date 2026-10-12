@@ -100,6 +100,30 @@ struct StreamParser {
             return nil
         }
 
+        // 0.1 Filter out Adult / NSFW / Porn releases
+        let adultKeywords = [
+            "XXX", "PORN", "EROTIC", "EROTICA", "FAMILYSTROKES", "MYDIRTYFAMILY",
+            "MYPERVYFAMILY", "BRAZZERS", "BANGROS", "BANGBROS", "NAUGHTYAMERICA",
+            "REALITYKINGS", "MOFOS", "BLACKED", "TUSHY", "VIXEN", "DEEPER",
+            "FAKEHUB", "FAKETAXI", "PROPERTYSEX", "STEPSISTER", "STEPMOM",
+            "STEP SIBLINGS", "SWAPPERS", "PURETABOO", "METART", "HENTAI",
+            "JAV", "ONLYFANS", "PLAYBOY", "PENTHOUSE", "HUSTLER", "X-RATED",
+            "ADULT", "DEVILS FILM", "EVIL ANGEL", "DIGITAL PLAYGROUND",
+            "PRIVATE COM", "KINK.COM", "SWEET SINNER", "HARDX", "MILE HIGH"
+        ]
+        for adult in adultKeywords {
+            if upper.contains(adult) {
+                // False positive safeguards for legitimate titles
+                if adult == "ADULT" && (upper.contains("ADULT SWIM") || upper.contains("ADULTHOOD")) {
+                    continue
+                }
+                if adult == "XXX" && (upper.contains("XANDER") || upper.contains("VIN DIESEL") || upper.contains("STATE OF THE UNION") || upper.contains("XXX.2002") || upper.contains("XXX 2002") || upper.contains("XXX (2002)")) {
+                    continue
+                }
+                return nil
+            }
+        }
+
         // 1. Filter out actual trash releases (CAM, HDCAM, TELESYNC, WORKPRINT, SAMPLE, .EXE, TRAILER)
         let trashKeywords = ["CAMRIP", "HDCAM", " CAM ", ".CAM.", "[CAM]", "TELESYNC", "TS-RIP", " WORKPRINT ", " SAMPLE ", ".EXE", "TRAILER"]
         for trash in trashKeywords {

@@ -358,14 +358,7 @@ class StremioAddonManager: ObservableObject {
                 return await self.queryTorrentioP2P(typeString: typeString, targetID: targetID)
             }
 
-            // 3. ThePirateBay Direct API (Over 100 torrents, seeders, and hash info)
-            if let searchTitle = title, !searchTitle.isEmpty {
-                group.addTask {
-                    return await self.queryThePirateBay(title: searchTitle, type: type, season: season, episode: episode)
-                }
-            }
-
-            // 4. User-installed custom add-ons
+            // 3. User-installed custom add-ons
             for addon in self.installedAddons where addon.isEnabled && addon.supportedResources.contains("stream") {
                 // If user installed a Torrentio instance with RD already, let it run
                 group.addTask {
@@ -560,43 +553,6 @@ class StremioAddonManager: ObservableObject {
         let base = "https://comet.elfhosted.com/\(b64)"
         guard let url = URL(string: "\(base)/stream/\(typeString)/\(targetID).json") else { return [] }
         return await queryRawStreamEndpoint(url: url, source: "Comet")
-    }
-
-    // MARK: - 3. ThePirateBay Direct API (Fast & Reliable Fallback)
-    private func queryThePirateBay(title: String, type: MediaItem.MediaType, season: Int?, episode: Int?) async -> [AggregatedLink] {
-        var query = title
-        if type == .series, let s = season, let e = episode {
-            query += String(format: " S%02dE%02d", s, e)
-        }
-        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "https://apibay.org/q.php?q=\(encoded)") else { return [] }
-
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 3.5
-        req.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
-
-        do {
-            let (data, resp) = try await URLSession.shared.data(for: req)
-            guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return [] }
-            struct PBItem: Decodable {
-                let name: String
-                let info_hash: String
-                let size: String
-                let seeders: String
-            }
-            let items = try JSONDecoder().decode([PBItem].self, from: data)
-            return items.prefix(80).compactMap { item -> AggregatedLink? in
-                guard item.info_hash != "0000000000000000000000000000000000000000" else { return nil }
-                let seeds = Int(item.seeders) ?? 0
-                let sizeBytes = Int64(item.size) ?? 0
-                let gb = Double(sizeBytes) / 1_073_741_824.0
-                let sizeStr = gb >= 1.0 ? String(format: "%.2f GB", gb) : String(format: "%.0f MB", Double(sizeBytes) / 1_048_576.0)
-                let rawTitle = "\(item.name)\n👤 \(seeds) 💾 \(sizeStr) ⚙️ ThePirateBay"
-                return StreamParser.parse(rawTitle: rawTitle, source: "ThePirateBay", url: nil, infoHash: item.info_hash)
-            }
-        } catch {
-            return []
-        }
     }
 }
 
