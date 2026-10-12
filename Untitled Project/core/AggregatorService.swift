@@ -42,6 +42,14 @@ class AggregatorService {
             }
         }
 
+        // Title-based fallback for searched items with missing or non-standard external IDs
+        if resolvedIMDb == nil || resolvedIMDb!.isEmpty {
+            let fallbackTitle = (try? await tmdbService.fetchTitle(tmdbID: tmdbID, type: type)) ?? tmdbID
+            if !fallbackTitle.isEmpty {
+                resolvedIMDb = await tmdbService.resolveIMDbIDByTitle(title: fallbackTitle, type: type)
+            }
+        }
+
         guard let baseIMDb = resolvedIMDb, !baseIMDb.isEmpty else {
             return []
         }
@@ -202,6 +210,24 @@ class AggregatorService {
 
     private static var activeEngineProcess: Process?
 
+    private func isPlayableDirectURL(_ url: URL) -> Bool {
+        let str = url.absoluteString.lowercased()
+        if str.contains("failed_access") ||
+           str.contains("error.mp4") ||
+           str.contains("invalid") ||
+           str.contains("downloading") ||
+           str.contains("download_failed") ||
+           str.contains("/videos/download") ||
+           str.contains("torrentio.strem.fun/videos") ||
+           str.contains("torrentio.strem.fun/playback_error") ||
+           str.contains("playback_error") ||
+           str.contains("stream_error") ||
+           str.contains("null") {
+            return false
+        }
+        return true
+    }
+
     func resolveStreamURLWithFallback(startingLink: AggregatedLink, allLinks: [AggregatedLink]) async throws -> (URL, AggregatedLink) {
         let candidates = [startingLink] + allLinks.filter { $0.id != startingLink.id }
         let key = Config.realDebridApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -210,11 +236,10 @@ class AggregatorService {
         if let directURL = startingLink.url,
            let scheme = directURL.scheme?.lowercased(),
            (scheme == "http" || scheme == "https") {
-            let resolved = await resolveHttpRedirect(url: directURL) ?? directURL
-            let str = resolved.absoluteString.lowercased()
-            if !str.contains("failed_access") && !str.contains("error.mp4") && !str.contains("invalid") {
+            if let resolved = await resolveHttpRedirect(url: directURL), isPlayableDirectURL(resolved) {
                 return (resolved, startingLink)
             }
+            print("[Aggregator] Starting link \(startingLink.title) failed direct playback validation. Moving to fallback candidates...")
         }
 
         // 2. Real-Debrid instant cloud resolution (if configured)
@@ -222,15 +247,12 @@ class AggregatorService {
             // Only try cached torrents for instant playback (or starting link)
             let debridCandidates = candidates.filter { $0.isCached || $0.id == startingLink.id }
             for candidate in debridCandidates {
-                // Check if candidate has a direct HTTP/HTTPS url that redirects to CDN
+                // If candidate has a direct HTTP/HTTPS url that redirects to CDN
                 if let directURL = candidate.url,
                    let scheme = directURL.scheme?.lowercased(),
                    (scheme == "http" || scheme == "https") {
-                    if let resolved = await resolveHttpRedirect(url: directURL) {
-                        let str = resolved.absoluteString.lowercased()
-                        if !str.contains("failed_access") && !str.contains("error.mp4") && !str.contains("invalid") {
-                            return (resolved, candidate)
-                        }
+                    if let resolved = await resolveHttpRedirect(url: directURL), isPlayableDirectURL(resolved) {
+                        return (resolved, candidate)
                     }
                 }
 
@@ -242,7 +264,9 @@ class AggregatorService {
                 if let infoHash = hashToResolve, !infoHash.isEmpty {
                     do {
                         let resolvedURL = try await rdService.addMagnetAndGetLink(infoHash: infoHash)
-                        return (resolvedURL, candidate)
+                        if isPlayableDirectURL(resolvedURL) {
+                            return (resolvedURL, candidate)
+                        }
                     } catch {
                         print("Failed to resolve candidate infoHash \(infoHash): \(error.localizedDescription)")
                         continue
@@ -288,9 +312,7 @@ class AggregatorService {
             if let directURL = candidate.url,
                let scheme = directURL.scheme?.lowercased(),
                (scheme == "http" || scheme == "https") {
-                let resolved = await resolveHttpRedirect(url: directURL) ?? directURL
-                let str = resolved.absoluteString.lowercased()
-                if !str.contains("failed_access") && !str.contains("error.mp4") && !str.contains("invalid") {
+                if let resolved = await resolveHttpRedirect(url: directURL), isPlayableDirectURL(resolved) {
                     return (resolved, candidate)
                 }
             }
@@ -326,13 +348,13 @@ class AggregatorService {
         let detector = RedirectDetector()
         let session = URLSession(configuration: .default, delegate: detector, delegateQueue: nil)
 
+        var finalCandidate: URL? = nil
         do {
             let (_, resp) = try await session.data(for: req)
             if let target = detector.finalURL {
-                return target
-            }
-            if let http = resp as? HTTPURLResponse, (200...399).contains(http.statusCode) {
-                return url
+                finalCandidate = target
+            } else if let http = resp as? HTTPURLResponse, (200...399).contains(http.statusCode) {
+                finalCandidate = url
             }
         } catch {
             var getReq = URLRequest(url: url)
@@ -343,16 +365,21 @@ class AggregatorService {
             do {
                 let (_, resp) = try await session.data(for: getReq)
                 if let target = detector.finalURL {
-                    return target
-                }
-                if let http = resp as? HTTPURLResponse, (200...399).contains(http.statusCode) {
-                    return url
+                    finalCandidate = target
+                } else if let http = resp as? HTTPURLResponse, (200...399).contains(http.statusCode) {
+                    finalCandidate = url
                 }
             } catch {
-                return url
+                finalCandidate = url
             }
         }
-        return detector.finalURL ?? url
+
+        let resolved = finalCandidate ?? detector.finalURL ?? url
+        if !isPlayableDirectURL(resolved) {
+            print("[Aggregator] URL redirected to unplayable/stub target: \(resolved.absoluteString)")
+            return nil
+        }
+        return resolved
     }
 
     func isLocalStreamingEngineAlive() async -> Bool {

@@ -1814,27 +1814,45 @@ struct UserProfileView: View {
             .background(Color.white.opacity(0.04))
             .cornerRadius(10)
 
-            // GitHub Repository Config
+            // GitHub Repository Config (Protected & Locked to official repository)
             VStack(alignment: .leading, spacing: 8) {
-                Text("GitHub Repository (Owner/Repo)")
-                    .font(.subheadline.bold())
-                    .foregroundColor(.white)
-                Text("The GitHub repository that hosts your release tags, dmg installers, and appcast.xml.")
+                HStack {
+                    Text("GitHub Repository")
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
+                    Spacer()
+                    HStack(spacing: 4) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 10))
+                        Text("Official")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundColor(.green.opacity(0.9))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.green.opacity(0.12))
+                    .cornerRadius(6)
+                }
+                Text("Official release repository hosting updates, release tags, and DMG installers.")
                     .font(.caption)
                     .foregroundColor(.gray)
 
-                HStack {
-                    Image(systemName: "link")
-                        .foregroundColor(.gray)
-                    TextField("e.g. yourname/Somnius", text: Binding(
-                        get: { Config.updateRepository },
-                        set: {
-                            Config.updateRepository = $0
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundColor(.green)
+                    Text(Config.updateRepository.isEmpty ? "beratheon/Somnius" : Config.updateRepository)
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .foregroundColor(.white)
+                    Spacer()
+                    if Config.updateRepository != "beratheon/Somnius" {
+                        Button("Reset to Official") {
+                            Config.updateRepository = "beratheon/Somnius"
                             AppUpdater.shared.configureFeedURL()
                         }
-                    ))
-                    .textFieldStyle(PlainTextFieldStyle())
-                    .foregroundColor(.white)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.orange)
+                        .buttonStyle(PlainButtonStyle())
+                    }
                 }
                 .padding(10)
                 .background(Color.white.opacity(0.06))

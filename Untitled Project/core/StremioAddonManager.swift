@@ -125,7 +125,7 @@ class StremioAddonManager: ObservableObject {
             id: "torrentio",
             name: "Torrentio",
             description: "High-speed multi-source indexer for movies & series with quality sorting",
-            manifestUrl: "https://torrentio.strem.fun/sort=qualitysize|qualityfilter=4k,1080p,720p,other/manifest.json",
+            manifestUrl: "https://torrentio.strem.fun/sort=qualitysize/manifest.json",
             icon: "bolt.fill",
             isDebridConfigurable: true
         ),
@@ -164,7 +164,29 @@ class StremioAddonManager: ObservableObject {
         guard let data = UserDefaults.standard.data(forKey: storageKey) else { return }
         do {
             let decoded = try JSONDecoder().decode([InstalledAddon].self, from: data)
-            self.installedAddons = decoded
+            // Sanitize previously cached addons that had the erroneous qualityfilter exclusion
+            let badFilter = "qualityfilter=4k,1080p,720p,other"
+            var sanitized: [InstalledAddon] = []
+            var needsResave = false
+            for addon in decoded {
+                var cleanAddon = addon
+                if cleanAddon.manifestUrl.contains(badFilter) || cleanAddon.transportUrl.contains(badFilter) {
+                    cleanAddon.manifestUrl = cleanAddon.manifestUrl
+                        .replacingOccurrences(of: "|\(badFilter)", with: "")
+                        .replacingOccurrences(of: "\(badFilter)|", with: "")
+                        .replacingOccurrences(of: badFilter, with: "")
+                    cleanAddon.transportUrl = cleanAddon.transportUrl
+                        .replacingOccurrences(of: "|\(badFilter)", with: "")
+                        .replacingOccurrences(of: "\(badFilter)|", with: "")
+                        .replacingOccurrences(of: badFilter, with: "")
+                    needsResave = true
+                }
+                sanitized.append(cleanAddon)
+            }
+            self.installedAddons = sanitized
+            if needsResave {
+                saveAddons()
+            }
         } catch {
             print("Failed to decode installed addons: \(error.localizedDescription)")
         }
@@ -195,7 +217,7 @@ class StremioAddonManager: ObservableObject {
 
             if !cleanDebrid.isEmpty && template.isDebridConfigurable {
                 if template.id == "torrentio" {
-                    targetManifest = "https://torrentio.strem.fun/realdebrid=\(cleanDebrid)|sort=qualitysize|qualityfilter=4k,1080p,720p,other/manifest.json"
+                    targetManifest = "https://torrentio.strem.fun/realdebrid=\(cleanDebrid)|sort=qualitysize/manifest.json"
                 } else if template.id == "knightcrawler" {
                     targetManifest = "https://knightcrawler.elfhosted.com/realdebrid=\(cleanDebrid)|sort=qualitysize/manifest.json"
                 }
@@ -343,24 +365,35 @@ class StremioAddonManager: ObservableObject {
         let rdParam = !rdKey.isEmpty ? "realdebrid=\(rdKey)" : ""
 
         await withTaskGroup(of: [AggregatedLink].self) { group in
-            // 1. High-Speed Torrentio Debrid (All 17 providers enabled: YTS, RARBG, 1337x, TPB, EZTV, Rutracker, etc.)
+            var handledHosts = Set<String>()
+
+            // 1. High-Speed Torrentio & Comet Scrapers
             if isTurbo && !rdParam.isEmpty {
+                handledHosts.insert("torrentio.strem.fun")
                 group.addTask {
                     return await self.queryTorrentio(typeString: typeString, targetID: targetID, rdParam: rdParam)
                 }
+
+                handledHosts.insert("comet.elfhosted.com")
                 group.addTask {
                     return await self.queryComet(typeString: typeString, targetID: targetID, rdKey: rdKey)
                 }
+            } else {
+                // 2. High-Speed Torrentio P2P (debridless streaming)
+                handledHosts.insert("torrentio.strem.fun")
+                group.addTask {
+                    return await self.queryTorrentioP2P(typeString: typeString, targetID: targetID)
+                }
             }
 
-            // 2. High-Speed Torrentio P2P (All 17 providers uncached/p2p)
-            group.addTask {
-                return await self.queryTorrentioP2P(typeString: typeString, targetID: targetID)
-            }
-
-            // 3. User-installed custom add-ons
+            // 3. User-installed custom add-ons (MediaFusion, KnightCrawler, etc.)
+            // Deduplicate: avoid querying Torrentio or Comet repeatedly if handled above
             for addon in self.installedAddons where addon.isEnabled && addon.supportedResources.contains("stream") {
-                // If user installed a Torrentio instance with RD already, let it run
+                let lowerURL = addon.transportUrl.lowercased()
+                let alreadyQueried = handledHosts.contains { lowerURL.contains($0) }
+                if alreadyQueried {
+                    continue
+                }
                 group.addTask {
                     return await self.queryAddonStreams(addon: addon, typeString: typeString, targetID: targetID, rdParam: isTurbo ? rdParam : "")
                 }

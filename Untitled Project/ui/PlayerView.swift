@@ -1368,7 +1368,10 @@ struct PlayerView: View {
         var lastRecordedTime: Double = -1
         stallTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             DispatchQueue.main.async {
-                guard self.isPlaying else { return }
+                // If user intentionally paused playback after video has already started playing, don't trigger watchdog
+                if !self.isPlaying && !self.isBuffering && self.currentTime > 0 {
+                    return
+                }
                 // If currentTime is advancing, playback is completely healthy
                 if self.currentTime > 0 && abs(self.currentTime - lastRecordedTime) > 0.05 {
                     lastRecordedTime = self.currentTime
@@ -1614,7 +1617,7 @@ struct PlayerView: View {
             print("[PlayerView] Pre-caching next episode S\(playingSeasonNumber) E\(nextEp)...")
             if let links = try? await aggregatorService.fetchBestLinks(
                 tmdbID: media.id,
-                imdbID: media.imdbID,
+                imdbID: media.resolvedIMDbID ?? media.imdbID,
                 type: .series,
                 season: playingSeasonNumber,
                 episode: nextEp
@@ -1715,7 +1718,7 @@ struct PlayerView: View {
             do {
                 let links = try await aggregatorService.fetchBestLinks(
                     tmdbID: media.id,
-                    imdbID: media.imdbID,
+                    imdbID: media.resolvedIMDbID ?? media.imdbID,
                     type: media.type,
                     season: playingSeasonNumber,
                     episode: playingEpisodeNumber,
@@ -1777,7 +1780,7 @@ struct PlayerView: View {
                 if self.availableStreamLinks.isEmpty, let media = self.mediaItem {
                     let links = (try? await self.aggregatorService.fetchBestLinks(
                         tmdbID: media.id,
-                        imdbID: media.imdbID,
+                        imdbID: media.resolvedIMDbID ?? media.imdbID,
                         type: media.type,
                         season: self.playingSeasonNumber,
                         episode: self.playingEpisodeNumber
@@ -1814,7 +1817,7 @@ struct PlayerView: View {
 
                 let (newURL, pickedLink) = try await self.aggregatorService.resolveStreamURLWithFallback(startingLink: firstChoice, allLinks: candidates)
                 await MainActor.run {
-                    guard self.isPlaying || self.isBuffering else { return }
+                    guard self.mediaItem != nil else { return }
                     self.currentActiveLinkID = pickedLink.id
                     self.activeStreamURL = newURL
                     self.isSkippingFakeStream = false
@@ -2279,7 +2282,7 @@ struct PlayerView: View {
             do {
                 let links = try await aggregatorService.fetchBestLinks(
                     tmdbID: media.id,
-                    imdbID: media.imdbID,
+                    imdbID: media.resolvedIMDbID ?? media.imdbID,
                     type: .series,
                     season: selectedSeasonNumber,
                     episode: episode.episodeNumber

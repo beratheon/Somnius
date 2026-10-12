@@ -1333,7 +1333,7 @@ struct MediaDetailView: View {
             do {
                 let links = try await aggregatorService.fetchBestLinks(
                     tmdbID: currentItem.id,
-                    imdbID: currentItem.imdbID,
+                    imdbID: currentItem.resolvedIMDbID ?? currentItem.imdbID,
                     type: currentItem.type,
                     season: currentItem.type == .series ? selectedSeason : nil,
                     episode: currentItem.type == .series ? 1 : nil,

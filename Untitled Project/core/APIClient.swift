@@ -232,7 +232,10 @@ struct Config {
 
     private static let updateRepositoryKey = "App_Update_GitHub_Repository"
     static var updateRepository: String {
-        get { UserDefaults.standard.string(forKey: updateRepositoryKey) ?? "beratheon/Somnius" }
+        get {
+            let val = UserDefaults.standard.string(forKey: updateRepositoryKey) ?? ""
+            return val.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "beratheon/Somnius" : val
+        }
         set { UserDefaults.standard.set(newValue, forKey: updateRepositoryKey) }
     }
 
@@ -2280,5 +2283,34 @@ class TMDBService {
             let imdb_id: String?
         }
         return (try? JSONDecoder().decode(ExtResponse.self, from: data))?.imdb_id
+    }
+
+    func resolveIMDbIDByTitle(title: String, type: MediaItem.MediaType, year: Int? = nil) async -> String? {
+        let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return nil }
+        var queryItems = [
+            URLQueryItem(name: "query", value: clean),
+            URLQueryItem(name: "include_adult", value: "false")
+        ]
+        if let y = year {
+            if type == .series {
+                queryItems.append(URLQueryItem(name: "first_air_date_year", value: "\(y)"))
+            } else {
+                queryItems.append(URLQueryItem(name: "primary_release_year", value: "\(y)"))
+            }
+        }
+        let endpoint = (type == .series) ? "/search/tv" : "/search/movie"
+        guard let (data, _) = try? await executeRequest(endpoint: endpoint, queryItems: queryItems) else { return nil }
+        struct SearchResp: Decodable {
+            struct Item: Decodable { let id: Int }
+            let results: [Item]?
+        }
+        guard let results = (try? JSONDecoder().decode(SearchResp.self, from: data))?.results, let first = results.first else {
+            if year != nil {
+                return await resolveIMDbIDByTitle(title: clean, type: type, year: nil)
+            }
+            return nil
+        }
+        return await resolveIMDbID(tmdbID: first.id, type: type)
     }
 }

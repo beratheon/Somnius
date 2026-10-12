@@ -487,7 +487,7 @@ struct ContentView: View {
         do {
             let links = try await AggregatorService().fetchBestLinks(
                 tmdbID: item.id,
-                imdbID: item.imdbID,
+                imdbID: item.resolvedIMDbID ?? item.imdbID,
                 type: item.type,
                 season: season,
                 episode: episode,
@@ -530,7 +530,7 @@ struct ContentView: View {
         do {
             let links = try await AggregatorService().fetchBestLinks(
                 tmdbID: item.id,
-                imdbID: item.imdbID,
+                imdbID: item.resolvedIMDbID ?? item.imdbID,
                 type: item.type,
                 season: season,
                 episode: episode,
