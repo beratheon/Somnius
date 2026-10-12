@@ -1332,8 +1332,8 @@ struct PlayerView: View {
                     return
                 }
 
-                // If playback is stalled (time not advancing while supposed to play)
-                if self.isBuffering {
+                // If playback is stalled (buffering or hasn't started playing within 7s)
+                if self.isBuffering || self.currentTime == 0 {
                     self.stallSecondsCount += 1.0
                     if self.currentTime > 0 {
                         // Mid-playback stall
@@ -1767,6 +1767,7 @@ struct PlayerView: View {
 
                 let (newURL, pickedLink) = try await self.aggregatorService.resolveStreamURLWithFallback(startingLink: firstChoice, allLinks: candidates)
                 await MainActor.run {
+                    guard self.isPlaying || self.isBuffering else { return }
                     self.currentActiveLinkID = pickedLink.id
                     self.activeStreamURL = newURL
                     self.isSkippingFakeStream = false

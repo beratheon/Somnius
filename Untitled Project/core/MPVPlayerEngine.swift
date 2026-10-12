@@ -17,15 +17,17 @@ public class MetalLayer: CAMetalLayer {
         }
     }
 
-    // Activate Apple Extended Dynamic Range (EDR/XDR) on the main thread
+    // Activate Apple Extended Dynamic Range (EDR/XDR) asynchronously on the main thread.
+    // NEVER use DispatchQueue.main.sync here, as MoltenVK's VO thread calls this while
+    // the main thread may be interacting with mpv, causing an instant, fatal deadlock.
     public override var wantsExtendedDynamicRangeContent: Bool {
         get { return super.wantsExtendedDynamicRangeContent }
         set {
             if Thread.isMainThread {
                 super.wantsExtendedDynamicRangeContent = newValue
             } else {
-                DispatchQueue.main.sync {
-                    super.wantsExtendedDynamicRangeContent = newValue
+                DispatchQueue.main.async { [weak self] in
+                    self?.wantsExtendedDynamicRangeContent = newValue
                 }
             }
         }
@@ -247,8 +249,14 @@ public class MPVPlayerEngine: ObservableObject {
         mpv_set_option_string(handle, "sub-border-size", "2.5")
         mpv_set_option_string(handle, "audio-pitch-correction", "yes")
 
-        // Network Streaming Buffering (Smooth playback on 4K Remux torrent streams)
+        // Network Streaming Buffering & Fast Start (Smooth playback on 4K Remux torrent streams)
         let bufferSeconds = max(60, Int(Config.bufferAheadSeconds * 2))
+        mpv_set_option_string(handle, "cache", "yes")
+        mpv_set_option_string(handle, "cache-secs", "\(bufferSeconds)")
+        mpv_set_option_string(handle, "cache-pause", "yes")
+        mpv_set_option_string(handle, "cache-pause-initial", "no")
+        mpv_set_option_string(handle, "cache-pause-wait", "2")
+        mpv_set_option_string(handle, "force-seekable", "yes")
         mpv_set_option_string(handle, "demuxer-max-bytes", "256MiB")
         mpv_set_option_string(handle, "demuxer-max-back-bytes", "128MiB")
         mpv_set_option_string(handle, "demuxer-readahead-secs", "\(bufferSeconds)")
@@ -657,58 +665,63 @@ public class MPVPlayerEngine: ObservableObject {
 
     public func refreshTracks() {
         guard let handle = mpv else { return }
-        var count: Int64 = 0
-        guard mpv_get_property(handle, "track-list/count", MPV_FORMAT_INT64, &count) >= 0 else { return }
+        eventQueue.async { [weak self] in
+            guard let self = self else { return }
+            var count: Int64 = 0
+            guard mpv_get_property(handle, "track-list/count", MPV_FORMAT_INT64, &count) >= 0 else { return }
 
-        var audio: [MPVTrackInfo] = []
-        var subs: [MPVTrackInfo] = []
-        var activeAudio: Int32? = nil
-        var activeSub: Int32? = nil
+            var audio: [MPVTrackInfo] = []
+            var subs: [MPVTrackInfo] = []
+            var activeAudio: Int32? = nil
+            var activeSub: Int32? = nil
 
-        for i in 0..<count {
-            guard let typeC = mpv_get_property_string(handle, "track-list/\(i)/type") else { continue }
-            let type = String(cString: typeC)
-            mpv_free(typeC)
+            for i in 0..<count {
+                guard let typeC = mpv_get_property_string(handle, "track-list/\(i)/type") else { continue }
+                let type = String(cString: typeC)
+                mpv_free(typeC)
 
-            var trackId: Int64 = 0
-            mpv_get_property(handle, "track-list/\(i)/id", MPV_FORMAT_INT64, &trackId)
-            let id32 = Int32(trackId)
+                var trackId: Int64 = 0
+                mpv_get_property(handle, "track-list/\(i)/id", MPV_FORMAT_INT64, &trackId)
+                let id32 = Int32(trackId)
 
-            var isSel: Int32 = 0
-            mpv_get_property(handle, "track-list/\(i)/selected", MPV_FORMAT_FLAG, &isSel)
-            let isEnabled = isSel != 0
+                var isSel: Int32 = 0
+                mpv_get_property(handle, "track-list/\(i)/selected", MPV_FORMAT_FLAG, &isSel)
+                let isEnabled = isSel != 0
 
-            var label = "Track \(id32)"
-            if let titleC = mpv_get_property_string(handle, "track-list/\(i)/title") {
-                let t = String(cString: titleC)
-                if !t.isEmpty { label = t }
-                mpv_free(titleC)
-            } else if let langC = mpv_get_property_string(handle, "track-list/\(i)/lang") {
-                let l = String(cString: langC)
-                if !l.isEmpty { label = l.uppercased() }
-                mpv_free(langC)
+                var label = "Track \(id32)"
+                if let titleC = mpv_get_property_string(handle, "track-list/\(i)/title") {
+                    let t = String(cString: titleC)
+                    if !t.isEmpty { label = t }
+                    mpv_free(titleC)
+                } else if let langC = mpv_get_property_string(handle, "track-list/\(i)/lang") {
+                    let l = String(cString: langC)
+                    if !l.isEmpty { label = l.uppercased() }
+                    mpv_free(langC)
+                }
+
+                var langStr: String? = nil
+                if let langC = mpv_get_property_string(handle, "track-list/\(i)/lang") {
+                    langStr = String(cString: langC)
+                    mpv_free(langC)
+                }
+
+                let track = MPVTrackInfo(id: id32, name: label, language: langStr, isEnabled: isEnabled)
+                if type == "audio" {
+                    audio.append(track)
+                    if isEnabled { activeAudio = id32 }
+                } else if type == "sub" {
+                    subs.append(track)
+                    if isEnabled { activeSub = id32 }
+                }
             }
 
-            var langStr: String? = nil
-            if let langC = mpv_get_property_string(handle, "track-list/\(i)/lang") {
-                langStr = String(cString: langC)
-                mpv_free(langC)
-            }
-
-            let track = MPVTrackInfo(id: id32, name: label, language: langStr, isEnabled: isEnabled)
-            if type == "audio" {
-                audio.append(track)
-                if isEnabled { activeAudio = id32 }
-            } else if type == "sub" {
-                subs.append(track)
-                if isEnabled { activeSub = id32 }
+            DispatchQueue.main.async {
+                self.availableAudioTracks = audio
+                self.selectedAudioTrackId = activeAudio
+                self.availableSubtitleTracks = subs
+                self.selectedSubtitleTrackId = activeSub
             }
         }
-
-        self.availableAudioTracks = audio
-        self.selectedAudioTrackId = activeAudio
-        self.availableSubtitleTracks = subs
-        self.selectedSubtitleTrackId = activeSub
     }
 
     // MARK: - Audio Filters & Lip Sync
