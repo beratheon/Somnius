@@ -786,6 +786,10 @@ struct PlayerView: View {
                             // Option 2: Alternative Sources Drawer
                             Button(action: {
                                 showPlaybackErrorSheet = false
+                                ksEngine.pause()
+                                self.isPlaying = false
+                                self.stallTimer?.invalidate()
+                                self.stallSecondsCount = 0
                                 if availableStreamLinks.isEmpty {
                                     loadAvailableSources()
                                 }
@@ -912,17 +916,20 @@ struct PlayerView: View {
                             subtitlesMenu
                         }
 
-                        // Sources & Quality Switcher Button (Pauses playback and centers window)
+                        // Sources & Quality Switcher Button (Pauses playback and opens sources drawer)
                         Button(action: {
                             userInteracted()
-                            if isPlaying {
-                                togglePlayPause()
-                            }
-                            withAnimation(.easeInOut(duration: 0.25)) {
+                            // Explicitly hard pause video playback to prevent background decode & GPU overhead
+                            ksEngine.pause()
+                            self.isPlaying = false
+                            self.stallTimer?.invalidate()
+                            self.stallSecondsCount = 0
+
+                            withAnimation(.easeInOut(duration: 0.2)) {
                                 showSourcesDrawer = true
-                                if availableStreamLinks.isEmpty {
-                                    loadAvailableSources()
-                                }
+                            }
+                            if availableStreamLinks.isEmpty {
+                                loadAvailableSources()
                             }
                         }) {
                             HStack(spacing: 5) {
@@ -1610,9 +1617,18 @@ struct PlayerView: View {
     }
 
     // MARK: - In-Player Alternative Sources Drawer
+    private func sourceTitle(for link: AggregatedLink, index: Int) -> String {
+        let base = mediaItem?.title ?? "Source"
+        if mediaItem?.type == .series && playingSeasonNumber > 0 && playingEpisodeNumber > 0 {
+            return "\(base) S\(playingSeasonNumber)E\(playingEpisodeNumber) #\(index)"
+        }
+        return "\(base) #\(index)"
+    }
+
     private func loadAvailableSources() {
         guard let media = mediaItem else { return }
         isLoadingSources = true
+        var lastBatchTime: Date = .distantPast
         Task {
             do {
                 let links = try await aggregatorService.fetchBestLinks(
@@ -1620,7 +1636,15 @@ struct PlayerView: View {
                     imdbID: media.imdbID,
                     type: media.type,
                     season: playingSeasonNumber,
-                    episode: playingEpisodeNumber
+                    episode: playingEpisodeNumber,
+                    onBatch: { partialLinks in
+                        let now = Date()
+                        guard now.timeIntervalSince(lastBatchTime) >= 0.35 else { return }
+                        lastBatchTime = now
+                        Task { @MainActor in
+                            self.availableStreamLinks = partialLinks
+                        }
+                    }
                 )
                 await MainActor.run {
                     self.availableStreamLinks = links
@@ -1889,27 +1913,21 @@ struct PlayerView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    VStack(spacing: 8) {
-                        ForEach(availableStreamLinks) { link in
+                    LazyVStack(spacing: 8) {
+                        ForEach(Array(availableStreamLinks.enumerated()), id: \.element.id) { index, link in
                             Button(action: {
                                 switchToLink(link)
                             }) {
                                 HStack(alignment: .center, spacing: 14) {
                                     VStack(alignment: .leading, spacing: 5) {
                                         HStack(alignment: .center, spacing: 8) {
-                                            Text(mediaItem?.title ?? "Stream")
+                                            Text(sourceTitle(for: link, index: index + 1))
                                                 .font(.system(size: 13, weight: .bold))
                                                 .foregroundColor(.white)
                                                 .lineLimit(1)
 
                                             StreamAttributeRow(link: link)
                                         }
-
-                                        Text(link.cleanDisplayTitle)
-                                            .font(.system(size: 11, weight: .regular))
-                                            .foregroundColor(.white.opacity(0.45))
-                                            .lineLimit(2)
-                                            .multilineTextAlignment(.leading)
                                     }
 
                                     Spacer()
@@ -2065,14 +2083,15 @@ struct PlayerView: View {
                 }
                 return nil
             case 1: // 'S' - Sources
-                if self.isPlaying {
-                    self.togglePlayPause()
-                }
-                withAnimation {
+                self.ksEngine.pause()
+                self.isPlaying = false
+                self.stallTimer?.invalidate()
+                self.stallSecondsCount = 0
+                withAnimation(.easeInOut(duration: 0.2)) {
                     self.showSourcesDrawer.toggle()
-                    if self.showSourcesDrawer && self.availableStreamLinks.isEmpty {
-                        self.loadAvailableSources()
-                    }
+                }
+                if self.showSourcesDrawer && self.availableStreamLinks.isEmpty {
+                    self.loadAvailableSources()
                 }
                 return nil
             case 14: // 'E' - Episodes

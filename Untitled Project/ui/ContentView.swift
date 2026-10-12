@@ -483,6 +483,7 @@ struct ContentView: View {
         scrapedLinks = []
         showStreamPicker = true
 
+        var lastBatchTime: Date = .distantPast
         do {
             let links = try await AggregatorService().fetchBestLinks(
                 tmdbID: item.id,
@@ -491,6 +492,9 @@ struct ContentView: View {
                 season: season,
                 episode: episode,
                 onBatch: { partialLinks in
+                    let now = Date()
+                    guard now.timeIntervalSince(lastBatchTime) >= 0.35 else { return }
+                    lastBatchTime = now
                     Task { @MainActor in
                         self.scrapedLinks = partialLinks
                     }
@@ -522,6 +526,7 @@ struct ContentView: View {
             preparingStreamSubtitle = "Finding best media source…"
         }
 
+        var lastAutoBatchTime: Date = .distantPast
         do {
             let links = try await AggregatorService().fetchBestLinks(
                 tmdbID: item.id,
@@ -530,6 +535,9 @@ struct ContentView: View {
                 season: season,
                 episode: episode,
                 onBatch: { partialLinks in
+                    let now = Date()
+                    guard now.timeIntervalSince(lastAutoBatchTime) >= 0.35 else { return }
+                    lastAutoBatchTime = now
                     Task { @MainActor in
                         self.scrapedLinks = partialLinks
                     }
@@ -670,7 +678,7 @@ struct ContentView: View {
         isFetchingStreams = true
         withAnimation(.easeInOut(duration: 0.25)) {
             self.isPreparingStream = true
-            self.preparingStreamTitle = selectedMediaItem?.title ?? link.cleanDisplayTitle
+            self.preparingStreamTitle = selectedMediaItem?.title ?? "Media Stream"
             self.preparingStreamSubtitle = "Buffering \(link.resolutionBadge) media stream..."
         }
         do {
@@ -758,6 +766,11 @@ struct StreamSelectionSheet: View {
         case "HDR/DV": return base.filter { $0.hdrTag != nil }
         default: return base
         }
+    }
+
+    private func sourceTitle(for link: AggregatedLink, index: Int) -> String {
+        let base = mediaItem?.title ?? "Source"
+        return "\(base) #\(index)"
     }
 
     var body: some View {
@@ -918,41 +931,41 @@ struct StreamSelectionSheet: View {
                             .padding(.horizontal, 16)
                         }
 
-                        List {
-                            ForEach(filteredLinks) { link in
-                                Button(action: { onSelect(link) }) {
-                                    HStack(spacing: 14) {
-                                        VStack(alignment: .leading, spacing: 5) {
-                                            HStack(spacing: 8) {
-                                                Text(mediaItem?.title ?? "Media")
-                                                    .font(.system(size: 13, weight: .bold))
-                                                    .foregroundColor(.white)
-                                                    .lineLimit(1)
-                                                StreamAttributeRow(link: link)
+                        ScrollView {
+                            LazyVStack(spacing: 8) {
+                                ForEach(Array(filteredLinks.enumerated()), id: \.element.id) { index, link in
+                                    Button(action: { onSelect(link) }) {
+                                        HStack(spacing: 14) {
+                                            VStack(alignment: .leading, spacing: 5) {
+                                                HStack(spacing: 8) {
+                                                    Text(sourceTitle(for: link, index: index + 1))
+                                                        .font(.system(size: 13, weight: .bold))
+                                                        .foregroundColor(.white)
+                                                        .lineLimit(1)
+                                                    StreamAttributeRow(link: link)
+                                                }
                                             }
 
-                                            Text(link.cleanDisplayTitle)
-                                                .font(.system(size: 11, weight: .regular))
-                                                .foregroundColor(.white.opacity(0.45))
-                                                .lineLimit(2)
+                                            Spacer()
+
+                                            Image(systemName: "play.fill")
+                                                .font(.system(size: 11, weight: .bold))
+                                                .foregroundColor(.white.opacity(0.85))
+                                                .frame(width: 30, height: 30)
+                                                .background(Color.white.opacity(0.08))
+                                                .clipShape(Circle())
                                         }
-
-                                        Spacer()
-
-                                        Image(systemName: "play.fill")
-                                            .font(.system(size: 11, weight: .bold))
-                                            .foregroundColor(.white.opacity(0.85))
-                                            .frame(width: 30, height: 30)
-                                            .background(Color.white.opacity(0.08))
-                                            .clipShape(Circle())
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 10)
+                                        .background(Color.white.opacity(0.04))
+                                        .cornerRadius(12)
                                     }
-                                    .padding(.vertical, 6)
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(PlainButtonStyle())
-                                .listRowBackground(Color.white.opacity(0.03))
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 16)
                         }
-                        .scrollContentBackground(.hidden)
                     }
                 }
             }
