@@ -211,17 +211,16 @@ struct CenteredKSVideoHost: NSViewRepresentable {
         coordinator.onPlay = onPlay
         coordinator.onStateChanged = onStateChanged
         coordinator.onFinish = onFinish
-        if coordinator.playerLayer?.url != url {
-            if let playerLayer = coordinator.playerLayer {
+        if let playerLayer = coordinator.playerLayer {
+            if playerLayer.url.absoluteString != url.absoluteString {
                 playerLayer.set(url: url, options: options)
-                playerLayer.play()
-            } else if nsView.subviews.isEmpty {
-                let playerView = coordinator.makeView(url: url, options: options)
-                playerView.wantsLayer = true
-                playerView.autoresizingMask = [.width, .height]
-                playerView.frame = nsView.bounds
-                nsView.addSubview(playerView)
             }
+        } else if nsView.subviews.isEmpty {
+            let playerView = coordinator.makeView(url: url, options: options)
+            playerView.wantsLayer = true
+            playerView.autoresizingMask = [.width, .height]
+            playerView.frame = nsView.bounds
+            nsView.addSubview(playerView)
         }
     }
 

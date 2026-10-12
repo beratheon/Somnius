@@ -68,11 +68,11 @@ public class KSPlayerEngine: ObservableObject {
         KSOptions.isAccurateSeek = true
         KSOptions.isSeekedAutoPlay = true
         KSOptions.canStartPictureInPictureAutomaticallyFromInline = true
-        KSOptions.preferredForwardBufferDuration = 1.0
+        KSOptions.preferredForwardBufferDuration = 6.0
         KSOptions.maxBufferDuration = max(60.0, Double(Config.bufferAheadSeconds) * 2)
 
         options.hardwareDecode = true
-        options.asynchronousDecompression = true
+        options.asynchronousDecompression = false
         options.isSecondOpen = true
         options.probesize = 1024 * 1024 // 1MB stream probe for fast start
         options.maxAnalyzeDuration = 1_500_000
@@ -84,7 +84,7 @@ public class KSPlayerEngine: ObservableObject {
         options.formatContextOptions["rw_timeout"] = 30000000 // 30s timeout for P2P buffer
         options.formatContextOptions["timeout"] = 30000000
         options.decoderOptions["threads"] = "auto"
-        options.preferredForwardBufferDuration = 1.0
+        options.preferredForwardBufferDuration = 6.0
         options.maxBufferDuration = max(60.0, Double(Config.bufferAheadSeconds) * 2)
         options.isAccurateSeek = true
         options.isSeekedAutoPlay = true
