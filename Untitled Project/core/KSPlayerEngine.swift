@@ -397,6 +397,11 @@ public class KSPlayerEngine: ObservableObject {
     }
 
     public func reset() {
+        if let player = coordinator.playerLayer?.player {
+            player.pause()
+            player.shutdown()
+        }
+        coordinator.playerLayer?.pause()
         coordinator.resetPlayer()
         currentURL = nil
         currentTime = 0

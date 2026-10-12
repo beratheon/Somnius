@@ -450,14 +450,24 @@ class AggregatorService {
     public static func stopAllTorrentMissions() async {
         guard let url = URL(string: "http://127.0.0.1:11470/removeAll") else { return }
         var request = URLRequest(url: url)
-        request.timeoutInterval = 1.0
+        request.httpMethod = "GET"
+        request.timeoutInterval = 2.0
         _ = try? await URLSession.shared.data(for: request)
     }
 
-    /// Stops all running background torrent swarms and removes cached data (used on player exit / app quit)
+    /// Terminates any background torrent engine process spawned by Somnius so it stops consuming CPU/network/disk
+    public static func terminateActiveEngineProcess() {
+        if let proc = activeEngineProcess, proc.isRunning {
+            proc.terminate()
+            activeEngineProcess = nil
+        }
+    }
+
+    /// Stops all running background torrent swarms, shuts down child engine processes, and removes cached data (used on player exit / app quit)
     public static func stopAndCleanAllTorrentMissions() {
         Task {
             await stopAllTorrentMissions()
+            terminateActiveEngineProcess()
         }
 
         // Clear any lingering torrent cache in stremio-cache directory in the background

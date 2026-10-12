@@ -225,7 +225,13 @@ struct CenteredKSVideoHost: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: KSVideoPlayer.Coordinator) {
+        if let player = coordinator.playerLayer?.player {
+            player.pause()
+            player.shutdown()
+        }
+        coordinator.playerLayer?.pause()
         coordinator.resetPlayer()
+        nsView.subviews.forEach { $0.removeFromSuperview() }
         AggregatorService.stopAndCleanAllTorrentMissions()
     }
 }
@@ -393,6 +399,7 @@ struct PlayerView: View {
     @State private var countdownTimer: Timer? = nil
     @State private var prefetchedNextEpisodeURL: URL? = nil
     @State private var isPrefetchingNextEpisode: Bool = false
+    @State private var precacheTask: Task<Void, Never>? = nil
 
     // Subtitles & Audio Tracks
     @State private var subtitles: [SubtitleTrack] = []
@@ -1544,7 +1551,9 @@ struct PlayerView: View {
         let nextEp = playingEpisodeNumber + 1
         guard let media = mediaItem else { return }
 
-        Task {
+        precacheTask?.cancel()
+        precacheTask = Task {
+            if Task.isCancelled { return }
             print("[PlayerView] Pre-caching next episode S\(playingSeasonNumber) E\(nextEp)...")
             if let links = try? await aggregatorService.fetchBestLinks(
                 tmdbID: media.id,
@@ -1553,7 +1562,9 @@ struct PlayerView: View {
                 season: playingSeasonNumber,
                 episode: nextEp
             ), let top = links.first {
+                if Task.isCancelled { return }
                 if let (resURL, _) = try? await aggregatorService.resolveStreamURLWithFallback(startingLink: top, allLinks: links) {
+                    if Task.isCancelled { return }
                     await MainActor.run {
                         self.prefetchedNextEpisodeURL = resURL
                         print("[PlayerView] Successfully pre-cached stream for next episode!")
@@ -1576,6 +1587,8 @@ struct PlayerView: View {
     }
 
     private func teardownPlayer() {
+        precacheTask?.cancel()
+        precacheTask = nil
         hideControlsWorkItem?.cancel()
         countdownTimer?.invalidate()
         stallTimer?.invalidate()

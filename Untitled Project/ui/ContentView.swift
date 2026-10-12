@@ -16,6 +16,9 @@ struct ContentView: View {
     @ObservedObject private var accountManager = AccountManager.shared
     @ObservedObject private var remoteGatekeeper = RemoteGatekeeper.shared
     @State private var showStreamPicker: Bool = false
+    @State private var isPreparingStream: Bool = false
+    @State private var preparingStreamTitle: String? = nil
+    @State private var preparingStreamSubtitle: String? = nil
     @State private var showProfileModal: Bool = false
     @State private var errorMessage: String? = nil
     @State private var hasCompletedOnboarding: Bool = Config.hasCompletedOnboarding
@@ -262,6 +265,10 @@ struct ContentView: View {
                     onDismiss: {
                         showPlayer = false
                         selectedStreamURL = nil
+                        isPreparingStream = false
+                        KSPlayerEngine.shared.pause()
+                        KSPlayerEngine.shared.reset()
+                        AggregatorService.stopAndCleanAllTorrentMissions()
                         if let sel = selectedMediaItem {
                             detailMediaItem = sel
                         }
@@ -344,12 +351,22 @@ struct ContentView: View {
                 hasFinished: $hasFinishedScraping,
                 onSelect: { link in
                     showStreamPicker = false
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        isPreparingStream = true
+                        preparingStreamTitle = selectedMediaItem?.title ?? "Movie"
+                        preparingStreamSubtitle = "\(link.resolutionBadge) • \(link.source) • \(link.quality)"
+                    }
                     Task {
                         await playStream(link: link)
                     }
                 },
                 onAutoPlayBest: {
                     showStreamPicker = false
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        isPreparingStream = true
+                        preparingStreamTitle = selectedMediaItem?.title ?? "Movie"
+                        preparingStreamSubtitle = "Auto-selecting best stream source…"
+                    }
                     Task {
                         await autoPlayTopLink()
                     }
@@ -418,6 +435,21 @@ struct ContentView: View {
                 )
                 .transition(.opacity)
                 .zIndex(150)
+            }
+
+            // Stream Resolution & Pre-Buffer Loading Screen
+            if isPreparingStream && !showPlayer {
+                StreamPreparingOverlay(
+                    title: preparingStreamTitle ?? selectedMediaItem?.title ?? "Movie",
+                    subtitle: preparingStreamSubtitle ?? "Connecting to stream...",
+                    onCancel: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isPreparingStream = false
+                        }
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .zIndex(250)
             }
         }
         .onAppear {
@@ -533,6 +565,7 @@ struct ContentView: View {
             if Config.defaultPlayerSelection != "native",
                let ext = ExternalPlayer(rawValue: Config.defaultPlayerSelection.uppercased()) ?? ExternalPlayer.allCases.first(where: { $0.rawValue.lowercased() == Config.defaultPlayerSelection.lowercased() }),
                ext.isInstalled {
+                withAnimation { self.isPreparingStream = false }
                 let resumeTime = selectedMediaItem.flatMap { WatchlistManager.shared.getResumeTime(id: $0.id, season: playingSeason, episode: playingEpisode) }
                 ext.open(url: url, startTime: resumeTime)
                 if let media = selectedMediaItem {
@@ -542,9 +575,15 @@ struct ContentView: View {
             }
 
             self.selectedStreamURL = url
-            self.showPlayer = true
+            withAnimation(.easeInOut(duration: 0.3)) {
+                self.showPlayer = true
+                self.isPreparingStream = false
+            }
         } catch {
             isFetchingStreams = false
+            withAnimation(.easeInOut(duration: 0.25)) {
+                self.isPreparingStream = false
+            }
             self.errorMessage = "Failed to resolve stream: \(error.localizedDescription)"
         }
     }
@@ -559,6 +598,7 @@ struct ContentView: View {
             if Config.defaultPlayerSelection != "native",
                let ext = ExternalPlayer(rawValue: Config.defaultPlayerSelection.uppercased()) ?? ExternalPlayer.allCases.first(where: { $0.rawValue.lowercased() == Config.defaultPlayerSelection.lowercased() }),
                ext.isInstalled {
+                withAnimation { self.isPreparingStream = false }
                 let resumeTime = selectedMediaItem.flatMap { WatchlistManager.shared.getResumeTime(id: $0.id, season: playingSeason, episode: playingEpisode) }
                 ext.open(url: url, startTime: resumeTime)
                 if let media = selectedMediaItem {
@@ -568,9 +608,15 @@ struct ContentView: View {
             }
 
             self.selectedStreamURL = url
-            self.showPlayer = true
+            withAnimation(.easeInOut(duration: 0.3)) {
+                self.showPlayer = true
+                self.isPreparingStream = false
+            }
         } catch {
             isFetchingStreams = false
+            withAnimation(.easeInOut(duration: 0.25)) {
+                self.isPreparingStream = false
+            }
             errorMessage = "Failed to resolve stream: \(error.localizedDescription)"
         }
     }
@@ -598,6 +644,11 @@ struct ContentView: View {
         }
 
         isFetchingStreams = true
+        withAnimation(.easeInOut(duration: 0.25)) {
+            self.isPreparingStream = true
+            self.preparingStreamTitle = "Direct Stream"
+            self.preparingStreamSubtitle = "Unrestricting & buffering..."
+        }
         do {
             let rd = RealDebridService()
             let resolved = try await rd.unrestrict(urlString: linkString)
@@ -606,14 +657,21 @@ struct ContentView: View {
             if Config.defaultPlayerSelection != "native",
                let ext = ExternalPlayer(rawValue: Config.defaultPlayerSelection.uppercased()) ?? ExternalPlayer.allCases.first(where: { $0.rawValue.lowercased() == Config.defaultPlayerSelection.lowercased() }),
                ext.isInstalled {
+                withAnimation { self.isPreparingStream = false }
                 ext.open(url: resolved)
                 return
             }
 
             self.selectedStreamURL = resolved
-            self.showPlayer = true
+            withAnimation(.easeInOut(duration: 0.3)) {
+                self.showPlayer = true
+                self.isPreparingStream = false
+            }
         } catch {
             isFetchingStreams = false
+            withAnimation(.easeInOut(duration: 0.25)) {
+                self.isPreparingStream = false
+            }
             errorMessage = "Failed to unrestrict link: \(error.localizedDescription)"
         }
     }
@@ -869,6 +927,83 @@ struct FilterChip: View {
                 .clipShape(Capsule())
         }
         .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Stream Preparing Overlay (Minimalist Pastel Feedback)
+struct StreamPreparingOverlay: View {
+    let title: String
+    let subtitle: String
+    var onCancel: () -> Void
+
+    var body: some View {
+        ZStack {
+            // Ambient soft backdrop blur over the film window
+            Color.black.opacity(0.65)
+                .ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                // Elegant pastel circular loader
+                ZStack {
+                    Circle()
+                        .fill(SoftTone.mist.color.opacity(0.12))
+                        .frame(width: 68, height: 68)
+                        .overlay(
+                            Circle()
+                                .stroke(SoftTone.mist.color.opacity(0.25), lineWidth: 1.5)
+                        )
+
+                    ProgressView()
+                        .scaleEffect(1.25)
+                        .tint(SoftTone.mist.color)
+                }
+
+                VStack(spacing: 6) {
+                    Text("Opening Stream…")
+                        .font(.custom("Baskerville", size: 22))
+                        .foregroundColor(.white)
+                        .tracking(0.4)
+
+                    Text(title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.95))
+                        .lineLimit(1)
+                        .multilineTextAlignment(.center)
+
+                    Text(subtitle)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(SoftTone.mist.color.opacity(0.85))
+                        .lineLimit(1)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 16)
+
+                Button(action: onCancel) {
+                    Text("Cancel")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.6))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.06))
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
+                }
+                .buttonStyle(PlainButtonStyle())
+                .padding(.top, 2)
+            }
+            .padding(.horizontal, 32)
+            .padding(.vertical, 28)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Color(red: 0.11, green: 0.11, blue: 0.13).opacity(0.94))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .stroke(Color.white.opacity(0.12), lineWidth: 0.8)
+                    )
+                    .shadow(color: Color.black.opacity(0.6), radius: 30, x: 0, y: 14)
+            )
+            .frame(maxWidth: 380)
+        }
     }
 }
 
