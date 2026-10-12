@@ -226,6 +226,7 @@ struct CenteredKSVideoHost: NSViewRepresentable {
 
     static func dismantleNSView(_ nsView: NSView, coordinator: KSVideoPlayer.Coordinator) {
         coordinator.resetPlayer()
+        AggregatorService.stopAndCleanAllTorrentMissions()
     }
 }
 #endif
@@ -1345,14 +1346,22 @@ struct PlayerView: View {
         }
 
         // Update subtitles only when needed
-        if let embedded = ksEngine.currentEmbeddedSubtitleText {
-            if self.currentSubtitleText != embedded {
-                self.currentSubtitleText = embedded
+        if let sel = selectedSubtitle {
+            if sel.trackID != nil {
+                if let embedded = ksEngine.currentEmbeddedSubtitleText {
+                    if self.currentSubtitleText != embedded {
+                        self.currentSubtitleText = embedded
+                    }
+                } else if self.currentSubtitleText != nil {
+                    self.currentSubtitleText = nil
+                }
+            } else if sel.externalURL != nil {
+                updateSubtitleCue(currentSecond: current)
             }
-        } else if !subtitleCues.isEmpty {
-            updateSubtitleCue(currentSecond: current)
-        } else if self.currentSubtitleText != nil {
-            self.currentSubtitleText = nil
+        } else {
+            if self.currentSubtitleText != nil {
+                self.currentSubtitleText = nil
+            }
         }
 
         // Auto-save history every 5 seconds while playing
@@ -1490,6 +1499,7 @@ struct PlayerView: View {
         #endif
         ksEngine.pause()
         ksEngine.reset()
+        AggregatorService.stopAndCleanAllTorrentMissions()
     }
 
     private func exitPlayer() {

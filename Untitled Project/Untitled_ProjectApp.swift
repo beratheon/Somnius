@@ -1,7 +1,19 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillTerminate(_ notification: Notification) {
+        AggregatorService.stopAndCleanAllTorrentMissions()
+    }
+}
+#endif
 
 @main
 struct Untitled_ProjectApp: App {
+    #if os(macOS)
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    #endif
     @StateObject private var updater = AppUpdater.shared
 
     var body: some Scene {
