@@ -18,8 +18,9 @@ struct AggregatedLink: Identifiable, Codable, Sendable {
     var isBestInCategory: Bool = false
     let sizeString: String?
     let seeds: Int?
+    let fileIdx: Int?
 
-    init(id: String = UUID().uuidString, title: String, rawTitle: String, fileName: String? = nil, url: URL?, infoHash: String?, quality: String, resolutionBadge: String, hdrTag: String?, audioTag: String?, codecTag: String?, source: String, score: Int, isCached: Bool, isBestInCategory: Bool = false, sizeString: String? = nil, seeds: Int? = nil) {
+    init(id: String = UUID().uuidString, title: String, rawTitle: String, fileName: String? = nil, url: URL?, infoHash: String?, quality: String, resolutionBadge: String, hdrTag: String?, audioTag: String?, codecTag: String?, source: String, score: Int, isCached: Bool, isBestInCategory: Bool = false, sizeString: String? = nil, seeds: Int? = nil, fileIdx: Int? = nil) {
         self.id = id
         self.title = title
         self.rawTitle = rawTitle
@@ -37,6 +38,7 @@ struct AggregatedLink: Identifiable, Codable, Sendable {
         self.isBestInCategory = isBestInCategory
         self.sizeString = sizeString
         self.seeds = seeds
+        self.fileIdx = fileIdx
     }
 
     static func cleanQuality(from title: String) -> String {
@@ -77,7 +79,7 @@ struct AggregatedLink: Identifiable, Codable, Sendable {
 }
 
 struct StreamParser {
-    static func parse(rawTitle: String, source: String, url: URL?, infoHash: String?) -> AggregatedLink? {
+    static func parse(rawTitle: String, source: String, url: URL?, infoHash: String?, fileIdx: Int? = nil) -> AggregatedLink? {
         let upper = rawTitle.uppercased()
 
         // 0. Filter out invalid addon configuration error messages & failed access stubs
@@ -244,7 +246,8 @@ struct StreamParser {
             score: baseScore,
             isCached: isCached,
             sizeString: sizeString,
-            seeds: seeds
+            seeds: seeds,
+            fileIdx: fileIdx
         )
     }
 
@@ -259,11 +262,23 @@ struct StreamParser {
     }
 
     private static func extractSeeds(from rawTitle: String) -> Int? {
-        let pattern = #"(?:👤\s*|seeds?:\s*|peers?:\s*|\[)(\d+)"#
+        // Priority 1: Match 👤 or 👥 bust emoji (Stremio standard: Torrentio, Comet, Mediafusion, Knightcrawler)
+        if let bustRange = rawTitle.range(of: #"(?:👤|👥)\s*(\d+)"#, options: .regularExpression) {
+            let matchedStr = String(rawTitle[bustRange])
+            let digits = matchedStr.filter { $0.isNumber }
+            if let num = Int(digits) { return num }
+        }
+
+        // Priority 2: Match explicit seeds / seeders / peers keywords (avoiding false matches like [1080p] or [2024])
+        let pattern = #"(?:\b(?:seeds?|seeders?|peers?)\s*[:/]\s*|\bS:\s*)(\d+)|\b(\d+)\s*(?:seeds?|seeders?|peers?)\b"#
         if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
-           let match = regex.firstMatch(in: rawTitle, range: NSRange(rawTitle.startIndex..., in: rawTitle)),
-           let range = Range(match.range(at: 1), in: rawTitle) {
-            return Int(rawTitle[range])
+           let match = regex.firstMatch(in: rawTitle, range: NSRange(rawTitle.startIndex..., in: rawTitle)) {
+            if match.range(at: 1).location != NSNotFound, let range = Range(match.range(at: 1), in: rawTitle) {
+                return Int(rawTitle[range])
+            }
+            if match.range(at: 2).location != NSNotFound, let range = Range(match.range(at: 2), in: rawTitle) {
+                return Int(rawTitle[range])
+            }
         }
         return nil
     }

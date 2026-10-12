@@ -484,6 +484,12 @@ struct ContentView: View {
         }
 
         candidates.sort { a, b in
+            if !Config.isDebridMode {
+                let sA = a.seeds ?? 0
+                let sB = b.seeds ?? 0
+                if sA != sB { return sA > sB }
+            }
+
             let aQuality = a.quality.lowercased()
             let bQuality = b.quality.lowercased()
             let aMatch = (aQuality == prefQuality || (prefQuality == "4k" && a.quality == "4K") || (prefQuality == "1080p" && a.quality == "FHD") || (prefQuality == "720p" && a.quality == "HD"))

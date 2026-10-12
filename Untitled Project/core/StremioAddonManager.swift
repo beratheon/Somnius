@@ -398,7 +398,7 @@ class StremioAddonManager: ObservableObject {
                         let combinedText = "\(nameText) \n \(titleText)"
                         let streamURL = stream.url.flatMap { URL(string: $0) }
 
-                        return StreamParser.parse(rawTitle: combinedText, source: addon.name, url: streamURL, infoHash: stream.infoHash)
+                        return StreamParser.parse(rawTitle: combinedText, source: addon.name, url: streamURL, infoHash: stream.infoHash, fileIdx: stream.fileIdx)
                     }
                     if !items.isEmpty {
                         return items
@@ -452,7 +452,7 @@ class StremioAddonManager: ObservableObject {
                 let streamURL = stream.url.flatMap { URL(string: $0) }
                 let finalSource = source ?? nameText
 
-                return StreamParser.parse(rawTitle: combinedText, source: finalSource, url: streamURL, infoHash: stream.infoHash)
+                return StreamParser.parse(rawTitle: combinedText, source: finalSource, url: streamURL, infoHash: stream.infoHash, fileIdx: stream.fileIdx)
             }
         } catch {
             return []

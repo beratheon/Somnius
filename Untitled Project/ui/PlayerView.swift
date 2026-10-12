@@ -1614,6 +1614,12 @@ struct PlayerView: View {
                     let bMatch = (bQuality == prefQuality || (prefQuality == "4k" && b.quality == "4K") || (prefQuality == "1080p" && b.quality == "FHD") || (prefQuality == "720p" && b.quality == "HD"))
                     if aMatch != bMatch { return aMatch && !bMatch }
 
+                    if !Config.isDebridMode {
+                        let sA = a.seeds ?? 0
+                        let sB = b.seeds ?? 0
+                        if sA != sB { return sA > sB }
+                    }
+
                     // 2. Cached status priority
                     if a.isCached != b.isCached { return a.isCached && !b.isCached }
 

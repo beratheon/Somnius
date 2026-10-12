@@ -42,7 +42,11 @@ struct StreamAttributeRow: View {
             SoftBadge(text: link.resolutionBadge, tone: .mist)
             if let hdr = link.hdrTag { SoftBadge(text: hdr, tone: .sand) }
             if let size = link.sizeString { SoftBadge(text: size, tone: .neutral) }
-            if link.isCached { SoftBadge(text: "Instant", tone: .sage) }
+            if link.isCached {
+                SoftBadge(text: "Instant", tone: .sage)
+            } else if let s = link.seeds, s > 0 {
+                SoftBadge(text: "👤 \(s)", tone: s >= 50 ? .sage : (s >= 10 ? .sand : .neutral))
+            }
         }
         .fixedSize(horizontal: true, vertical: false)
     }

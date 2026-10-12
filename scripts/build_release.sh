@@ -62,6 +62,9 @@ rm -f "$DMG_PATH" "$BUILD_DIR/temp.dmg"
 # Create temporary writeable DMG
 hdiutil create -srcfolder "$DMG_STAGING" -volname "$APP_NAME" -fs HFS+ -fsargs "-c c=64,a=16,e=16" -format UDRW -size 700m "$BUILD_DIR/temp.dmg" -quiet
 
+# Unmount any stale volume to avoid mount collision
+diskutil unmount force "/Volumes/$APP_NAME" 2>/dev/null || true
+
 # Mount writeable DMG
 DEVICE=$(hdiutil attach -readwrite -noverify -noautoopen "$BUILD_DIR/temp.dmg" | awk 'NR==1{print $1}')
 sleep 1
@@ -71,7 +74,7 @@ osascript <<APPLESCRIPT || true
 tell application "Finder"
     tell disk "$APP_NAME"
         open
-        delay 0.5
+        delay 1
         set current view of container window to icon view
         set toolbar visible of container window to false
         set statusbar visible of container window to false
@@ -80,9 +83,9 @@ tell application "Finder"
         set icon size of viewOptions to 120
         set arrangement of viewOptions to not arranged
         try
-            set background picture of viewOptions to file ".background:background.png"
+            set background picture of viewOptions to POSIX file ("/Volumes/$APP_NAME/.background/background.png")
         end try
-        delay 0.5
+        delay 1
         try
             set position of item "$APP_NAME.app" of container window to {175, 175}
         end try
@@ -93,13 +96,16 @@ tell application "Finder"
                 set position of file "Applications" of container window to {485, 175}
             end try
         end try
+        delay 1
         update without registering applications
-        delay 0.5
+        delay 1
         close
     end tell
 end tell
 APPLESCRIPT
 
+# Wait for Finder to flush .DS_Store
+sleep 2
 sync
 hdiutil detach "$DEVICE" -quiet -force || true
 sleep 1

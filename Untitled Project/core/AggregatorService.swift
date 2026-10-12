@@ -78,27 +78,14 @@ class AggregatorService {
 
         // 4. Filter based on setup mode: Classic vs Debrid
         if !Config.isDebridMode {
-            let engineAvailable = await isLocalStreamingEngineAlive() || 
-                FileManager.default.fileExists(atPath: "/Applications/StremioService.app/Contents/MacOS/stremio-runtime") ||
-                FileManager.default.fileExists(atPath: "/Applications/Stremio.app/Contents/MacOS/stremio-runtime") ||
-                FileManager.default.fileExists(atPath: "/Applications/Stremio Enhanced.app/Contents/MacOS/stremio-runtime")
-
-            if engineAvailable || Config.defaultPlayerSelection != "native" {
-                // Local streaming daemon or external player available: rank healthy torrents by seeders
-                let hasSeededLinks = uniqueLinks.contains { ($0.seeds ?? 0) >= 1 }
-                if hasSeededLinks {
-                    uniqueLinks = uniqueLinks.filter { link in
-                        if let seeds = link.seeds {
-                            return seeds > 0
-                        }
-                        return true
-                    }
-                }
-            } else {
-                // Without Debrid or local engine, ONLY pull direct HTTP/HTTPS streams that guaranteed work
+            // For debridless P2P streaming, filter for healthy torrents with seeds >= 1
+            let hasSeededLinks = uniqueLinks.contains { ($0.seeds ?? 0) >= 1 }
+            if hasSeededLinks {
                 uniqueLinks = uniqueLinks.filter { link in
-                    guard let scheme = link.url?.scheme?.lowercased() else { return false }
-                    return scheme == "http" || scheme == "https"
+                    if let seeds = link.seeds {
+                        return seeds > 0
+                    }
+                    return link.url?.scheme?.lowercased() == "http" || link.url?.scheme?.lowercased() == "https"
                 }
             }
         } else if Config.showOnlyCachedResults {
@@ -109,29 +96,36 @@ class AggregatorService {
         }
 
         // 5. Sort links:
-        // Prioritize Quality (4K > FHD > HD), Dolby Vision / HDR (DV > HDR10+ > HDR), Remux, then Audio & Seeders
         uniqueLinks.sort { l1, l2 in
             if Config.isDebridMode {
+                // Debrid mode: Cached instant links first, then Quality rank, then Seeds, then Score
                 if l1.isCached != l2.isCached {
                     return l1.isCached && !l2.isCached
                 }
+                let rank1 = self.qualityRank(for: l1)
+                let rank2 = self.qualityRank(for: l2)
+                if rank1 != rank2 {
+                    return rank1 > rank2
+                }
+                let s1 = l1.seeds ?? 0
+                let s2 = l2.seeds ?? 0
+                if s1 != s2 { return s1 > s2 }
+                return l1.score > l2.score
             } else {
-                let l1IsDirect = (l1.url?.scheme?.lowercased() == "http" || l1.url?.scheme?.lowercased() == "https")
-                let l2IsDirect = (l2.url?.scheme?.lowercased() == "http" || l2.url?.scheme?.lowercased() == "https")
-                if l1IsDirect != l2IsDirect { return l1IsDirect && !l2IsDirect }
+                // Debridless mode: List strictly according to seeders first (highest seeders at top)!
+                let s1 = l1.seeds ?? 0
+                let s2 = l2.seeds ?? 0
+                if s1 != s2 {
+                    return s1 > s2
+                }
+                // When seeders are equal, rank by resolution & quality, then score
+                let rank1 = self.qualityRank(for: l1)
+                let rank2 = self.qualityRank(for: l2)
+                if rank1 != rank2 {
+                    return rank1 > rank2
+                }
+                return l1.score > l2.score
             }
-
-            let rank1 = self.qualityRank(for: l1)
-            let rank2 = self.qualityRank(for: l2)
-            if rank1 != rank2 {
-                return rank1 > rank2
-            }
-
-            let s1 = l1.seeds ?? 0
-            let s2 = l2.seeds ?? 0
-            if s1 != s2 { return s1 > s2 }
-
-            return l1.score > l2.score
         }
 
         if !uniqueLinks.isEmpty {
@@ -169,17 +163,17 @@ class AggregatorService {
         return score
     }
 
+    private static var activeEngineProcess: Process?
+
     func resolveStreamURLWithFallback(startingLink: AggregatedLink, allLinks: [AggregatedLink]) async throws -> (URL, AggregatedLink) {
         let candidates = [startingLink] + allLinks.filter { $0.id != startingLink.id }
         let key = Config.realDebridApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // 1. Direct playable HTTP/HTTPS stream check
-        for candidate in candidates {
-            if let directURL = candidate.url,
-               let scheme = directURL.scheme?.lowercased(),
-               (scheme == "http" || scheme == "https") {
-                return (directURL, candidate)
-            }
+        // 1. Direct playable HTTP/HTTPS stream check for requested startingLink
+        if let directURL = startingLink.url,
+           let scheme = directURL.scheme?.lowercased(),
+           (scheme == "http" || scheme == "https") {
+            return (directURL, startingLink)
         }
 
         // 2. Real-Debrid instant cloud resolution (if configured)
@@ -212,7 +206,8 @@ class AggregatorService {
                 }
 
                 if let infoHash = hashToResolve, !infoHash.isEmpty {
-                    if let localStreamURL = URL(string: "http://127.0.0.1:11470/\(infoHash)/0") {
+                    let fileIdx = candidate.fileIdx ?? 0
+                    if let localStreamURL = URL(string: "http://127.0.0.1:11470/\(infoHash)/\(fileIdx)") {
                         return (localStreamURL, candidate)
                     }
                 }
@@ -228,11 +223,29 @@ class AggregatorService {
             }
         }
 
+        // 5. If native player requested but local engine unavailable, check if IINA or VLC is installed
+        for candidate in candidates {
+            if let u = candidate.url, u.scheme?.lowercased() == "magnet" {
+                if FileManager.default.fileExists(atPath: "/Applications/IINA.app") || FileManager.default.fileExists(atPath: "/Applications/VLC.app") {
+                    return (u, candidate)
+                }
+            }
+        }
+
+        // 6. Direct HTTP/HTTPS stream from any candidate
+        for candidate in candidates {
+            if let directURL = candidate.url,
+               let scheme = directURL.scheme?.lowercased(),
+               (scheme == "http" || scheme == "https") {
+                return (directURL, candidate)
+            }
+        }
+
         throw NSError(
             domain: "AggregatorService",
             code: 404,
             userInfo: [
-                NSLocalizedDescriptionKey: "No working stream found. Please choose another source or download to watch offline."
+                NSLocalizedDescriptionKey: "No working stream found. In debridless mode, please connect Real-Debrid in Settings or ensure Stremio / IINA / VLC is available."
             ]
         )
     }
@@ -255,24 +268,37 @@ class AggregatorService {
         }
 
         let candidates = [
+            (bin: "/Applications/Stremio.app/Contents/MacOS/node", arg: "/Applications/Stremio.app/Contents/Resources/server.js"),
             (bin: "/Applications/StremioService.app/Contents/MacOS/stremio-runtime", arg: "/Applications/StremioService.app/Contents/MacOS/server.js"),
-            (bin: "/Applications/Stremio.app/Contents/MacOS/stremio-runtime", arg: "/Applications/Stremio.app/Contents/MacOS/server.js"),
-            (bin: "/Applications/Stremio Enhanced.app/Contents/MacOS/stremio-runtime", arg: "/Applications/Stremio Enhanced.app/Contents/MacOS/server.js")
+            (bin: "/Applications/StremioService.app/Contents/MacOS/stremio-service", arg: ""),
+            (bin: "/Applications/Stremio Enhanced.app/Contents/MacOS/node", arg: "/Applications/Stremio Enhanced.app/Contents/Resources/server.js"),
+            (bin: "/usr/local/bin/node", arg: "/Applications/Stremio.app/Contents/Resources/server.js"),
+            (bin: "/opt/homebrew/bin/node", arg: "/Applications/Stremio.app/Contents/Resources/server.js")
         ]
 
         for item in candidates {
-            if FileManager.default.fileExists(atPath: item.bin) && FileManager.default.fileExists(atPath: item.arg) {
+            if FileManager.default.fileExists(atPath: item.bin) {
+                if !item.arg.isEmpty && !FileManager.default.fileExists(atPath: item.arg) {
+                    continue
+                }
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: item.bin)
-                process.arguments = [item.arg]
+                if !item.arg.isEmpty {
+                    process.arguments = [item.arg]
+                }
                 process.standardOutput = FileHandle.nullDevice
                 process.standardError = FileHandle.nullDevice
-                try? process.run()
-                break
+                do {
+                    try process.run()
+                    Self.activeEngineProcess = process
+                    break
+                } catch {
+                    continue
+                }
             }
         }
 
-        for _ in 0..<12 {
+        for _ in 0..<16 {
             try? await Task.sleep(nanoseconds: 150_000_000)
             if await isLocalStreamingEngineAlive() {
                 return true
