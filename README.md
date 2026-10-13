@@ -9,10 +9,9 @@ Then you will use your apitoken to access debrid sources
 What's New:
 
 Dual Video Engines: Native KSPlayer + AVPlayer with fast audio & subtitle track switching.
-Unified Metadata Engine: TMDB & TVDB API integration for accurate TV shows, series, docuseries, and movies.
+Unified Metadata Engine: TMDB & TVDB API integration 
 Universal Auto-Play: Smart source selection, file size bandwidth limiter, and automatic hoster notice-clip skipping.
-Decentralized Streaming Add-ons: Built-in support for Torrentio, Comet v2, Meteor, and Knaben.
-Native Downloads: Built-in torrent and debrid download manager with background transmission.
+Decentralized Streaming Add-ons: Built-in support for Stremio Community Add-ons
 Remote Gatekeeper: Automatic update checking and preview lifecycle management.
 Installation (macOS):
 
