@@ -373,6 +373,7 @@ struct PlayerView: View {
     @State private var resumeTimeAvailable: Double? = nil
     @State private var showResumeBanner: Bool = false
     @State private var toastMessage: String? = nil
+    @State private var isPlayerTornDown: Bool = false
 
     // Playback error detection
     @State private var playbackError: String? = nil
@@ -1649,6 +1650,8 @@ struct PlayerView: View {
     }
 
     private func teardownPlayer() {
+        guard !isPlayerTornDown else { return }
+        isPlayerTornDown = true
         precacheTask?.cancel()
         precacheTask = nil
         hideControlsWorkItem?.cancel()
@@ -1667,8 +1670,10 @@ struct PlayerView: View {
         }
         NSCursor.unhide()
         #endif
-        ksEngine.shutdown()
-        AggregatorService.stopAndCleanAllTorrentMissions()
+        DispatchQueue.main.async {
+            self.ksEngine.shutdown()
+            AggregatorService.stopAndCleanAllTorrentMissions()
+        }
     }
 
     private func exitPlayer() {

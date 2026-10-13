@@ -840,17 +840,15 @@ public class MPVPlayerEngine: ObservableObject {
     }
 
     public func shutdown() {
-        reset()
-        let handleToDestroy = self.mpv
+        guard let handle = self.mpv else { return }
         self.mpv = nil
+        reset()
 
-        if let handle = handleToDestroy {
-            mpv_set_wakeup_callback(handle, nil, nil)
-            eventQueue.async {
-                mpv_command_string(handle, "stop")
-                mpv_terminate_destroy(handle)
-                print("🛑 [MPVPlayerEngine] mpv context cleanly terminated and destroyed")
-            }
+        mpv_set_wakeup_callback(handle, nil, nil)
+        eventQueue.async {
+            mpv_command_string(handle, "stop")
+            mpv_terminate_destroy(handle)
+            print("🛑 [MPVPlayerEngine] mpv context cleanly terminated and destroyed")
         }
     }
 
