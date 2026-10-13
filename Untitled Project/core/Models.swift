@@ -556,6 +556,16 @@ struct MediaItem: Identifiable, Codable, Hashable {
         return nil
     }
 
+    var cleanTMDBID: String? {
+        let cleaned = id.replacingOccurrences(of: "tmdb:", with: "")
+                        .replacingOccurrences(of: "tvdb:", with: "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !id.hasPrefix("tt") && Int(cleaned) != nil {
+            return cleaned
+        }
+        return nil
+    }
+
     var initialLogoURL: URL? {
         if let imdb = resolvedIMDbID, !imdb.isEmpty {
             return URL(string: "https://images.metahub.space/logo/medium/\(imdb)/img.png")

@@ -293,7 +293,7 @@ public class MPVPlayerEngine: ObservableObject {
         mpv_observe_property(handle, 8, "track-list/count", MPV_FORMAT_INT64)
 
         // Wakeup Callback
-        let selfPointer = Unmanaged.passRetained(self).toOpaque()
+        let selfPointer = Unmanaged.passUnretained(self).toOpaque()
         mpv_set_wakeup_callback(handle, { ctx in
             guard let ctx = ctx else { return }
             let engine = Unmanaged<MPVPlayerEngine>.fromOpaque(ctx).takeUnretainedValue()
@@ -841,15 +841,23 @@ public class MPVPlayerEngine: ObservableObject {
 
     public func shutdown() {
         reset()
-        if let handle = mpv {
+        let handleToDestroy = self.mpv
+        self.mpv = nil
+
+        if let handle = handleToDestroy {
             mpv_set_wakeup_callback(handle, nil, nil)
-            mpv_terminate_destroy(handle)
-            self.mpv = nil
+            eventQueue.async {
+                mpv_command_string(handle, "stop")
+                mpv_terminate_destroy(handle)
+                print("🛑 [MPVPlayerEngine] mpv context cleanly terminated and destroyed")
+            }
         }
     }
 
     deinit {
-        if let handle = mpv {
+        let handleToDestroy = self.mpv
+        self.mpv = nil
+        if let handle = handleToDestroy {
             mpv_set_wakeup_callback(handle, nil, nil)
             mpv_terminate_destroy(handle)
         }

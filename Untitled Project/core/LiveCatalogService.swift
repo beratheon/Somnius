@@ -127,10 +127,18 @@ struct StremioMetaItem: Codable {
         let bgUrl = (background ?? thumbnail).flatMap { URL(string: $0) }
         let rat = imdbRating.flatMap { Double($0) }
         let mType: MediaItem.MediaType = (type.lowercased() == "series") ? .series : .movie
-        let imdbId = id.hasPrefix("tt") ? id : nil
+        var cleanID = id
+        var imdbId: String? = nil
+        if id.hasPrefix("tt") {
+            imdbId = id
+        } else if id.hasPrefix("tmdb:") {
+            cleanID = String(id.dropFirst(5))
+        } else if id.hasPrefix("tvdb:") {
+            cleanID = String(id.dropFirst(5))
+        }
 
         return MediaItem(
-            id: id,
+            id: cleanID,
             title: name,
             description: description,
             releaseDate: relDate,

@@ -266,7 +266,7 @@ struct ContentView: View {
                         showPlayer = false
                         selectedStreamURL = nil
                         isPreparingStream = false
-                        KSPlayerEngine.shared.reset()
+                        KSPlayerEngine.shared.shutdown()
                         AggregatorService.stopAndCleanAllTorrentMissions()
                         if let sel = selectedMediaItem {
                             detailMediaItem = sel
@@ -489,6 +489,7 @@ struct ContentView: View {
                 tmdbID: item.id,
                 imdbID: item.resolvedIMDbID ?? item.imdbID,
                 type: item.type,
+                title: item.title,
                 season: season,
                 episode: episode,
                 onBatch: { partialLinks in
@@ -532,6 +533,7 @@ struct ContentView: View {
                 tmdbID: item.id,
                 imdbID: item.resolvedIMDbID ?? item.imdbID,
                 type: item.type,
+                title: item.title,
                 season: season,
                 episode: episode,
                 onBatch: { partialLinks in

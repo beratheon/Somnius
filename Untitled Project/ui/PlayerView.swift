@@ -1620,6 +1620,7 @@ struct PlayerView: View {
                 tmdbID: media.id,
                 imdbID: media.resolvedIMDbID ?? media.imdbID,
                 type: .series,
+                title: media.title,
                 season: playingSeasonNumber,
                 episode: nextEp
             ), let top = links.first {
@@ -1666,7 +1667,7 @@ struct PlayerView: View {
         }
         NSCursor.unhide()
         #endif
-        ksEngine.reset()
+        ksEngine.shutdown()
         AggregatorService.stopAndCleanAllTorrentMissions()
     }
 
@@ -1720,6 +1721,7 @@ struct PlayerView: View {
                     tmdbID: media.id,
                     imdbID: media.resolvedIMDbID ?? media.imdbID,
                     type: media.type,
+                    title: media.title,
                     season: playingSeasonNumber,
                     episode: playingEpisodeNumber,
                     onBatch: { partialLinks in
@@ -1783,6 +1785,7 @@ struct PlayerView: View {
                         tmdbID: media.id,
                         imdbID: media.resolvedIMDbID ?? media.imdbID,
                         type: media.type,
+                        title: media.title,
                         season: self.playingSeasonNumber,
                         episode: self.playingEpisodeNumber
                     )) ?? []
@@ -2286,6 +2289,7 @@ struct PlayerView: View {
                     tmdbID: media.id,
                     imdbID: media.resolvedIMDbID ?? media.imdbID,
                     type: .series,
+                    title: media.title,
                     season: selectedSeasonNumber,
                     episode: episode.episodeNumber
                 )

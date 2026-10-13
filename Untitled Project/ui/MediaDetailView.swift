@@ -1131,6 +1131,38 @@ struct MediaDetailView: View {
     }
 
     private func loadMetadata() {
+        if currentItem.imdbID == nil || currentItem.imdbID?.isEmpty == true {
+            Task {
+                var foundIMDb: String? = nil
+                if let num = currentItem.cleanTMDBID {
+                    foundIMDb = try? await tmdbService.fetchIMDbID(tmdbID: num, type: currentItem.type)
+                }
+                if foundIMDb == nil && !currentItem.title.isEmpty {
+                    foundIMDb = await tmdbService.resolveIMDbIDByTitle(title: currentItem.title, type: currentItem.type)
+                }
+                if let resolved = foundIMDb {
+                    await MainActor.run {
+                        self.currentItem = MediaItem(
+                            id: self.currentItem.id,
+                            title: self.currentItem.title,
+                            description: self.currentItem.description,
+                            releaseDate: self.currentItem.releaseDate,
+                            rating: self.currentItem.rating,
+                            type: self.currentItem.type,
+                            imdbID: resolved,
+                            posterURL: self.currentItem.posterURL,
+                            backdropURL: self.currentItem.backdropURL,
+                            voteCount: self.currentItem.voteCount
+                        )
+                        if self.logoURL == nil, let newLogo = self.currentItem.initialLogoURL {
+                            self.logoURL = newLogo
+                            self.isLoadingLogo = false
+                        }
+                    }
+                }
+            }
+        }
+
         if currentItem.type == .series {
             fetchSeriesSeasons()
         } else {
@@ -1192,7 +1224,7 @@ struct MediaDetailView: View {
     private func fetchExtras() {
         isLoadingExtras = true
         Task {
-            let res = await tmdbService.fetchMediaExtras(id: currentItem.id, imdbID: currentItem.imdbID, type: currentItem.type)
+            let res = await tmdbService.fetchMediaExtras(id: currentItem.id, imdbID: currentItem.imdbID, type: currentItem.type, title: currentItem.title)
             await MainActor.run {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     self.extras = res
@@ -1275,7 +1307,7 @@ struct MediaDetailView: View {
     private func fetchCollection() {
         isLoadingCollection = true
         Task {
-            let col = await tmdbService.fetchMovieCollection(movieID: currentItem.id, imdbID: currentItem.imdbID)
+            let col = await tmdbService.fetchMovieCollection(movieID: currentItem.id, imdbID: currentItem.imdbID, title: currentItem.title)
             await MainActor.run {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     self.collectionResult = col
@@ -1288,7 +1320,7 @@ struct MediaDetailView: View {
     private func fetchSimilar() {
         isLoadingSimilar = true
         Task {
-            let sim = await tmdbService.fetchSimilarMedia(id: currentItem.id, imdbID: currentItem.imdbID, type: currentItem.type)
+            let sim = await tmdbService.fetchSimilarMedia(id: currentItem.id, imdbID: currentItem.imdbID, type: currentItem.type, title: currentItem.title)
             await MainActor.run {
                 self.similarItems = sim
                 self.isLoadingSimilar = false
@@ -1335,6 +1367,7 @@ struct MediaDetailView: View {
                     tmdbID: currentItem.id,
                     imdbID: currentItem.resolvedIMDbID ?? currentItem.imdbID,
                     type: currentItem.type,
+                    title: currentItem.title,
                     season: currentItem.type == .series ? selectedSeason : nil,
                     episode: currentItem.type == .series ? 1 : nil,
                     onBatch: { partialLinks in

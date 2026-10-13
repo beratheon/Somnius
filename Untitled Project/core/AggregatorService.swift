@@ -17,36 +17,43 @@ class AggregatorService {
         tmdbID: String,
         imdbID: String? = nil,
         type: MediaItem.MediaType,
+        title: String? = nil,
         season: Int? = nil,
         episode: Int? = nil,
         onBatch: (([AggregatedLink]) -> Void)? = nil
     ) async throws -> [AggregatedLink] {
-        return try await getBestLinks(tmdbID: tmdbID, imdbID: imdbID, type: type, season: season, episode: episode, onBatch: onBatch)
+        return try await getBestLinks(tmdbID: tmdbID, imdbID: imdbID, type: type, title: title, season: season, episode: episode, onBatch: onBatch)
     }
 
     func getBestLinks(
         tmdbID: String,
         imdbID: String? = nil,
         type: MediaItem.MediaType,
+        title: String? = nil,
         season: Int? = nil,
         episode: Int? = nil,
         onBatch: (([AggregatedLink]) -> Void)? = nil
     ) async throws -> [AggregatedLink] {
+        let cleanID = tmdbService.cleanNumericTMDBID(tmdbID) ?? tmdbID
+
         // Resolve IMDb ID once so providers don't duplicate TMDB calls
-        var resolvedIMDb: String? = imdbID
-        if resolvedIMDb == nil || resolvedIMDb!.isEmpty {
-            if tmdbID.hasPrefix("tt") {
-                resolvedIMDb = tmdbID
-            } else {
-                resolvedIMDb = try? await tmdbService.fetchIMDbID(tmdbID: tmdbID, type: type)
+        var resolvedIMDb: String? = (imdbID?.hasPrefix("tt") == true) ? imdbID : nil
+        if resolvedIMDb == nil {
+            if cleanID.hasPrefix("tt") {
+                resolvedIMDb = cleanID
+            } else if let num = tmdbService.cleanNumericTMDBID(cleanID) {
+                resolvedIMDb = try? await tmdbService.fetchIMDbID(tmdbID: num, type: type)
             }
         }
 
         // Title-based fallback for searched items with missing or non-standard external IDs
         if resolvedIMDb == nil || resolvedIMDb!.isEmpty {
-            let fallbackTitle = (try? await tmdbService.fetchTitle(tmdbID: tmdbID, type: type)) ?? tmdbID
-            if !fallbackTitle.isEmpty {
-                resolvedIMDb = await tmdbService.resolveIMDbIDByTitle(title: fallbackTitle, type: type)
+            var candidateTitle = title
+            if candidateTitle == nil || candidateTitle!.isEmpty {
+                candidateTitle = try? await tmdbService.fetchTitle(tmdbID: cleanID, type: type)
+            }
+            if let t = candidateTitle, !t.isEmpty, !t.hasPrefix("tmdb:"), !t.hasPrefix("tt") {
+                resolvedIMDb = await tmdbService.resolveIMDbIDByTitle(title: t, type: type)
             }
         }
 
@@ -55,7 +62,10 @@ class AggregatorService {
         }
 
         // Also fetch title if available to empower indexers like ThePirateBay
-        let title = try? await tmdbService.fetchTitle(tmdbID: tmdbID, type: type)
+        var streamTitle = title
+        if streamTitle == nil || streamTitle!.isEmpty {
+            streamTitle = try? await tmdbService.fetchTitle(tmdbID: cleanID, type: type)
+        }
 
         var accumulatedLinks: [AggregatedLink] = []
 
@@ -64,7 +74,7 @@ class AggregatorService {
             imdbID: baseIMDb,
             tmdbID: tmdbID,
             type: type,
-            title: title,
+            title: streamTitle ?? title,
             season: season,
             episode: episode,
             onBatch: { newBatch in

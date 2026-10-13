@@ -1105,8 +1105,21 @@ class TMDBService {
         throw lastError ?? NSError(domain: "TMDBService", code: 500, userInfo: [NSLocalizedDescriptionKey: "Failed to connect to TMDB services."])
     }
 
+    public func cleanNumericTMDBID(_ rawID: String) -> String? {
+        let cleaned = rawID.replacingOccurrences(of: "tmdb:", with: "")
+                           .replacingOccurrences(of: "tvdb:", with: "")
+                           .trimmingCharacters(in: .whitespacesAndNewlines)
+        if Int(cleaned) != nil {
+            return cleaned
+        }
+        return nil
+    }
+
     func fetchTitle(tmdbID: String, type: MediaItem.MediaType) async throws -> String {
-        let endpoint = (type == .series) ? "/tv/\(tmdbID)" : "/movie/\(tmdbID)"
+        guard let numeric = cleanNumericTMDBID(tmdbID) else {
+            return tmdbID
+        }
+        let endpoint = (type == .series) ? "/tv/\(numeric)" : "/movie/\(numeric)"
         let (data, _) = try await executeRequest(endpoint: endpoint)
 
         struct TitleDetails: Decodable {
@@ -1118,7 +1131,11 @@ class TMDBService {
     }
 
     func fetchIMDbID(tmdbID: String, type: MediaItem.MediaType) async throws -> String {
-        let endpoint = (type == .series) ? "/tv/\(tmdbID)/external_ids" : "/movie/\(tmdbID)/external_ids"
+        if tmdbID.hasPrefix("tt") { return tmdbID }
+        guard let numericID = cleanNumericTMDBID(tmdbID) else {
+            throw NSError(domain: "TMDBService", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid numeric TMDB ID: \(tmdbID)"])
+        }
+        let endpoint = (type == .series) ? "/tv/\(numericID)/external_ids" : "/movie/\(numericID)/external_ids"
         let (data, _) = try await executeRequest(endpoint: endpoint)
 
         struct ExternalIDs: Decodable {
@@ -1474,11 +1491,17 @@ class TMDBService {
     }
 
     func fetchTVSeasons(tvID: String, imdbID: String? = nil, title: String? = nil) async -> [TVSeasonInfo] {
-        var tmdbNumericID: String? = nil
-        if !tvID.hasPrefix("tt") && Int(tvID) != nil {
-            tmdbNumericID = tvID
-        } else if let found = await resolveTMDBID(imdbID: imdbID ?? tvID, type: .series) {
-            tmdbNumericID = found
+        var tmdbNumericID: String? = cleanNumericTMDBID(tvID)
+        if tmdbNumericID == nil, let imdb = imdbID, let num = cleanNumericTMDBID(imdb) {
+            tmdbNumericID = num
+        }
+        if tmdbNumericID == nil {
+            let lookup = imdbID ?? tvID
+            if let found = await resolveTMDBID(imdbID: lookup, type: .series) {
+                tmdbNumericID = found
+            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: .series) {
+                tmdbNumericID = found
+            }
         }
 
         // 1. Try TMDB
@@ -1538,11 +1561,17 @@ class TMDBService {
 
     func fetchSeasonEpisodes(tvID: String, imdbID: String? = nil, seasonNumber: Int, title: String? = nil) async -> [TVEpisodeItem] {
         // 1. First try TMDB directly for high-resolution 16:9 still pictures, precise runtimes, and clean synopsis
-        var tmdbNumericID: String? = nil
-        if !tvID.hasPrefix("tt") && Int(tvID) != nil {
-            tmdbNumericID = tvID
-        } else if let found = await resolveTMDBID(imdbID: imdbID ?? tvID, type: .series) {
-            tmdbNumericID = found
+        var tmdbNumericID: String? = cleanNumericTMDBID(tvID)
+        if tmdbNumericID == nil, let imdb = imdbID, let num = cleanNumericTMDBID(imdb) {
+            tmdbNumericID = num
+        }
+        if tmdbNumericID == nil {
+            let lookup = imdbID ?? tvID
+            if let found = await resolveTMDBID(imdbID: lookup, type: .series) {
+                tmdbNumericID = found
+            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: .series) {
+                tmdbNumericID = found
+            }
         }
 
         var tmdbEpisodes: [TVEpisodeItem]? = nil
@@ -1589,7 +1618,7 @@ class TMDBService {
             if let tvdbID = await tvdb.resolveTVDBSeriesID(id: tvID, imdbID: imdbID, title: title) {
                 let tvdbEps = await tvdb.fetchSeasonEpisodes(tvdbID: tvdbID, seasonNumber: seasonNumber)
                 if !tvdbEps.isEmpty {
-                    let tvdbMap = Dictionary(uniqueKeysWithValues: tvdbEps.map { ($0.episodeNumber, $0) })
+                    let tvdbMap = Dictionary(tvdbEps.map { ($0.episodeNumber, $0) }, uniquingKeysWith: { first, _ in first })
                     let enriched = eps.map { ep -> TVEpisodeItem in
                         let tvdbMatch = tvdbMap[ep.episodeNumber]
                         let finalStill = (ep.stillPath != nil && !ep.stillPath!.isEmpty) ? ep.stillPath : tvdbMatch?.stillPath
@@ -1621,8 +1650,11 @@ class TMDBService {
 
         // 3. Cinemeta fallback if both TMDB and TVDB fail
         var resolvedIMDb = (tvID.hasPrefix("tt") ? tvID : (imdbID?.hasPrefix("tt") == true ? imdbID : nil))
-        if resolvedIMDb == nil && !tvID.isEmpty && !tvID.hasPrefix("tt") {
-            resolvedIMDb = try? await fetchIMDbID(tmdbID: tvID, type: .series)
+        if resolvedIMDb == nil, let num = tmdbNumericID ?? cleanNumericTMDBID(tvID) {
+            resolvedIMDb = try? await fetchIMDbID(tmdbID: num, type: .series)
+        }
+        if resolvedIMDb == nil, let t = title {
+            resolvedIMDb = await resolveIMDbIDByTitle(title: t, type: .series)
         }
 
         if let imdb = resolvedIMDb {
@@ -1700,19 +1732,23 @@ class TMDBService {
         let items: [MediaItem]
     }
 
-    func fetchMovieCollection(movieID: String, imdbID: String? = nil) async -> MovieCollectionResult? {
-        var targetID = movieID
-        if targetID.hasPrefix("tt") || Int(targetID) == nil {
+    func fetchMovieCollection(movieID: String, imdbID: String? = nil, title: String? = nil) async -> MovieCollectionResult? {
+        var targetID: String? = cleanNumericTMDBID(movieID)
+        if targetID == nil, let imdb = imdbID, let num = cleanNumericTMDBID(imdb) {
+            targetID = num
+        }
+        if targetID == nil {
             let lookup = imdbID ?? movieID
             if let found = await resolveTMDBID(imdbID: lookup, type: .movie) {
                 targetID = found
-            } else {
-                return nil
+            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: .movie) {
+                targetID = found
             }
         }
+        guard let validTargetID = targetID else { return nil }
 
         do {
-            let (movieData, _) = try await executeRequest(endpoint: "/movie/\(targetID)")
+            let (movieData, _) = try await executeRequest(endpoint: "/movie/\(validTargetID)")
             struct CollectionRef: Decodable {
                 let id: Int
                 let name: String
@@ -1792,24 +1828,29 @@ class TMDBService {
         }
     }
 
-    // MARK: - Similar & Recommendations
-    func fetchSimilarMedia(id: String, imdbID: String? = nil, type: MediaItem.MediaType) async -> [MediaItem] {
-        var targetID = id
-        if targetID.hasPrefix("tt") || Int(targetID) == nil {
+    func fetchSimilarMedia(id: String, imdbID: String? = nil, type: MediaItem.MediaType, title: String? = nil) async -> [MediaItem] {
+        var targetID: String? = cleanNumericTMDBID(id)
+        if targetID == nil, let imdb = imdbID, let num = cleanNumericTMDBID(imdb) {
+            targetID = num
+        }
+        if targetID == nil {
             let lookup = imdbID ?? id
             if let found = await resolveTMDBID(imdbID: lookup, type: type) {
                 targetID = found
+            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: type) {
+                targetID = found
             }
         }
+        guard let validTargetID = targetID else { return [] }
 
         let prefix = (type == .series) ? "/tv" : "/movie"
         var rawItems: [MediaItem] = []
-        if let (recData, _) = try? await executeRequest(endpoint: "\(prefix)/\(targetID)/recommendations") {
+        if let (recData, _) = try? await executeRequest(endpoint: "\(prefix)/\(validTargetID)/recommendations") {
             let items = parseMediaItems(data: recData, type: type)
             if !items.isEmpty { rawItems = items }
         }
 
-        if rawItems.isEmpty, let (simData, _) = try? await executeRequest(endpoint: "\(prefix)/\(targetID)/similar") {
+        if rawItems.isEmpty, let (simData, _) = try? await executeRequest(endpoint: "\(prefix)/\(validTargetID)/similar") {
             let items = parseMediaItems(data: simData, type: type)
             if !items.isEmpty { rawItems = items }
         }
@@ -1859,15 +1900,26 @@ class TMDBService {
     }
 
     func fetchMediaLogoAndDetails(id: String, imdbID: String? = nil, type: MediaItem.MediaType, title: String? = nil) async -> MediaExtendedDetails {
-        var targetID = id
-        if targetID.hasPrefix("tt") || Int(targetID) == nil {
+        var targetID: String? = cleanNumericTMDBID(id)
+        if targetID == nil, let imdb = imdbID, let num = cleanNumericTMDBID(imdb) {
+            targetID = num
+        }
+        if targetID == nil {
             let lookup = imdbID ?? id
             if let found = await resolveTMDBID(imdbID: lookup, type: type) {
+                targetID = found
+            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: type) {
                 targetID = found
             }
         }
 
-        let actualIMDbID = imdbID ?? (id.hasPrefix("tt") ? id : nil)
+        var actualIMDbID = imdbID?.hasPrefix("tt") == true ? imdbID : (id.hasPrefix("tt") ? id : nil)
+        if actualIMDbID == nil, let num = targetID {
+            actualIMDbID = try? await fetchIMDbID(tmdbID: num, type: type)
+        }
+        if actualIMDbID == nil, let t = title {
+            actualIMDbID = await resolveIMDbIDByTitle(title: t, type: type)
+        }
 
         // 1. Check Stremio Metahub official transparent title logo
         var resolvedLogoURL: URL? = nil
@@ -1875,7 +1927,7 @@ class TMDBService {
             resolvedLogoURL = URL(string: "https://images.metahub.space/logo/medium/\(imdb)/img.png")
         }
 
-        guard let tmdbNumericID = Int(targetID) else {
+        guard let validTargetID = targetID, let tmdbNumericID = Int(validTargetID) else {
             // Check TVDB logo if Metahub is not available for series
             if resolvedLogoURL == nil && type == .series {
                 if let tvdbID = await tvdb.resolveTVDBSeriesID(id: id, imdbID: imdbID, title: title) {
@@ -1955,15 +2007,20 @@ class TMDBService {
         }
     }
 
-    func fetchMediaExtras(id: String, imdbID: String? = nil, type: MediaItem.MediaType) async -> [MediaExtra] {
-        var targetID = id
-        if targetID.hasPrefix("tt") || Int(targetID) == nil {
+    func fetchMediaExtras(id: String, imdbID: String? = nil, type: MediaItem.MediaType, title: String? = nil) async -> [MediaExtra] {
+        var targetID: String? = cleanNumericTMDBID(id)
+        if targetID == nil, let imdb = imdbID, let num = cleanNumericTMDBID(imdb) {
+            targetID = num
+        }
+        if targetID == nil {
             let lookup = imdbID ?? id
             if let found = await resolveTMDBID(imdbID: lookup, type: type) {
                 targetID = found
+            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: type) {
+                targetID = found
             }
         }
-        guard let tmdbNumericID = Int(targetID) else { return [] }
+        guard let validTargetID = targetID, let tmdbNumericID = Int(validTargetID) else { return [] }
 
         let endpoint = (type == .series) ? "/tv/\(tmdbNumericID)/videos" : "/movie/\(tmdbNumericID)/videos"
         guard let (data, _) = try? await executeRequest(endpoint: endpoint) else { return [] }
@@ -2017,10 +2074,15 @@ class TMDBService {
 
     // MARK: - Cast, Crew & Person Works
     func fetchMediaCredits(id: String, imdbID: String? = nil, type: MediaItem.MediaType, title: String? = nil) async -> MediaCredits? {
-        var targetID = id
-        if targetID.hasPrefix("tt") || Int(targetID) == nil {
+        var targetID: String? = cleanNumericTMDBID(id)
+        if targetID == nil, let imdb = imdbID, let num = cleanNumericTMDBID(imdb) {
+            targetID = num
+        }
+        if targetID == nil {
             let lookup = imdbID ?? id
             if let found = await resolveTMDBID(imdbID: lookup, type: type) {
+                targetID = found
+            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: type) {
                 targetID = found
             }
         }
@@ -2028,7 +2090,7 @@ class TMDBService {
         var tmdbCast: [CastMember] = []
         var tmdbDirectors: [CrewMember] = []
 
-        if let tmdbNumericID = Int(targetID) {
+        if let validTarget = targetID, let tmdbNumericID = Int(validTarget) {
             let endpoint = (type == .series) ? "/tv/\(tmdbNumericID)/credits" : "/movie/\(tmdbNumericID)/credits"
             if let (data, _) = try? await executeRequest(endpoint: endpoint) {
                 struct RawCredits: Decodable {
@@ -2051,16 +2113,13 @@ class TMDBService {
                 }
 
                 if let decoded = try? JSONDecoder().decode(RawCredits.self, from: data) {
-                    let rawCast = decoded.cast ?? []
-                    tmdbCast = rawCast
-                        .sorted { ($0.order ?? 999) < ($1.order ?? 999) }
-                        .prefix(20)
-                        .map { CastMember(id: $0.id, name: $0.name, character: $0.character, profilePath: $0.profile_path, order: $0.order) }
+                    let rawCast: [RawCredits.RawCast] = decoded.cast ?? []
+                    let sortedCast = rawCast.sorted { ($0.order ?? 999) < ($1.order ?? 999) }.prefix(20)
+                    tmdbCast = sortedCast.map { CastMember(id: $0.id, name: $0.name, character: $0.character, profilePath: $0.profile_path, order: $0.order) }
 
-                    let rawCrew = decoded.crew ?? []
-                    tmdbDirectors = rawCrew
-                        .filter { $0.job == "Director" || $0.job == "Series Director" || $0.job == "Creator" }
-                        .map { CrewMember(id: $0.id, name: $0.name, job: $0.job, department: $0.department, profilePath: $0.profile_path) }
+                    let rawCrew: [RawCredits.RawCrew] = decoded.crew ?? []
+                    let filteredCrew = rawCrew.filter { $0.job == "Director" || $0.job == "Series Director" || $0.job == "Creator" }
+                    tmdbDirectors = filteredCrew.map { CrewMember(id: $0.id, name: $0.name, job: $0.job, department: $0.department, profilePath: $0.profile_path) }
                 }
             }
         }
@@ -2240,7 +2299,10 @@ class TMDBService {
         return cat.all
     }
 
-    private func resolveTMDBID(imdbID: String, type: MediaItem.MediaType) async -> String? {
+    func resolveTMDBID(imdbID: String, type: MediaItem.MediaType) async -> String? {
+        if let numeric = cleanNumericTMDBID(imdbID) {
+            return numeric
+        }
         guard imdbID.hasPrefix("tt") else { return nil }
         guard let (data, _) = try? await executeRequest(
             endpoint: "/find/\(imdbID)",
@@ -2285,7 +2347,7 @@ class TMDBService {
         return (try? JSONDecoder().decode(ExtResponse.self, from: data))?.imdb_id
     }
 
-    func resolveIMDbIDByTitle(title: String, type: MediaItem.MediaType, year: Int? = nil) async -> String? {
+    func resolveTMDBIDByTitle(title: String, type: MediaItem.MediaType, year: Int? = nil) async -> String? {
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return nil }
         var queryItems = [
@@ -2307,10 +2369,17 @@ class TMDBService {
         }
         guard let results = (try? JSONDecoder().decode(SearchResp.self, from: data))?.results, let first = results.first else {
             if year != nil {
-                return await resolveIMDbIDByTitle(title: clean, type: type, year: nil)
+                return await resolveTMDBIDByTitle(title: clean, type: type, year: nil)
             }
             return nil
         }
-        return await resolveIMDbID(tmdbID: first.id, type: type)
+        return "\(first.id)"
+    }
+
+    func resolveIMDbIDByTitle(title: String, type: MediaItem.MediaType, year: Int? = nil) async -> String? {
+        if let tmdbID = await resolveTMDBIDByTitle(title: title, type: type, year: year), let intID = Int(tmdbID) {
+            return await resolveIMDbID(tmdbID: intID, type: type)
+        }
+        return nil
     }
 }
