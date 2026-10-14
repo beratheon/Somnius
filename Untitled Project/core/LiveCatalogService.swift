@@ -472,7 +472,13 @@ class LiveCatalogService: ObservableObject {
                 }
             }
 
-            guard let url = URL(string: "\(baseURL)/\(requestPath)") else { break }
+            let fullURL: URL?
+            if requestPath.hasPrefix("http://") || requestPath.hasPrefix("https://") {
+                fullURL = URL(string: requestPath)
+            } else {
+                fullURL = URL(string: "\(baseURL)/\(requestPath)")
+            }
+            guard let url = fullURL else { break }
             var request = URLRequest(url: url)
             request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
 

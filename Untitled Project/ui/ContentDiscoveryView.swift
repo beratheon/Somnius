@@ -15,6 +15,8 @@ struct ContentDiscoveryView: View {
         "All",
         "Movies",
         "TV Shows",
+        "Letterboxd & Curated",
+        "Gemini AI & Custom",
         "Trending & Latest",
         "Top Rated & IMDb",
         "Networks & Studios",
@@ -392,6 +394,10 @@ struct ContentDiscoveryView: View {
             return catalog.type == "movie"
         case "TV Shows":
             return catalog.type == "series"
+        case "Letterboxd & Curated":
+            return catalog.category.contains("Letterboxd") || catalog.category.contains("Acclaimed") || catalog.category.contains("Studios") || catalog.id.contains("letterboxd") || catalog.category.contains("World Cinema")
+        case "Gemini AI & Custom":
+            return catalog.category.contains("Gemini") || catalog.category.contains("Custom") || catalog.category.contains("Mix") || catalog.id.hasPrefix("gemini.") || catalog.id.hasPrefix("custom.") || catalog.id.hasPrefix("mixer.")
         case "Trending & Latest", "Top Rated & IMDb", "Networks & Studios", "Curated & Cult", "Cinema Decades":
             return catalog.category == filter
         default:

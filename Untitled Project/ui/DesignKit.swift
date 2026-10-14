@@ -4,7 +4,7 @@ import ImageIO
 
 // MARK: - Soft Palette
 enum SoftTone {
-    case neutral, mist, sage, sand, lavender
+    case neutral, mist, sage, sand, lavender, rose
 
     var color: Color {
         switch self {
@@ -13,6 +13,7 @@ enum SoftTone {
         case .sage:     return Color(red: 0.62, green: 0.76, blue: 0.66)   // instant / cached
         case .sand:     return Color(red: 0.84, green: 0.77, blue: 0.62)   // HDR / DV
         case .lavender: return Color(red: 0.74, green: 0.70, blue: 0.84)   // audio
+        case .rose:     return Color(red: 0.85, green: 0.65, blue: 0.72)   // A24 / warm accent
         }
     }
 }

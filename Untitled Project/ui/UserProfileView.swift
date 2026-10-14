@@ -44,6 +44,7 @@ struct UserProfileView: View {
     @State private var showExportAlert: Bool = false
     @State private var showResetConfirm: Bool = false
     @State private var showAddCatalogSheet: Bool = false
+    @State private var catalogStudioTab: Int = 0
     @State private var configuredAddonForSheet: InstalledAddon? = nil
     @State private var affiliateIdInput: String = Config.realDebridAffiliateId
     @State private var affiliateUrlInput: String = Config.realDebridAffiliateUrlString
@@ -1316,9 +1317,100 @@ struct UserProfileView: View {
     // MARK: - 6. Catalogs Management View (Add, Remove, Toggle, Import, Export)
     private var catalogsManagementView: some View {
         VStack(alignment: .leading, spacing: 16) {
+            // Quick Studio Launchers: Letterboxd & TMDB, Category Mixer, Gemini AI
+            HStack(spacing: 12) {
+                // 1. Curated Vault
+                Button(action: {
+                    catalogStudioTab = 0
+                    showAddCatalogSheet = true
+                }) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "star.fill")
+                            .font(.title3)
+                            .foregroundColor(SoftTone.mist.color)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Letterboxd & TMDB")
+                                .font(.subheadline.bold())
+                                .foregroundColor(.white)
+                            Text("28+ curated lists & vaults")
+                                .font(.caption2)
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.bold())
+                            .foregroundColor(.white.opacity(0.4))
+                    }
+                    .padding(12)
+                    .background(Color.white.opacity(0.04))
+                    .cornerRadius(10)
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.08), lineWidth: 1))
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // 2. Keyword & Category Mixer
+                Button(action: {
+                    catalogStudioTab = 1
+                    showAddCatalogSheet = true
+                }) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.title3)
+                            .foregroundColor(SoftTone.lavender.color)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Mix Categories")
+                                .font(.subheadline.bold())
+                                .foregroundColor(.white)
+                            Text("Combine genres & keywords")
+                                .font(.caption2)
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.bold())
+                            .foregroundColor(.white.opacity(0.4))
+                    }
+                    .padding(12)
+                    .background(Color.white.opacity(0.04))
+                    .cornerRadius(10)
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.08), lineWidth: 1))
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // 3. Ask Gemini AI
+                Button(action: {
+                    catalogStudioTab = 2
+                    showAddCatalogSheet = true
+                }) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "sparkles")
+                            .font(.title3)
+                            .foregroundColor(Color.pink.opacity(0.9))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Ask Gemini AI")
+                                .font(.subheadline.bold())
+                                .foregroundColor(.white)
+                            Text("Curate any vibe or theme")
+                                .font(.caption2)
+                                .foregroundColor(Color.pink.opacity(0.7))
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.bold())
+                            .foregroundColor(.white.opacity(0.4))
+                    }
+                    .padding(12)
+                    .background(Color.pink.opacity(0.08))
+                    .cornerRadius(10)
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.pink.opacity(0.25), lineWidth: 1))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+
             // Top Toolbar: Add Catalog, Import, Export, Reset Defaults
             HStack(spacing: 10) {
                 Button(action: {
+                    catalogStudioTab = 0
                     showAddCatalogSheet = true
                 }) {
                     HStack(spacing: 5) {
@@ -2089,9 +2181,9 @@ struct UserProfileView: View {
         .background(Color(red: 0.1, green: 0.1, blue: 0.12))
     }
 
-    // MARK: - Add New Catalog Sheet (TMDB, TVDB & Custom Catalogs)
+    // MARK: - Add New Catalog Sheet (Letterboxd, TMDB, Mixer & Gemini AI)
     private var addCatalogSheet: some View {
-        AddCatalogModalView(isPresented: $showAddCatalogSheet)
+        CatalogStudioView(isPresented: $showAddCatalogSheet, initialTab: catalogStudioTab)
     }
 }
 

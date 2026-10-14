@@ -254,6 +254,16 @@ struct Config {
     static let stremthruUrl = "http://localhost:8080"
     static let tmdbApiKey = "a07e22bc18f5cb106bfe4cc1f83ad8ed"
     static let tmdbApiKeyFallback = "e9e9d8da18ae29fc430845952232787c"
+
+    private static let geminiApiKeyKey = "Gemini_API_Key"
+    static var geminiApiKey: String {
+        get {
+            let key = UserDefaults.standard.string(forKey: geminiApiKeyKey) ?? ""
+            if !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return key }
+            return ProcessInfo.processInfo.environment["GEMINI_API_KEY"] ?? ""
+        }
+        set { UserDefaults.standard.set(newValue, forKey: geminiApiKeyKey) }
+    }
 }
 
 // MARK: - Multi-Player Launcher Support (IINA, VLC, Infuse, MPV)
@@ -1233,6 +1243,108 @@ class TMDBService {
             return parseMediaItems(data: data, type: .series)
         } catch {
             return []
+        }
+    }
+
+    func searchKeywordIDs(query: String) async -> [Int] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        do {
+            let items = [
+                URLQueryItem(name: "query", value: trimmed),
+                URLQueryItem(name: "page", value: "1")
+            ]
+            let (data, _) = try await executeRequest(endpoint: "/search/keyword", queryItems: items)
+            struct KeywordResponse: Decodable {
+                struct KW: Decodable { let id: Int; let name: String }
+                let results: [KW]?
+            }
+            let res = try JSONDecoder().decode(KeywordResponse.self, from: data)
+            return res.results?.map { $0.id } ?? []
+        } catch {
+            return []
+        }
+    }
+
+    func discoverMedia(
+        type: MediaItem.MediaType = .movie,
+        genres: [Int] = [],
+        keywordIDs: [Int] = [],
+        yearMin: Int? = nil,
+        yearMax: Int? = nil,
+        sortBy: String = "popularity.desc",
+        page: Int = 1
+    ) async -> [MediaItem] {
+        let endpoint = (type == .series) ? "/discover/tv" : "/discover/movie"
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "sort_by", value: sortBy),
+            URLQueryItem(name: "page", value: "\(page)"),
+            URLQueryItem(name: "vote_count.gte", value: "15")
+        ]
+
+        if !genres.isEmpty {
+            let genreStr = genres.map { String($0) }.joined(separator: ",")
+            items.append(URLQueryItem(name: "with_genres", value: genreStr))
+        }
+
+        if !keywordIDs.isEmpty {
+            let kwStr = keywordIDs.prefix(5).map { String($0) }.joined(separator: "|")
+            items.append(URLQueryItem(name: "with_keywords", value: kwStr))
+        }
+
+        if type == .movie {
+            if let min = yearMin {
+                items.append(URLQueryItem(name: "primary_release_date.gte", value: "\(min)-01-01"))
+            }
+            if let max = yearMax {
+                items.append(URLQueryItem(name: "primary_release_date.lte", value: "\(max)-12-31"))
+            }
+        } else {
+            if let min = yearMin {
+                items.append(URLQueryItem(name: "first_air_date.gte", value: "\(min)-01-01"))
+            }
+            if let max = yearMax {
+                items.append(URLQueryItem(name: "first_air_date.lte", value: "\(max)-12-31"))
+            }
+        }
+
+        do {
+            let (data, _) = try await executeRequest(endpoint: endpoint, queryItems: items)
+            return parseMediaItems(data: data, type: type)
+        } catch {
+            return []
+        }
+    }
+
+    func searchSingleMedia(title: String, year: Int? = nil, type: MediaItem.MediaType = .movie) async -> MediaItem? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let endpoint = (type == .series) ? "/search/tv" : "/search/movie"
+        var queryItems = [
+            URLQueryItem(name: "query", value: trimmed),
+            URLQueryItem(name: "include_adult", value: "false")
+        ]
+        if let y = year {
+            if type == .movie {
+                queryItems.append(URLQueryItem(name: "year", value: "\(y)"))
+            } else {
+                queryItems.append(URLQueryItem(name: "first_air_date_year", value: "\(y)"))
+            }
+        }
+
+        do {
+            let (data, _) = try await executeRequest(endpoint: endpoint, queryItems: queryItems)
+            let items = parseMediaItems(data: data, type: type)
+            if let first = items.first {
+                return first
+            }
+            // Fallback without year if year was too restrictive
+            if year != nil {
+                return await searchSingleMedia(title: title, year: nil, type: type)
+            }
+            return nil
+        } catch {
+            return nil
         }
     }
 
