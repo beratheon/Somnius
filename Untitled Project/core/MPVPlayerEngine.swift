@@ -165,7 +165,15 @@ public class MPVPlayerEngine: ObservableObject {
     @Published public var duration: Double = 0
     @Published public var bufferedTime: Double = 0
     @Published public var bufferedFraction: Double = 0
-    @Published public var isPlaying: Bool = false
+    @Published public var isPlaying: Bool = false {
+        didSet {
+            if isPlaying {
+                DisplaySleepManager.shared.disableDisplaySleep(reason: "Somnius Video Playback")
+            } else {
+                DisplaySleepManager.shared.enableDisplaySleep()
+            }
+        }
+    }
     @Published public var isBuffering: Bool = false
     @Published public var playbackRate: Double = 1.0
     @Published public var volume: Double = 1.0
@@ -265,6 +273,7 @@ public class MPVPlayerEngine: ObservableObject {
         mpv_set_option_string(handle, "keep-open", "yes")
         mpv_set_option_string(handle, "ytdl", "no")
         mpv_set_option_string(handle, "input-media-keys", "yes")
+        mpv_set_option_string(handle, "stop-screensaver", "yes")
 
         #if DEBUG
         mpv_request_log_messages(handle, "info")
@@ -840,6 +849,7 @@ public class MPVPlayerEngine: ObservableObject {
     }
 
     public func shutdown() {
+        DisplaySleepManager.shared.enableDisplaySleep()
         guard let handle = self.mpv else { return }
         self.mpv = nil
         reset()

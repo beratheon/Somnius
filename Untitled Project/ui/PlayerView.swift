@@ -1362,6 +1362,7 @@ struct PlayerView: View {
         ksEngine.loadStream(url: url, startTime: savedResume, imdbID: targetIMDb)
         ksEngine.play()
         self.isPlaying = true
+        DisplaySleepManager.shared.disableDisplaySleep(reason: mediaItem?.title ?? "Somnius Video Playback")
         setupStallWatchdog()
     }
 
@@ -1671,6 +1672,7 @@ struct PlayerView: View {
         NSCursor.unhide()
         #endif
         DispatchQueue.main.async {
+            DisplaySleepManager.shared.enableDisplaySleep()
             self.ksEngine.shutdown()
             AggregatorService.stopAndCleanAllTorrentMissions()
         }

@@ -12,6 +12,7 @@ BODY = """## Somnius 1.0.0 Beta Release 🚀
 
 ### What's New:
 - **Internal libmpv Rendering Engine**: Native Apple Silicon VideoToolbox hardware acceleration, Liquid Retina XDR / EDR peak brightness support, and clean context lifecycle eliminating MoltenVK surface crashes during sequential playback.
+- **Screensaver & Display Sleep Prevention**: Integrated native macOS IOKit power management assertions (`kIOPMAssertionTypePreventUserIdleDisplaySleep`) and ProcessInfo activities to guarantee the screen never dims or enters screensaver mode while watching video.
 - **Enhanced Search & Metadata Resolution**: Fixed TMDB/TVDB prefix handling ensuring searched titles (like *The Night House*, *Coherence*) always resolve full metadata, cast/crew, and valid streaming sources.
 - **TVDB Duplicate Episode Crash Fix**: Hardened season parsing against duplicate episode index collisions.
 - **Smart Quality-First Autoplay**: Automatic stream selection finding the best quality (4K UHD > 1080p FHD > 720p HD) and instant cached streams for Debrid accounts, or highest-seeded swarms for Classic mode.
