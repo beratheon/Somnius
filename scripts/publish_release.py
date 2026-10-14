@@ -11,6 +11,10 @@ NAME = "Somnius 1.0.0 Beta"
 BODY = """## Somnius 1.0.0 Beta Release 🚀
 
 ### What's New:
+- **Curated Letterboxd & TMDB Catalog Studio**: Wide catalog explorer featuring 28+ community-curated vaults including Letterboxd Top 250, The Criterion Collection, A24 Cinema Vault, Studio Ghibli, 90s Blockbusters, Modern Horror Renaissance, Mindfuck & Psychological Thrillers, Cannes Palme d'Or, and Oscars Best Pictures.
+- **Custom Keyword & Category Mixer**: Seamless multi-genre tag selector and keyword discovery engine allowing users to mix genres (e.g. Sci-Fi + Horror, Action + Comedy) and themes (e.g. time loop, cyberpunk, heist) into custom live discovery rows.
+- **Gemini AI Cinema Curator**: In-app AI-powered category generator that translates natural language prompts and aesthetics into bespoke, high-metadata discovery catalog rows with posters and descriptions.
+- **Discovery Filter Pills**: Added "Letterboxd & Curated" and "Gemini AI & Custom" one-click filters directly on the Home discovery feed.
 - **Internal libmpv Rendering Engine**: Native Apple Silicon VideoToolbox hardware acceleration, Liquid Retina XDR / EDR peak brightness support, and clean context lifecycle eliminating MoltenVK surface crashes during sequential playback.
 - **Screensaver & Display Sleep Prevention**: Integrated native macOS IOKit power management assertions (`kIOPMAssertionTypePreventUserIdleDisplaySleep`) and ProcessInfo activities to guarantee the screen never dims or enters screensaver mode while watching video.
 - **Enhanced Search & Metadata Resolution**: Fixed TMDB/TVDB prefix handling ensuring searched titles (like *The Night House*, *Coherence*) always resolve full metadata, cast/crew, and valid streaming sources.
