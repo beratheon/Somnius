@@ -1,7 +1,10 @@
 
 Somnius 1.0.0
+
 🚨A DEBRID ACCOUNT IS ALWAYS RECOMMENDED. NORMAL STREAMING WORKS TOO YET IS SLOWER.
 DEBRID MAKES STREAMING FASTER.
+
+🚧FULL RELEASE UNDER DEVELOPMENT. MUCH MORE FEATURES AND A GROUNDED APP.
 
 ✅You can subscribe to a debrid account here: http://real-debrid.com/?id=10141263
 Then you will use your apitoken to access debrid sources
