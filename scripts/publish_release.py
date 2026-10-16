@@ -8,7 +8,7 @@ import urllib.request
 REPO = "beratheon/Somnius"
 TAG = "v1.0.0"
 NAME = "Somnius 1.0.0 (Official Release)"
-BODY = """## Somnius 1.0.0 Official Full Release 🚀
+BODY = r"""## Somnius 1.0.0 Official Full Release 🚀
 
 Welcome to the official full release of **Somnius**, the premier cinematic streaming experience for macOS.
 
