@@ -1,4 +1,3 @@
-<img width="2000" height="2000" alt="Somnius" src="https://github.com/user-attachments/assets/23f1a23d-0c25-4a00-9a9b-82dcd99e5a26" />
 Somnius 1.0.0
 
 🚨A DEBRID ACCOUNT IS ALWAYS RECOMMENDED. NORMAL STREAMING WORKS TOO YET IS SLOWER.
