@@ -539,19 +539,22 @@ class LiveCatalogService: ObservableObject {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
+        let (cleanQuery, queryYear, _) = TMDBService.parseTitleAndYear(trimmed)
+        let effectiveQuery = cleanQuery.isEmpty ? trimmed : cleanQuery
+
         // 1. Run TMDB intelligent search (handles movies & TV, directors, actors, titles sorted by popularity & vote counts)
         async let tmdbTask: [MediaItem] = {
-            return await TMDBService().searchMedia(query: trimmed)
+            return await TMDBService().searchMedia(query: effectiveQuery)
         }()
 
         // 2. Run TVDB series search (dedicated high-accuracy metadata for series, shows, docuseries)
         async let tvdbTask: [MediaItem] = {
-            return await TVDBService.shared.searchSeries(query: trimmed)
+            return await TVDBService.shared.searchSeries(query: effectiveQuery)
         }()
 
-        guard let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+        guard let encoded = effectiveQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
             let (tmdbRes, tvdbRes) = await (tmdbTask, tvdbTask)
-            return self.mergeAndRankSearchResults(tmdb: tmdbRes, tvdb: tvdbRes, movies: [], series: [], query: trimmed)
+            return self.mergeAndRankSearchResults(tmdb: tmdbRes, tvdb: tvdbRes, movies: [], series: [], query: effectiveQuery, queryYear: queryYear)
         }
 
         async let moviesTask: [MediaItem] = {
@@ -566,7 +569,7 @@ class LiveCatalogService: ObservableObject {
 
         let (tmdbResults, tvdbResults, movies, series) = await (tmdbTask, tvdbTask, moviesTask, seriesTask)
 
-        return self.mergeAndRankSearchResults(tmdb: tmdbResults, tvdb: tvdbResults, movies: movies, series: series, query: trimmed)
+        return self.mergeAndRankSearchResults(tmdb: tmdbResults, tvdb: tvdbResults, movies: movies, series: series, query: effectiveQuery, queryYear: queryYear)
     }
 
     private func mergeAndRankSearchResults(
@@ -574,15 +577,21 @@ class LiveCatalogService: ObservableObject {
         tvdb: [MediaItem],
         movies: [MediaItem],
         series: [MediaItem],
-        query: String
+        query: String,
+        queryYear: Int? = nil
     ) -> [MediaItem] {
         let qLower = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let qHasColon = qLower.contains(":")
 
-        // Create dictionary of TVDB series by clean title or imdbID for enriching
+        // Create dictionary of TVDB series by clean title and year or imdbID for enriching
+        var tvdbByTitleAndYear: [String: MediaItem] = [:]
         var tvdbByTitle: [String: MediaItem] = [:]
         var tvdbByIMDb: [String: MediaItem] = [:]
         for item in tvdb {
             let t = item.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if let y = item.releaseYear {
+                tvdbByTitleAndYear["\(t):\(y)"] = item
+            }
             if tvdbByTitle[t] == nil { tvdbByTitle[t] = item }
             if let im = item.imdbID { tvdbByIMDb[im] = item }
         }
@@ -591,7 +600,13 @@ class LiveCatalogService: ObservableObject {
         let enrichedTMDB: [MediaItem] = tmdb.map { item in
             guard item.type == .series else { return item }
             let t = item.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let tvdbMatch = (item.imdbID.flatMap { tvdbByIMDb[$0] }) ?? tvdbByTitle[t]
+            var tvdbMatch = item.imdbID.flatMap { tvdbByIMDb[$0] }
+            if tvdbMatch == nil, let y = item.releaseYear {
+                tvdbMatch = tvdbByTitleAndYear["\(t):\(y)"]
+            }
+            if tvdbMatch == nil {
+                tvdbMatch = tvdbByTitle[t]
+            }
             guard let match = tvdbMatch else { return item }
 
             let finalIMDb = item.imdbID ?? match.imdbID
@@ -619,15 +634,30 @@ class LiveCatalogService: ObservableObject {
         func scoreItem(_ item: MediaItem) -> Double {
             let t = item.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             var s: Double = 0.0
+            let spinOffWords = ["resurrection", "resurrected", "original sin", "new blood", "origins", "origin", "reboot", "remake"]
+            let hasExtraSpinoff = spinOffWords.contains { kw in t.contains(kw) && !qLower.contains(kw) }
 
             if t == qLower {
-                s += 1000.0
+                s += 10000.0
+            } else if (!qHasColon && (t.hasPrefix(qLower + ":") || t.hasPrefix(qLower + " -"))) || hasExtraSpinoff {
+                s -= 30000.0
             } else if t.hasPrefix(qLower + ":") || t.hasPrefix(qLower + " -") {
-                s += 500.0
+                s += 5000.0
             } else if t.hasPrefix(qLower) {
                 s += 300.0
             } else if t.contains(qLower) {
                 s += 100.0
+            }
+
+            // Year weighting
+            if let qYear = queryYear, let itemYear = item.releaseYear {
+                if itemYear == qYear {
+                    s += 20000.0
+                } else if abs(itemYear - qYear) == 1 {
+                    s += 3000.0
+                } else if abs(itemYear - qYear) >= 2 {
+                    s -= 50000.0
+                }
             }
 
             // Vote count weighting (famous title boost, prevents 1-vote obscure titles from displacing hits)
@@ -650,7 +680,8 @@ class LiveCatalogService: ObservableObject {
 
         for item in allCandidates {
             let cleanTitle = item.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let typeKey = "\(item.type.rawValue):\(cleanTitle)"
+            let yearSuffix = item.releaseYear != nil ? ":\(item.releaseYear!)" : ""
+            let typeKey = "\(item.type.rawValue):\(cleanTitle)\(yearSuffix)"
 
             if seenIDs.contains(item.id) || seenKeys.contains(typeKey) {
                 continue

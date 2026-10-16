@@ -92,21 +92,137 @@ struct AggregatedLink: Identifiable, Codable, Sendable {
         return false
     }
 
-    public static func selectBestStream(from links: [AggregatedLink], preferredQuality: String? = nil, maxGbSize: Double? = nil) -> AggregatedLink? {
+public struct SourceMatchResult {
+    public let isMismatched: Bool
+    public let penalty: Int
+    public let detectedYear: Int?
+    public let reasons: [String]
+
+    public init(isMismatched: Bool, penalty: Int, detectedYear: Int?, reasons: [String]) {
+        self.isMismatched = isMismatched
+        self.penalty = penalty
+        self.detectedYear = detectedYear
+        self.reasons = reasons
+    }
+}
+
+    public static func evaluateSourceMatch(
+        link: AggregatedLink,
+        targetTitle: String?,
+        targetYear: Int?
+    ) -> SourceMatchResult {
+        var reasons: [String] = []
+        var penalty = 0
+        var isMismatched = false
+
+        let combined = "\(link.fileName) \(link.rawTitle)".lowercased()
+        let cleanText = combined.replacingOccurrences(of: "[._\\-\\[\\]\\(\\)]", with: " ", options: .regularExpression)
+
+        // 1. Year Verification
+        var detectedYear: Int? = nil
+        let yearRegex = try? NSRegularExpression(pattern: #"\b(19\d{2}|20\d{2})\b"#)
+        if let matches = yearRegex?.matches(in: cleanText, range: NSRange(cleanText.startIndex..., in: cleanText)) {
+            for match in matches {
+                if let range = Range(match.range, in: cleanText), let y = Int(cleanText[range]) {
+                    if y >= 1920 && y <= 2040 {
+                        detectedYear = y
+                        break
+                    }
+                }
+            }
+        }
+
+        if let targetYear = targetYear, let detectedYear = detectedYear {
+            let diff = abs(detectedYear - targetYear)
+            if diff >= 2 {
+                isMismatched = true
+                penalty += 150_000
+                reasons.append("Year mismatch: source \(detectedYear) vs target \(targetYear)")
+            }
+        }
+
+        // 2. Extra Unrelated Spin-off / Subtitle Keywords
+        let spinOffKeywords: [(keyword: String, display: String)] = [
+            ("resurrection", "Resurrection"),
+            ("resurrected", "Resurrected"),
+            ("original sin", "Original Sin"),
+            ("new blood", "New Blood"),
+            ("origins", "Origins"),
+            ("origin", "Origin"),
+            ("reboot", "Reboot"),
+            ("remake", "Remake"),
+            ("reloaded", "Reloaded"),
+            ("requiem", "Requiem"),
+            ("awakening", "Awakening"),
+            ("bloodlines", "Bloodlines"),
+            ("retribution", "Retribution"),
+            ("legacy", "Legacy"),
+            ("afterlife", "Afterlife"),
+            ("apocalypse", "Apocalypse"),
+            ("genesis", "Genesis"),
+            ("evolution", "Evolution"),
+            ("extinction", "Extinction"),
+            ("revelations", "Revelations"),
+            ("chronicles", "Chronicles"),
+            ("untold", "Untold")
+        ]
+
+        if let targetTitle = targetTitle?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines), !targetTitle.isEmpty {
+            let targetClean = targetTitle.replacingOccurrences(of: "[._\\-\\[\\]\\(\\):]", with: " ", options: .regularExpression)
+            for (kw, display) in spinOffKeywords {
+                if cleanText.contains(kw) && !targetClean.contains(kw) {
+                    isMismatched = true
+                    penalty += 150_000
+                    reasons.append("Spinoff subtitle '\(display)' not in '\(targetTitle)'")
+                }
+            }
+        }
+
+        return SourceMatchResult(
+            isMismatched: isMismatched,
+            penalty: penalty,
+            detectedYear: detectedYear,
+            reasons: reasons
+        )
+    }
+
+    public static func selectBestStream(
+        from links: [AggregatedLink],
+        preferredQuality: String? = nil,
+        maxGbSize: Double? = nil,
+        targetTitle: String? = nil,
+        targetYear: Int? = nil
+    ) -> AggregatedLink? {
         guard !links.isEmpty else { return nil }
+
+        // Filter out links that have year mismatch or unrelated spin-off words
+        let cleanCandidates = links.filter { link in
+            !evaluateSourceMatch(link: link, targetTitle: targetTitle, targetYear: targetYear).isMismatched
+        }
+
+        let candidatePool: [AggregatedLink]
+        if !cleanCandidates.isEmpty {
+            candidatePool = cleanCandidates
+        } else if targetYear != nil || targetTitle != nil {
+            // All candidates are mismatched with year or unrelated franchise spin-offs (e.g. Somni 2003 for Somni 2027)
+            // Never autoplay a completely wrong movie/show!
+            return nil
+        } else {
+            candidatePool = links
+        }
 
         let isDebrid = Config.isDebridMode
         let maxGb = maxGbSize ?? Config.autoPlayMaxGbSize
 
         // Filter out oversized files if configured
-        var validLinks = links.filter { link in
+        var validLinks = candidatePool.filter { link in
             if maxGb > 0, let gb = link.sizeInGigabytes, gb > maxGb {
                 return false
             }
             return true
         }
         if validLinks.isEmpty {
-            validLinks = links
+            validLinks = candidatePool
         }
 
         if isDebrid {
@@ -544,14 +660,28 @@ struct MediaItem: Identifiable, Codable, Hashable {
     let releaseDate: Date?
     let rating: Double?
     let type: MediaType
-    let imdbID: String?
+    var imdbID: String?
     let voteCount: Int?
+    var originalLanguage: String?
 
     var resolvedIMDbID: String? {
         if let imdb = imdbID, imdb.hasPrefix("tt") { return imdb }
         if id.hasPrefix("tt") { return id }
         if let pStr = posterURL?.absoluteString, let range = pStr.range(of: "tt\\d{7,8}", options: .regularExpression) {
             return String(pStr[range])
+        }
+        return nil
+    }
+
+    var releaseYear: Int? {
+        if let d = releaseDate {
+            return Calendar.current.component(.year, from: d)
+        }
+        let regex = try? NSRegularExpression(pattern: #"(?:[\(\[]|\b)([12]\d{3})(?:[\)\]]|\b)"#)
+        if let match = regex?.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)),
+           let range = Range(match.range(at: 1), in: title),
+           let y = Int(title[range]), y >= 1900 && y <= 2099 {
+            return y
         }
         return nil
     }
@@ -608,7 +738,7 @@ struct MediaItem: Identifiable, Codable, Hashable {
         case series
     }
 
-    init(id: String, title: String, description: String?, posterUrl: URL? = nil, backdropUrl: URL? = nil, releaseDate: Date?, rating: Double?, type: MediaType, imdbID: String? = nil, posterURL: URL? = nil, backdropURL: URL? = nil, voteCount: Int? = nil) {
+    init(id: String, title: String, description: String?, posterUrl: URL? = nil, backdropUrl: URL? = nil, releaseDate: Date?, rating: Double?, type: MediaType, imdbID: String? = nil, posterURL: URL? = nil, backdropURL: URL? = nil, voteCount: Int? = nil, originalLanguage: String? = nil) {
         self.id = id
         self.title = title
         self.description = description
@@ -619,6 +749,7 @@ struct MediaItem: Identifiable, Codable, Hashable {
         self.type = type
         self.imdbID = imdbID
         self.voteCount = voteCount
+        self.originalLanguage = originalLanguage
     }
 }
 

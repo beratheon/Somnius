@@ -22,10 +22,14 @@ struct UserProfileView: View {
     @State private var autoPlayPreferSurround: Bool = Config.autoPlayPreferSurround
     @State private var autoPlayCachedOnly: Bool = Config.autoPlayCachedOnly
     @State private var autoPlaySkipShortClips: Bool = Config.autoPlaySkipShortClips
+    @State private var autoPlayDirectly: Bool = Config.autoPlayDirectly
+    @State private var skipIntroMode: String = Config.skipIntroMode
     @State private var bufferSeconds: Double = Config.bufferAheadSeconds
     @State private var preferredQuality: String = Config.preferredStreamQuality
     @State private var subtitleColor: String = Config.subtitleColorPreference
     @State private var subtitleFontSize: Double = Double(Config.subtitleFontSizePreference)
+    @State private var subtitleVerticalPos: Double = Config.subtitleVerticalPosition
+    @State private var subtitleHorizontalPos: Double = Config.subtitleHorizontalPosition
     @State private var staticSubtitles: Bool = Config.staticSubtitles
     @State private var fastStartBuffering: Bool = Config.fastStartBuffering
 
@@ -57,6 +61,7 @@ struct UserProfileView: View {
     var onSelectTorrentLink: (String) -> Void
 
     enum SettingsCategory: String, CaseIterable, Identifiable {
+        case appearance = "Themes & Appearance"
         case setupMode = "Setup & Engine"
         case debridAccount = "Debrid Account"
         case player = "Player & Buffering"
@@ -73,6 +78,7 @@ struct UserProfileView: View {
         var id: String { rawValue }
         var icon: String {
             switch self {
+            case .appearance: return "paintpalette.fill"
             case .setupMode: return "gearshape.2.fill"
             case .debridAccount: return "key.fill"
             case .player: return "play.tv.fill"
@@ -215,6 +221,8 @@ struct UserProfileView: View {
 
                     // Dynamic Section View
                     switch selectedCategory {
+                    case .appearance:
+                        themesAppearanceView
                     case .setupMode:
                         setupModeView
                     case .debridAccount:
@@ -285,6 +293,7 @@ struct UserProfileView: View {
 
     private func categorySubtitle(_ category: SettingsCategory) -> String {
         switch category {
+        case .appearance: return "Choose between OLED Black, Somnius Zinc, and Oceanic Navy Blue themes"
         case .setupMode: return "Switch between Classic Standard and Real-Debrid Turbo streaming engines"
         case .debridAccount: return "Configure and inspect your Real-Debrid API credentials"
         case .player: return "Tune hardware decoding, instant start, and buffer durations"
@@ -297,6 +306,99 @@ struct UserProfileView: View {
         case .watchlist: return "Browse and organize your saved titles and continue watching history"
         case .updates: return "Configure auto-updates via Sparkle, GitHub Releases, and opt into Beta channel"
         case .monetization: return "Support Somnius development with non-intrusive sponsor ads, or configure referral links"
+        }
+    }
+
+    // MARK: - 0. Themes & Appearance View
+    private var themesAppearanceView: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Select Theme")
+                .font(.headline.bold())
+                .foregroundColor(.white)
+
+            HStack(spacing: 16) {
+                ForEach(AppTheme.allCases) { theme in
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            ThemeManager.shared.currentTheme = theme
+                        }
+                    }) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            // Swatch Preview
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(themeSwatchBackground(for: theme))
+                                    .frame(height: 90)
+
+                                VStack(spacing: 6) {
+                                    HStack(spacing: 6) {
+                                        Circle()
+                                            .fill(themeSwatchAccent(for: theme))
+                                            .frame(width: 14, height: 14)
+                                        RoundedRectangle(cornerRadius: 3)
+                                            .fill(Color.white.opacity(0.4))
+                                            .frame(width: 48, height: 6)
+                                    }
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Color.white.opacity(0.12))
+                                        .frame(height: 24)
+                                        .padding(.horizontal, 10)
+                                }
+                            }
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(ThemeManager.shared.currentTheme == theme ? Color.white : Color.white.opacity(0.12), lineWidth: ThemeManager.shared.currentTheme == theme ? 2 : 1)
+                            )
+
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(theme.rawValue)
+                                        .font(.subheadline.bold())
+                                        .foregroundColor(.white)
+                                    Text(themeDescription(for: theme))
+                                        .font(.caption2)
+                                        .foregroundColor(.gray)
+                                }
+                                Spacer()
+                                if ThemeManager.shared.currentTheme == theme {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(SoftTone.sage.color)
+                                        .font(.title3)
+                                }
+                            }
+                        }
+                        .padding(14)
+                        .background(Color.white.opacity(ThemeManager.shared.currentTheme == theme ? 0.08 : 0.03))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .shiningRise()
+                }
+            }
+        }
+    }
+
+    private func themeSwatchBackground(for theme: AppTheme) -> Color {
+        switch theme {
+        case .oled: return Color.black
+        case .current: return Color(red: 0.07, green: 0.07, blue: 0.08)
+        case .navyBlue: return Color(red: 0.04, green: 0.06, blue: 0.10)
+        }
+    }
+
+    private func themeSwatchAccent(for theme: AppTheme) -> Color {
+        switch theme {
+        case .oled: return Color.white
+        case .current: return SoftTone.mist.color
+        case .navyBlue: return Color(red: 0.45, green: 0.70, blue: 1.0)
+        }
+    }
+
+    private func themeDescription(for theme: AppTheme) -> String {
+        switch theme {
+        case .oled: return "Pure inky black #000000"
+        case .current: return "Somnius zinc dark theme"
+        case .navyBlue: return "Deep oceanic midnight blue"
         }
     }
 
@@ -654,6 +756,53 @@ struct UserProfileView: View {
     // MARK: - 3. Player & Buffering View
     private var playerBufferingView: some View {
         VStack(alignment: .leading, spacing: 16) {
+            // Auto-Play Mode Toggle
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Auto-Play Highest Quality Stream")
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
+                    Text("When enabled (default), clicking Play immediately finds and starts the highest quality stream. When turned off, clicking Play opens the sources list.")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+                Spacer()
+                Toggle("", isOn: $autoPlayDirectly)
+                    .toggleStyle(.switch)
+                    .onChange(of: autoPlayDirectly) { _, val in
+                        Config.autoPlayDirectly = val
+                    }
+            }
+            .padding(14)
+            .background(Color.white.opacity(0.04))
+            .cornerRadius(10)
+
+            // Auto-Skip Intros (TheIntroDB)
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Skip TV & Film Intros")
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
+                    Text("Powered by TheIntroDB to detect and skip opening title sequences.")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+                Spacer()
+                Picker("", selection: $skipIntroMode) {
+                    Text("Show Button").tag("button")
+                    Text("Auto-Skip").tag("auto")
+                    Text("Off").tag("off")
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 250)
+                .onChange(of: skipIntroMode) { _, val in
+                    Config.skipIntroMode = val
+                }
+            }
+            .padding(14)
+            .background(Color.white.opacity(0.04))
+            .cornerRadius(10)
+
             // Fast Start Buffering Toggle
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
@@ -779,8 +928,8 @@ struct UserProfileView: View {
             .background(Color.white.opacity(0.04))
             .cornerRadius(10)
 
-            // Subtitle Color & Size
-            VStack(alignment: .leading, spacing: 12) {
+            // Subtitle Color, Size & Position
+            VStack(alignment: .leading, spacing: 14) {
                 HStack {
                     Text("Subtitle Text Size")
                         .font(.subheadline.bold())
@@ -790,7 +939,7 @@ struct UserProfileView: View {
                         .font(.caption.bold())
                         .foregroundColor(SoftTone.mist.color)
                 }
-                Slider(value: $subtitleFontSize, in: 14...36, step: 2)
+                Slider(value: $subtitleFontSize, in: 16...48, step: 2)
                     .onChange(of: subtitleFontSize) { _, val in
                         Config.subtitleFontSizePreference = CGFloat(val)
                     }
@@ -812,6 +961,71 @@ struct UserProfileView: View {
                     .onChange(of: subtitleColor) { _, val in
                         Config.subtitleColorPreference = val
                     }
+                }
+
+                Divider().background(Color.white.opacity(0.08))
+
+                // Vertical Position Slider
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Vertical Position (Bottom Offset)")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.white)
+                        Text("Move single subtitle higher or lower on screen")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                    }
+                    Spacer()
+                    Text("\(Int(subtitleVerticalPos)) pt")
+                        .font(.caption.bold().monospacedDigit())
+                        .foregroundColor(SoftTone.mist.color)
+                }
+                Slider(value: $subtitleVerticalPos, in: 15...320, step: 2)
+                    .tint(SoftTone.mist.color)
+                    .onChange(of: subtitleVerticalPos) { _, val in
+                        Config.subtitleVerticalPosition = val
+                    }
+
+                Divider().background(Color.white.opacity(0.08))
+
+                // Horizontal Position Slider
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Horizontal Position (Left / Right)")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.white)
+                        Text("Shift subtitle horizontally from center")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                    }
+                    Spacer()
+                    Text(String(format: "%+.0f%%", subtitleHorizontalPos))
+                        .font(.caption.bold().monospacedDigit())
+                        .foregroundColor(SoftTone.sand.color)
+                }
+                Slider(value: $subtitleHorizontalPos, in: -45...45, step: 1)
+                    .tint(SoftTone.sand.color)
+                    .onChange(of: subtitleHorizontalPos) { _, val in
+                        Config.subtitleHorizontalPosition = val
+                    }
+
+                HStack {
+                    Spacer()
+                    Button(action: {
+                        subtitleVerticalPos = 55.0
+                        subtitleHorizontalPos = 0.0
+                        Config.subtitleVerticalPosition = 55.0
+                        Config.subtitleHorizontalPosition = 0.0
+                    }) {
+                        Text("Reset Position to Center")
+                            .font(.system(size: 11, weight: .semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(Color.white.opacity(0.08))
+                            .foregroundColor(.white)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(14)

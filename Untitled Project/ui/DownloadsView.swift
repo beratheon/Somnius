@@ -80,9 +80,10 @@ struct DownloadsView: View {
                                         .scaleEffect(0.8)
                                     
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text("Downloading Stream...")
+                                        Text(downloadManager.activeRecords[itemId]?.mediaItem.title ?? "Downloading Media...")
                                             .font(.system(size: 13, weight: .semibold))
                                             .foregroundColor(.white)
+                                            .lineLimit(1)
                                         Text(speed)
                                             .font(.system(size: 11))
                                             .foregroundColor(.white.opacity(0.5))
@@ -93,7 +94,20 @@ struct DownloadsView: View {
                                     Text("\(Int(progress * 100))%")
                                         .font(.system(size: 14, weight: .bold))
                                         .foregroundColor(Color(red: 1.0, green: 0.35, blue: 0.35))
+                                    
+                                    Button(action: {
+                                        withAnimation {
+                                            downloadManager.cancelDownload(itemId: itemId)
+                                        }
+                                    }) {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.system(size: 15))
+                                            .foregroundColor(.white.opacity(0.45))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Cancel transfer")
                                 }
+
                                 
                                 // Glowing Progress Bar
                                 GeometryReader { geo in

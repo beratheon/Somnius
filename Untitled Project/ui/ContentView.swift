@@ -25,6 +25,7 @@ struct ContentView: View {
 
     enum MainNavigationTab: String, CaseIterable {
         case home = "Home"
+        case discover = "Discover"
         case movies = "Movies"
         case series = "Series"
         case watchlist = "Watchlist"
@@ -33,6 +34,9 @@ struct ContentView: View {
     }
 
     @State private var currentTab: MainNavigationTab = .home
+    #if os(macOS)
+    @State private var keyMonitor: Any? = nil
+    #endif
 
     var body: some View {
         ZStack {
@@ -53,7 +57,7 @@ struct ContentView: View {
                 if !showPlayer {
                     VStack(spacing: 0) {
                         // Header Bar (Apple TV+ / macOS Native Aesthetic)
-                        HStack(spacing: 16) {
+                        HStack(alignment: .center, spacing: 16) {
                             // Somnius Branding & Top Nav Tabs
                             HStack(spacing: 12) {
                                 // Claude-like minimalist full moon icon (no emoji) - 25% larger
@@ -76,122 +80,39 @@ struct ContentView: View {
                                     .foregroundColor(.white)
                                     .tracking(0.6)
                             }
+                            .frame(height: 34)
 
-                            // Top Navigation Links (Home, Movies, Series, Watchlist, Settings)
-                            HStack(spacing: 20) {
+                            // Top Navigation Links (Home, Discover, Movies, Series, Watchlist, Downloads, Settings)
+                            HStack(alignment: .center, spacing: 6) {
                                 ForEach(MainNavigationTab.allCases, id: \.self) { tab in
-                                    Button(action: {
-                                        withAnimation(.easeInOut(duration: 0.2)) {
-                                            currentTab = tab
-                                        }
-                                    }) {
-                                        VStack(spacing: 4) {
-                                            Text(tab.rawValue)
-                                                .font(.system(size: 13, weight: currentTab == tab ? .bold : .medium))
-                                                .foregroundColor(currentTab == tab ? .white : .white.opacity(0.55))
-
-                                            if currentTab == tab {
-                                                Capsule()
-                                                    .fill(Color.white)
-                                                    .frame(width: 18, height: 2)
-                                            } else {
-                                                Capsule()
-                                                    .fill(Color.clear)
-                                                    .frame(width: 18, height: 2)
+                                    HeaderNavTabPill(
+                                        tab: tab,
+                                        isSelected: currentTab == tab,
+                                        action: {
+                                            withAnimation(.easeInOut(duration: 0.2)) {
+                                                currentTab = tab
                                             }
                                         }
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
+                                    )
                                 }
 
                                 // Support Patreon Button (Directly next to Settings)
-                                Button(action: {
-                                    if let url = URL(string: "https://www.patreon.com/cw/infage") {
-                                        NSWorkspace.shared.open(url)
-                                    }
-                                }) {
-                                    HStack(spacing: 5) {
-                                        Image(systemName: "heart.fill")
-                                            .font(.system(size: 10, weight: .bold))
-                                            .foregroundColor(Color(red: 0.88, green: 0.68, blue: 0.72))
-                                        Text("Support on Patreon")
-                                            .font(.system(size: 11.5, weight: .medium))
-                                            .foregroundColor(Color(white: 0.88))
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(Color(red: 0.88, green: 0.68, blue: 0.72).opacity(0.12))
-                                    .clipShape(Capsule())
-                                    .overlay(
-                                        Capsule()
-                                            .stroke(Color(red: 0.88, green: 0.68, blue: 0.72).opacity(0.25), lineWidth: 0.8)
-                                    )
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                                .help("Support our projects on Patreon (https://www.patreon.com/cw/infage)")
+                                HeaderPatreonPill()
                             }
-                            .padding(.leading, 10)
+                            .frame(height: 34)
+                            .padding(.leading, 8)
 
-                        Spacer()
+                            Spacer(minLength: 16)
 
-                        // Search Bar Widget in Header
-                        HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.white.opacity(0.45))
-                            TextField("Search movies, TV series...", text: $viewModel.searchQuery)
-                                .textFieldStyle(.plain)
-                                .font(.system(size: 13))
-                                .foregroundColor(.white)
-                                .onSubmit {
-                                    viewModel.performSearch()
-                                }
-                            if !viewModel.searchQuery.isEmpty {
-                                Button(action: { viewModel.clearSearch() }) {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.system(size: 13))
-                                        .foregroundColor(.white.opacity(0.45))
-                                }
-                                .buttonStyle(.plain)
-                            }
+                            // Search Bar Widget in Header
+                            headerSearchBar
+
+                            Spacer(minLength: 16)
+
+                            // Profile Switcher Pill
+                            headerProfilePill
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
-                        .background(Color.white.opacity(0.08))
-                        .clipShape(Capsule())
-                        .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
-                        .frame(width: 300)
-
-                        Spacer()
-
-                        // Profile Switcher Pill
-                        Button(action: {
-                            accountManager.showAccountModal = true
-                        }) {
-                            HStack(spacing: 8) {
-                                ZStack {
-                                    Circle()
-                                        .fill(AccountManager.colorForName(accountManager.activeAccount?.avatarColor ?? "purple").opacity(0.35))
-                                        .frame(width: 22, height: 22)
-                                    Image(systemName: accountManager.activeAccount?.avatarIcon ?? "person.fill")
-                                        .font(.system(size: 11, weight: .bold))
-                                        .foregroundColor(AccountManager.colorForName(accountManager.activeAccount?.avatarColor ?? "purple"))
-                                }
-                                Text(accountManager.activeAccount?.username ?? "Profile")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(.white)
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundColor(.white.opacity(0.5))
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(Color.white.opacity(0.08))
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
+                        .frame(height: 34)
                     .padding(.leading, 28)
                     .padding(.trailing, 28)
                     .padding(.top, 28)
@@ -206,50 +127,8 @@ struct ContentView: View {
                         }
                     )
 
-                    // Main Content based on Tab (Home, Movies, Series, Watchlist, Settings)
-                    if currentTab == .downloads {
-                        DownloadsView(onMediaSelected: { item in
-                            withAnimation {
-                                detailMediaItem = item
-                            }
-                        })
-                    } else if currentTab == .watchlist {
-                        WatchlistView(onMediaSelected: { item in
-                            withAnimation {
-                                detailMediaItem = item
-                            }
-                        })
-                    } else if currentTab == .settings {
-                        UserProfileView(
-                            viewModel: viewModel,
-                            isEmbeddedPage: true,
-                            onSelectMediaItem: { item in
-                                withAnimation {
-                                    detailMediaItem = item
-                                }
-                            },
-                            onSelectTorrentLink: { linkString in
-                                Task {
-                                    await playDirectLink(linkString)
-                                }
-                            }
-                        )
-                    } else {
-                        ContentDiscoveryView(
-                            viewModel: viewModel,
-                            filterCategory: currentTab == .movies ? "Movies" : (currentTab == .series ? "TV Shows" : "All"),
-                            onMediaSelected: { item in
-                                withAnimation {
-                                    detailMediaItem = item
-                                }
-                            },
-                            onOpenProfile: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    currentTab = .settings
-                                }
-                            }
-                        )
-                    }
+                    // Main Content based on Tab (Home, Discover, Movies, Series, Watchlist, Downloads, Settings)
+                    mainTabContent
                 }
             }
             }
@@ -271,6 +150,25 @@ struct ContentView: View {
                         if let sel = selectedMediaItem {
                             detailMediaItem = sel
                         }
+                    },
+                    onReturnHome: {
+                        showPlayer = false
+                        selectedStreamURL = nil
+                        isPreparingStream = false
+                        selectedMediaItem = nil
+                        detailMediaItem = nil
+                        currentTab = .home
+                        KSPlayerEngine.shared.shutdown()
+                        AggregatorService.stopAndCleanAllTorrentMissions()
+                    },
+                    onSelectRecommendation: { recMovie in
+                        showPlayer = false
+                        selectedStreamURL = nil
+                        isPreparingStream = false
+                        selectedMediaItem = recMovie
+                        detailMediaItem = recMovie
+                        KSPlayerEngine.shared.shutdown()
+                        AggregatorService.stopAndCleanAllTorrentMissions()
                     }
                 )
                 .id(url.absoluteString + "_\(playingSeason ?? 0)_\(playingEpisode ?? 0)")
@@ -418,6 +316,12 @@ struct ContentView: View {
             Text(errorMessage ?? "Unable to start stream")
         }
         .overlay {
+            // Global Floating Poster Preview Overlay (In-Window Overlay - Zero NSPopover click swallowing)
+            if !showPlayer && detailMediaItem == nil && !isPreparingStream {
+                GlobalPosterHoverOverlay()
+                    .zIndex(100)
+            }
+
             // Mid-Screen Detail Modal Overlay
             if let item = detailMediaItem, !showPlayer {
                 MediaDetailView(
@@ -451,6 +355,8 @@ struct ContentView: View {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isPreparingStream = false
                         }
+                        AggregatorService.stopAndCleanAllTorrentMissions()
+                        KSPlayerEngine.shared.shutdown()
                     }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -459,6 +365,69 @@ struct ContentView: View {
         }
         .onAppear {
             viewModel.fetchContent()
+            #if os(macOS)
+            if keyMonitor == nil {
+                keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    if let responder = NSApp.keyWindow?.firstResponder {
+                        if responder is NSText || responder is NSTextView || responder is NSTextField {
+                            return event
+                        }
+                    }
+                    if showPlayer { return event }
+
+                    if event.keyCode == 53 { // Esc
+                        if detailMediaItem != nil {
+                            return event
+                        }
+                        if currentTab != .home {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                currentTab = .home
+                            }
+                            return nil
+                        }
+                        return event
+                    }
+
+                    if let chars = event.charactersIgnoringModifiers, !chars.isEmpty {
+                        switch chars {
+                        case "1":
+                            withAnimation(.easeInOut(duration: 0.2)) { currentTab = .home }
+                            return nil
+                        case "2":
+                            withAnimation(.easeInOut(duration: 0.2)) { currentTab = .discover }
+                            return nil
+                        case "3":
+                            withAnimation(.easeInOut(duration: 0.2)) { currentTab = .movies }
+                            return nil
+                        case "4":
+                            withAnimation(.easeInOut(duration: 0.2)) { currentTab = .series }
+                            return nil
+                        case "5":
+                            withAnimation(.easeInOut(duration: 0.2)) { currentTab = .watchlist }
+                            return nil
+                        case "6":
+                            withAnimation(.easeInOut(duration: 0.2)) { currentTab = .downloads }
+                            return nil
+                        case "7":
+                            withAnimation(.easeInOut(duration: 0.2)) { currentTab = .settings }
+                            return nil
+                        default:
+                            break
+                        }
+                    }
+
+                    return event
+                }
+            }
+            #endif
+        }
+        .onDisappear {
+            #if os(macOS)
+            if let km = keyMonitor {
+                NSEvent.removeMonitor(km)
+                keyMonitor = nil
+            }
+            #endif
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenProfileSettings"))) { _ in
             withAnimation(.easeInOut(duration: 0.2)) {
@@ -470,6 +439,142 @@ struct ContentView: View {
                 currentTab = .downloads
                 detailMediaItem = nil // dismiss detail modal so downloads tab is immediately visible
             }
+        }
+    }
+
+    // MARK: - Extracted Subviews for Performance & Fast Type-Checking
+    private var headerSearchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.white.opacity(0.45))
+            TextField("Search movies, TV series...", text: $viewModel.searchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .foregroundColor(.white)
+                .onSubmit {
+                    viewModel.performSearch()
+                }
+            if !viewModel.searchQuery.isEmpty {
+                Button(action: { viewModel.clearSearch() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.45))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(width: 300, height: 34)
+        .background(Color.white.opacity(0.08))
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
+    }
+
+    private var headerProfilePill: some View {
+        Button(action: {
+            accountManager.showAccountModal = true
+        }) {
+            HStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(AccountManager.colorForName(accountManager.activeAccount?.avatarColor ?? "purple").opacity(0.35))
+                        .frame(width: 22, height: 22)
+                    Image(systemName: accountManager.activeAccount?.avatarIcon ?? "person.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(AccountManager.colorForName(accountManager.activeAccount?.avatarColor ?? "purple"))
+                }
+                Text(accountManager.activeAccount?.username ?? "Profile")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.5))
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(Color.white.opacity(0.08))
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var mainTabContent: some View {
+        if currentTab == .discover {
+            DiscoverTabView(
+                viewModel: viewModel,
+                onMediaSelected: { item in
+                    withAnimation {
+                        detailMediaItem = item
+                    }
+                },
+                onPlayMedia: { item in
+                    Task {
+                        await autoPlayMediaItem(item)
+                    }
+                }
+            )
+        } else if currentTab == .downloads {
+            DownloadsView(onMediaSelected: { item in
+                withAnimation {
+                    detailMediaItem = item
+                }
+            })
+        } else if currentTab == .watchlist {
+            WatchlistView(
+                onMediaSelected: { item in
+                    withAnimation {
+                        detailMediaItem = item
+                    }
+                },
+                onPlayContinueWatching: { hist in
+                    Task {
+                        await autoPlayMediaItem(hist.mediaItem, season: hist.season, episode: hist.episode)
+                    }
+                }
+            )
+        } else if currentTab == .settings {
+            UserProfileView(
+                viewModel: viewModel,
+                isEmbeddedPage: true,
+                onSelectMediaItem: { item in
+                    withAnimation {
+                        detailMediaItem = item
+                    }
+                },
+                onSelectTorrentLink: { linkString in
+                    Task {
+                        await playDirectLink(linkString)
+                    }
+                }
+            )
+        } else {
+            ContentDiscoveryView(
+                viewModel: viewModel,
+                filterCategory: currentTab == .movies ? "Movies" : (currentTab == .series ? "TV Shows" : "All"),
+                onMediaSelected: { item in
+                    withAnimation {
+                        detailMediaItem = item
+                    }
+                },
+                onOpenProfile: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        currentTab = .settings
+                    }
+                },
+                onOpenWatchlist: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        currentTab = .watchlist
+                    }
+                },
+                onPlayContinueWatching: { hist in
+                    Task {
+                        await autoPlayMediaItem(hist.mediaItem, season: hist.season, episode: hist.episode)
+                    }
+                }
+            )
         }
     }
 
@@ -490,6 +595,7 @@ struct ContentView: View {
                 imdbID: item.resolvedIMDbID ?? item.imdbID,
                 type: item.type,
                 title: item.title,
+                year: item.releaseYear,
                 season: season,
                 episode: episode,
                 onBatch: { partialLinks in
@@ -534,6 +640,7 @@ struct ContentView: View {
                 imdbID: item.resolvedIMDbID ?? item.imdbID,
                 type: item.type,
                 title: item.title,
+                year: item.releaseYear,
                 season: season,
                 episode: episode,
                 onBatch: { partialLinks in
@@ -580,7 +687,11 @@ struct ContentView: View {
         }
         isFetchingStreams = true
 
-        guard let bestLink = AggregatedLink.selectBestStream(from: scrapedLinks) ?? scrapedLinks.first else {
+        guard let bestLink = AggregatedLink.selectBestStream(
+            from: scrapedLinks,
+            targetTitle: selectedMediaItem?.title,
+            targetYear: selectedMediaItem?.releaseYear
+        ) ?? scrapedLinks.first else {
             isFetchingStreams = false
             withAnimation(.easeInOut(duration: 0.25)) {
                 self.isPreparingStream = false
@@ -1037,6 +1148,38 @@ class ContentViewModel: ObservableObject {
     @Published var realDebridUser: RealDebridUser? = nil
     @Published var realDebridTorrents: [RealDebridTorrentItem] = []
 
+    var discoverHeroItems: [MediaItem] {
+        var result: [MediaItem] = []
+        var seenIDs: Set<String> = []
+
+        for hist in WatchlistManager.shared.history {
+            if !seenIDs.contains(hist.mediaItem.id) {
+                seenIDs.insert(hist.mediaItem.id)
+                result.append(hist.mediaItem)
+            }
+        }
+
+        for saved in WatchlistManager.shared.watchlist {
+            if !seenIDs.contains(saved.id) {
+                seenIDs.insert(saved.id)
+                result.append(saved)
+            }
+        }
+
+        let pool = featuredHeroItems + trendingMovies + topRatedMovies + popularMovies + actionMovies
+        for item in pool {
+            if !seenIDs.contains(item.id) {
+                seenIDs.insert(item.id)
+                result.append(item)
+            }
+        }
+
+        if result.count > 10 {
+            return Array(result.prefix(10))
+        }
+        return result
+    }
+
     private let realDebridService = RealDebridService()
     private var cancellables = Set<AnyCancellable>()
     private var searchTask: Task<Void, Never>? = nil
@@ -1150,5 +1293,95 @@ class ContentViewModel: ObservableObject {
                 self.realDebridTorrents = torrents
             }
         }
+    }
+}
+
+// MARK: - Header Navigation Tab Pill (Exact 34pt height, centered text, shining hover)
+private struct HeaderNavTabPill: View {
+    let tab: ContentView.MainNavigationTab
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var isHovered: Bool = false
+    
+    var body: some View {
+        Button(action: action) {
+            Text(tab.rawValue)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                .foregroundColor(isSelected ? .white : (isHovered ? .white : .white.opacity(0.55)))
+                .padding(.horizontal, 14)
+                .frame(height: 34)
+                .background(
+                    Capsule()
+                        .fill(
+                            isSelected
+                                ? Color.white.opacity(0.12)
+                                : (isHovered ? Color.white.opacity(0.06) : Color.clear)
+                        )
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(
+                            isSelected
+                                ? Color.white.opacity(0.35)
+                                : (isHovered ? Color.white.opacity(0.30) : Color.clear),
+                            lineWidth: 1
+                        )
+                        .shadow(
+                            color: Color.white.opacity(isHovered ? 0.25 : (isSelected ? 0.12 : 0)),
+                            radius: isHovered ? 6 : (isSelected ? 3 : 0)
+                        )
+                )
+                .contentShape(Capsule())
+        }
+        .buttonStyle(PlainButtonStyle())
+        .animation(.easeInOut(duration: 0.18), value: isHovered)
+        .animation(.easeInOut(duration: 0.2), value: isSelected)
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+}
+
+// MARK: - Header Patreon Pill (Exact 34pt height, centered text & icon, rose glow hover)
+private struct HeaderPatreonPill: View {
+    @State private var isHovered: Bool = false
+    
+    var body: some View {
+        Button(action: {
+            if let url = URL(string: "https://www.patreon.com/cw/infage") {
+                NSWorkspace.shared.open(url)
+            }
+        }) {
+            HStack(spacing: 6) {
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(Color(red: 0.92, green: 0.65, blue: 0.72))
+                Text("Support on Patreon")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(Color(white: 0.90))
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(Color(red: 0.88, green: 0.68, blue: 0.72).opacity(isHovered ? 0.20 : 0.12))
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(
+                        Color(red: 0.92, green: 0.65, blue: 0.72).opacity(isHovered ? 0.55 : 0.25),
+                        lineWidth: 1.0
+                    )
+                    .shadow(
+                        color: Color(red: 0.92, green: 0.65, blue: 0.72).opacity(isHovered ? 0.35 : 0),
+                        radius: isHovered ? 6 : 0
+                    )
+            )
+            .contentShape(Capsule())
+        }
+        .buttonStyle(PlainButtonStyle())
+        .animation(.easeInOut(duration: 0.18), value: isHovered)
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .help("Support our projects on Patreon (https://www.patreon.com/cw/infage)")
     }
 }

@@ -7,6 +7,8 @@ struct ContentDiscoveryView: View {
     var filterCategory: String = "All"
     var onMediaSelected: (MediaItem) -> Void
     var onOpenProfile: () -> Void
+    var onOpenWatchlist: (() -> Void)? = nil
+    var onPlayContinueWatching: ((WatchHistoryItem) -> Void)? = nil
 
     @State private var selectedCatalogCategory: String = "All"
     @State private var expandedCatalog: (title: String, items: [MediaItem])? = nil
@@ -69,10 +71,9 @@ struct ContentDiscoveryView: View {
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 216, maximum: 245), spacing: 22)], spacing: 26) {
                             ForEach(expanded.items) { item in
-                                MoviePosterCard(item: item)
-                                    .onTapGesture {
-                                        onMediaSelected(item)
-                                    }
+                                MoviePosterCard(item: item) {
+                                    onMediaSelected(item)
+                                }
                             }
                         }
                         .padding(.horizontal, 28)
@@ -129,10 +130,9 @@ struct ContentDiscoveryView: View {
 
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 216, maximum: 245), spacing: 22)], spacing: 26) {
                                 ForEach(viewModel.searchResults) { item in
-                                    MoviePosterCard(item: item)
-                                        .onTapGesture {
-                                            onMediaSelected(item)
-                                        }
+                                    MoviePosterCard(item: item) {
+                                        onMediaSelected(item)
+                                    }
                                 }
                             }
                             .padding(.horizontal, 28)
@@ -142,9 +142,9 @@ struct ContentDiscoveryView: View {
                     // 2. Main Catalog Sections Mode
                     let heroItems = !viewModel.featuredHeroItems.isEmpty ? viewModel.featuredHeroItems : Array(viewModel.trendingMovies.prefix(6))
                     if !heroItems.isEmpty {
-                        HeroView(items: heroItems) { selectedMedia in
+                        HeroView(items: heroItems, onDetailsTap: { selectedMedia in
                             onMediaSelected(selectedMedia)
-                        }
+                        })
                     }
 
                     // Quiet sync indicator
@@ -211,7 +211,11 @@ struct ContentDiscoveryView: View {
                                     .foregroundColor(.white)
                                 Spacer()
                                 Button("View All") {
-                                    onOpenProfile()
+                                    if let onOpenWatchlist = onOpenWatchlist {
+                                        onOpenWatchlist()
+                                    } else {
+                                        onOpenProfile()
+                                    }
                                 }
                                 .font(.caption.weight(.semibold))
                                 .foregroundColor(.white.opacity(0.6))
@@ -222,7 +226,11 @@ struct ContentDiscoveryView: View {
                                 HStack(spacing: 16) {
                                     ForEach(watchlistManager.history.prefix(10)) { hist in
                                         ContinueWatchingCard(item: hist) {
-                                            onMediaSelected(hist.mediaItem)
+                                            if let playHandler = onPlayContinueWatching {
+                                                playHandler(hist)
+                                            } else {
+                                                onMediaSelected(hist.mediaItem)
+                                            }
                                         }
                                     }
                                 }
@@ -248,10 +256,9 @@ struct ContentDiscoveryView: View {
                             } else {
                                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 216, maximum: 245), spacing: 22)], spacing: 26) {
                                     ForEach(watchlistManager.watchlist) { item in
-                                        MoviePosterCard(item: item)
-                                            .onTapGesture {
-                                                onMediaSelected(item)
-                                            }
+                                        MoviePosterCard(item: item) {
+                                            onMediaSelected(item)
+                                        }
                                     }
                                 }
                                 .padding(.horizontal, 28)
@@ -499,11 +506,10 @@ struct ContentSection: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 20) {
                         ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                            MoviePosterCard(item: item)
-                                .id(index)
-                                .onTapGesture {
-                                    onSelect(item)
-                                }
+                            MoviePosterCard(item: item) {
+                                onSelect(item)
+                            }
+                            .id(index)
                         }
                     }
                     .padding(.horizontal, 28)
@@ -523,20 +529,29 @@ struct MoviePosterCard: View {
     let item: MediaItem
     var posterWidth: CGFloat = 216
     var posterHeight: CGFloat = 324
+    var onSelect: (() -> Void)? = nil
     @State private var isHovered: Bool = false
+    @State private var cardGlobalFrame: CGRect = .zero
     @ObservedObject private var watchlistManager = WatchlistManager.shared
+    @ObservedObject private var hoverCoordinator = PosterHoverCoordinator.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let isMovieWatched = (item.type == .movie && watchlistManager.isMovieWatched(id: item.id))
+        let isSeriesWatched = (item.type == .series && watchlistManager.watchedCount(showID: item.id) > 0)
+        let isWatched = isMovieWatched || isSeriesWatched
+        let isWatchlisted = watchlistManager.isWatchlisted(id: item.id)
+        let isEffectivelyHovered = isHovered || (hoverCoordinator.activeHoveredID == item.id)
+
+        Button(action: {
+            hoverCoordinator.triggerSelect(id: item.id, action: onSelect)
+        }) {
             ZStack(alignment: .topTrailing) {
                 CachedImage(url: item.posterUrl, fallbackURL: item.posterURL, maxPixel: 700)
                     .frame(width: posterWidth, height: posterHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .grayscale(isHovered ? 0.0 : 0.45)
-                    .contrast(isHovered ? 1.0 : 1.08)
-                    .saturation(isHovered ? 1.0 : 0.88)
-                    .brightness(isHovered ? 0.0 : -0.02)
-                    .scaleEffect(isHovered ? 1.025 : 1.0)
+                    .grayscale(isEffectivelyHovered ? 0.0 : 0.45)
+                    .contrast(isEffectivelyHovered ? 1.0 : 1.08)
+                    .saturation(isEffectivelyHovered ? 1.0 : 0.88)
+                    .brightness(isEffectivelyHovered ? 0.0 : -0.02)
 
                 // Sleek Monochromatic Rating Badge
                 if let rating = item.rating, rating > 0 {
@@ -550,69 +565,86 @@ struct MoviePosterCard: View {
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(Color.black.opacity(isHovered ? 0.75 : 0.55))
+                    .background(Color.black.opacity(isEffectivelyHovered ? 0.75 : 0.55))
                     .clipShape(Capsule())
                     .padding(10)
                 }
 
-                // Watchlist Bookmark Badge
-                if watchlistManager.isWatchlisted(id: item.id) {
-                    Image(systemName: "bookmark.fill")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.white)
-                        .padding(7)
-                        .background(Color.black.opacity(isHovered ? 0.75 : 0.55))
-                        .clipShape(Circle())
-                        .padding(10)
-                }
-
-                // Series Episode Watched Progress Badge
-                if item.type == .series {
-                    let watchedCount = watchlistManager.watchedCount(showID: item.id)
-                    if watchedCount > 0 {
-                        HStack(spacing: 4) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(Color.green)
-                            Text("\(watchedCount) watched")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.white)
-                        }
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3.5)
-                        .background(Color.black.opacity(0.82))
-                        .clipShape(Capsule())
-                        .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
-                        .padding(8)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                    }
-                } else if watchlistManager.isMovieWatched(id: item.id) {
-                    HStack(spacing: 4) {
+                // Bottom Leading Indicators: Pastel Green for Watched, Pastel Yellow for Watchlisted
+                HStack(spacing: 6) {
+                    if isWatched {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(Color.green)
-                        Text("Watched")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.white)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(Color(red: 0.45, green: 0.85, blue: 0.55))
+                            .padding(6)
+                            .background(Color.black.opacity(0.8))
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(Color(red: 0.45, green: 0.85, blue: 0.55).opacity(0.4), lineWidth: 0.8))
                     }
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3.5)
-                    .background(Color.black.opacity(0.82))
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
-                    .padding(8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+
+                    if isWatchlisted {
+                        Image(systemName: "bookmark.fill")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(Color(red: 0.96, green: 0.84, blue: 0.44))
+                            .padding(6)
+                            .background(Color.black.opacity(0.8))
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(Color(red: 0.96, green: 0.84, blue: 0.44).opacity(0.4), lineWidth: 0.8))
+                    }
                 }
+                .padding(8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             }
+            .frame(width: posterWidth, height: posterHeight)
+            .contentShape(Rectangle())
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(isHovered ? Color.white.opacity(0.38) : Color.white.opacity(0.09), lineWidth: 1)
+                    .strokeBorder(isEffectivelyHovered ? Color.white.opacity(0.70) : Color.white.opacity(0.12), lineWidth: isEffectivelyHovered ? 1.5 : 1.0)
+            )
+            .scaleEffect(isEffectivelyHovered ? 1.03 : 1.0)
+            .offset(y: isEffectivelyHovered ? -4 : 0)
+            .shadow(
+                color: isEffectivelyHovered ? Color.white.opacity(0.35) : Color.black.opacity(0.3),
+                radius: isEffectivelyHovered ? 14 : 6,
+                x: 0,
+                y: isEffectivelyHovered ? 6 : 2
             )
             .help(item.title)
         }
-        .animation(.easeInOut(duration: 0.35), value: isHovered)
+        .buttonStyle(.plain)
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear {
+                        cardGlobalFrame = geo.frame(in: .global)
+                    }
+                    .onChange(of: geo.frame(in: .global)) { _, newFrame in
+                        cardGlobalFrame = newFrame
+                        if hoverCoordinator.activeHoveredID == item.id || isHovered {
+                            hoverCoordinator.activePosterWindowFrame = newFrame
+                        }
+                    }
+                    .onChange(of: hoverCoordinator.activeHoveredID) { _, activeID in
+                        if activeID == item.id {
+                            hoverCoordinator.activePosterWindowFrame = geo.frame(in: .global)
+                        }
+                    }
+                    .onChange(of: isHovered) { _, hovered in
+                        if hovered {
+                            hoverCoordinator.activePosterWindowFrame = geo.frame(in: .global)
+                        }
+                    }
+            }
+        )
+        .animation(.easeOut(duration: 0.12), value: isEffectivelyHovered)
         .onHover { hovering in
             isHovered = hovering
+            if hovering {
+                hoverCoordinator.cursorEntered(item: item, frame: cardGlobalFrame, onSelect: onSelect)
+            } else {
+                hoverCoordinator.cursorExited(id: item.id)
+            }
         }
     }
 }
@@ -664,70 +696,184 @@ struct RealDebridUserBanner: View {
     }
 }
 
-// MARK: - Continue Watching Card
+// MARK: - Continue Watching Card (+25% Larger, Horizontal Art, Linear Run, Shining/Rising, Top-Right X Menu)
 struct ContinueWatchingCard: View {
     let item: WatchHistoryItem
     var onTap: () -> Void
     @State private var isHovered: Bool = false
+    @State private var showActionMenu: Bool = false
+    @ObservedObject private var watchlistManager = WatchlistManager.shared
 
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 8) {
                 ZStack(alignment: .bottomLeading) {
-                    CachedImage(url: item.mediaItem.backdropUrl ?? item.mediaItem.posterUrl, maxPixel: 520)
-                        .frame(width: 230, height: 130)
+                    CachedImage(url: item.mediaItem.backdropUrl ?? item.mediaItem.posterUrl, maxPixel: 640)
+                        .frame(width: 288, height: 162)
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .grayscale(isHovered ? 0.0 : 0.35)
+                        .contrast(isHovered ? 1.0 : 1.06)
+                        .saturation(isHovered ? 1.05 : 0.90)
+                        .brightness(isHovered ? 0.0 : -0.02)
+                        .scaleEffect(isHovered ? 1.025 : 1.0)
+                        .animation(.easeInOut(duration: 0.25), value: isHovered)
 
-                    // Play Overlay Badge
-                    Circle()
-                        .fill(Color.black.opacity(isHovered ? 0.7 : 0.45))
-                        .frame(width: 34, height: 34)
-                        .overlay(
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundColor(.white)
-                                .offset(x: 1)
-                        )
-                        .padding(10)
+                    // Overlay Horizontal Logo Art if available
+                    if let logo = item.mediaItem.initialLogoURL {
+                        CachedImage(url: logo, maxPixel: 400, contentMode: .fit, transparentBackground: true)
+                            .frame(maxWidth: 160, maxHeight: 44, alignment: .bottomLeading)
+                            .shadow(color: .black.opacity(0.85), radius: 6, x: 0, y: 2)
+                            .padding(12)
+                            .padding(.bottom, 6)
+                    }
 
-                    // Minimalist Progress Bar
+                    // Top-Right X symbol with 2-choice menu
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Button(action: {
+                                showActionMenu.toggle()
+                            }) {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 10.5, weight: .bold))
+                                    .foregroundColor(.white.opacity(0.9))
+                                    .frame(width: 26, height: 26)
+                                    .background(Color.black.opacity(0.75))
+                                    .clipShape(Circle())
+                                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.8))
+                            }
+                            .buttonStyle(.plain)
+                            .popover(isPresented: $showActionMenu, arrowEdge: .bottom) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Button(action: {
+                                        showActionMenu = false
+                                        withAnimation {
+                                            watchlistManager.removeHistory(id: item.mediaItem.id)
+                                        }
+                                    }) {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: "xmark.circle")
+                                                .foregroundColor(.red.opacity(0.9))
+                                            Text("Remove from Continue Watching")
+                                                .font(.system(size: 12, weight: .medium))
+                                                .foregroundColor(.white)
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    Button(action: {
+                                        showActionMenu = false
+                                        withAnimation {
+                                            if !watchlistManager.isWatchlisted(id: item.mediaItem.id) {
+                                                watchlistManager.toggleWatchlist(item.mediaItem)
+                                            }
+                                        }
+                                    }) {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: "bookmark")
+                                                .foregroundColor(Color(red: 0.96, green: 0.84, blue: 0.44))
+                                            Text(watchlistManager.isWatchlisted(id: item.mediaItem.id) ? "Already in Watchlist" : "Add to Watchlist")
+                                                .font(.system(size: 12, weight: .medium))
+                                                .foregroundColor(.white)
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                .padding(8)
+                                .background(Color(red: 0.12, green: 0.12, blue: 0.14))
+                            }
+                        }
+                        Spacer()
+                    }
+                    .padding(8)
+
+                    // Center translucent play button only on hover
+                    if isHovered {
+                        Circle()
+                            .fill(Color.black.opacity(0.65))
+                            .frame(width: 44, height: 44)
+                            .overlay(
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .offset(x: 1.5)
+                            )
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                            .transition(.opacity)
+                    }
+
+                    // Red bottom progress bar matching Watchlist
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Rectangle()
                                 .fill(Color.black.opacity(0.6))
-                                .frame(height: 3)
+                                .frame(height: 3.5)
                             Rectangle()
-                                .fill(Color.white)
-                                .frame(width: geo.size.width * CGFloat(item.progressFraction), height: 3)
+                                .fill(Color(red: 0.92, green: 0.22, blue: 0.22))
+                                .frame(width: geo.size.width * CGFloat(item.progressFraction), height: 3.5)
                         }
                     }
-                    .frame(height: 3)
+                    .frame(height: 3.5)
                 }
+                .frame(width: 288, height: 162)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.white.opacity(isHovered ? 0.25 : 0.08), lineWidth: 1)
+                        .strokeBorder(isHovered ? Color.white.opacity(0.55) : Color.white.opacity(0.12), lineWidth: 1.2)
                 )
+                .shadow(
+                    color: Color.white.opacity(isHovered ? 0.38 : 0.0),
+                    radius: isHovered ? 16 : 0,
+                    x: 0,
+                    y: isHovered ? 5 : 0
+                )
+                .offset(y: isHovered ? -3 : 0)
 
-                VStack(alignment: .leading, spacing: 2) {
+                // Clean Typography: NO BOX around the text
+                VStack(alignment: .leading, spacing: 3) {
                     Text(item.mediaItem.title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.white)
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundColor(isHovered ? .white : .white.opacity(0.92))
                         .lineLimit(1)
 
                     if item.mediaItem.type == .series, let s = item.seasonNumber, let e = item.episodeNumber {
-                        let wCount = WatchlistManager.shared.watchedCount(showID: item.mediaItem.id)
-                        Text(wCount > 0 ? "S\(s) E\(e) • \(wCount) watched" : "S\(s) E\(e)")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.white.opacity(0.6))
+                        HStack(spacing: 6) {
+                            Text("S\(s):E\(e)")
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.65))
+
+                            // Linear Run Indicator: Green icon + % progress ONLY if linear run
+                            let isLinear = watchlistManager.isLinearWatchingRun(showID: item.mediaItem.id, currentSeason: s, currentEpisode: e)
+                            if isLinear {
+                                let pct = watchlistManager.showProgressPercent(showID: item.mediaItem.id, currentSeason: s, currentEpisode: e)
+                                HStack(spacing: 3) {
+                                    Image(systemName: "play.circle.fill")
+                                        .font(.system(size: 9.5, weight: .bold))
+                                        .foregroundColor(Color(red: 0.45, green: 0.85, blue: 0.55))
+                                    Text("\(pct)%")
+                                        .font(.system(size: 10.5, weight: .bold))
+                                        .foregroundColor(Color(red: 0.45, green: 0.85, blue: 0.55))
+                                }
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1.5)
+                                .background(Color.white.opacity(0.08))
+                                .clipShape(Capsule())
+                            }
+                        }
                     } else {
                         Text("Movie")
-                            .font(.system(size: 11, weight: .regular))
+                            .font(.system(size: 11.5, weight: .regular))
                             .foregroundColor(.white.opacity(0.45))
                     }
                 }
+                .padding(.top, 2)
             }
-            .frame(width: 230)
-            .animation(.easeInOut(duration: 0.2), value: isHovered)
+            .frame(width: 288)
+            .animation(.easeInOut(duration: 0.22), value: isHovered)
             .onHover { hovering in
                 isHovered = hovering
             }

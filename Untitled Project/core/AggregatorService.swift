@@ -18,11 +18,12 @@ class AggregatorService {
         imdbID: String? = nil,
         type: MediaItem.MediaType,
         title: String? = nil,
+        year: Int? = nil,
         season: Int? = nil,
         episode: Int? = nil,
         onBatch: (([AggregatedLink]) -> Void)? = nil
     ) async throws -> [AggregatedLink] {
-        return try await getBestLinks(tmdbID: tmdbID, imdbID: imdbID, type: type, title: title, season: season, episode: episode, onBatch: onBatch)
+        return try await getBestLinks(tmdbID: tmdbID, imdbID: imdbID, type: type, title: title, year: year, season: season, episode: episode, onBatch: onBatch)
     }
 
     func getBestLinks(
@@ -30,6 +31,7 @@ class AggregatorService {
         imdbID: String? = nil,
         type: MediaItem.MediaType,
         title: String? = nil,
+        year: Int? = nil,
         season: Int? = nil,
         episode: Int? = nil,
         onBatch: (([AggregatedLink]) -> Void)? = nil
@@ -53,7 +55,7 @@ class AggregatorService {
                 candidateTitle = try? await tmdbService.fetchTitle(tmdbID: cleanID, type: type)
             }
             if let t = candidateTitle, !t.isEmpty, !t.hasPrefix("tmdb:"), !t.hasPrefix("tt") {
-                resolvedIMDb = await tmdbService.resolveIMDbIDByTitle(title: t, type: type)
+                resolvedIMDb = await tmdbService.resolveIMDbIDByTitle(title: t, type: type, year: year)
             }
         }
 
@@ -79,7 +81,7 @@ class AggregatorService {
             episode: episode,
             onBatch: { newBatch in
                 accumulatedLinks.append(contentsOf: newBatch)
-                let currentSorted = self.processAndSort(links: accumulatedLinks)
+                let currentSorted = self.processAndSort(links: accumulatedLinks, expectedTitle: streamTitle ?? title, expectedYear: year)
                 onBatch?(currentSorted)
             }
         )
@@ -101,12 +103,16 @@ class AggregatorService {
             }
         }
 
-        let finalSorted = self.processAndSort(links: accumulatedLinks)
+        let finalSorted = self.processAndSort(links: accumulatedLinks, expectedTitle: streamTitle ?? title, expectedYear: year)
         onBatch?(finalSorted)
         return finalSorted
     }
 
-    private func processAndSort(links: [AggregatedLink]) -> [AggregatedLink] {
+    private func processAndSort(
+        links: [AggregatedLink],
+        expectedTitle: String? = nil,
+        expectedYear: Int? = nil
+    ) -> [AggregatedLink] {
         // 3. Deduplicate links by infoHash or URL
         var seenHashes = Set<String>()
         var seenURLs = Set<String>()
@@ -144,50 +150,62 @@ class AggregatorService {
             }
         }
 
-        // 5. Sort links:
-        uniqueLinks.sort { l1, l2 in
-            if Config.isDebridMode {
-                // Debrid mode: Cached instant links first, then Quality rank, then Seeds, then Score
-                if l1.isCached != l2.isCached {
-                    return l1.isCached && !l2.isCached
-                }
-                let rank1 = self.qualityRank(for: l1)
-                let rank2 = self.qualityRank(for: l2)
-                if rank1 != rank2 {
-                    return rank1 > rank2
-                }
-                let s1 = l1.seeds ?? 0
-                let s2 = l2.seeds ?? 0
-                if s1 != s2 { return s1 > s2 }
-                return l1.score > l2.score
-            } else {
-                // Debridless mode: Best quality first (4K > 1080p > 720p > SD), then most seeders!
-                // Healthy torrents with active seeds (>= 1) always come before dead 0-seeder torrents
-                let s1 = l1.seeds ?? 0
-                let s2 = l2.seeds ?? 0
-                let active1 = s1 > 0
-                let active2 = s2 > 0
-                if active1 != active2 {
-                    return active1 && !active2
-                }
+        // 5. Partition by Title and Year match
+        let cleanLinks = uniqueLinks.filter { link in
+            !AggregatedLink.evaluateSourceMatch(link: link, targetTitle: expectedTitle, targetYear: expectedYear).isMismatched
+        }
+        let mismatchedLinks = uniqueLinks.filter { link in
+            AggregatedLink.evaluateSourceMatch(link: link, targetTitle: expectedTitle, targetYear: expectedYear).isMismatched
+        }
 
-                let rank1 = self.qualityRank(for: l1)
-                let rank2 = self.qualityRank(for: l2)
-                if rank1 != rank2 {
-                    return rank1 > rank2
+        func sortPool(_ pool: inout [AggregatedLink]) {
+            pool.sort { l1, l2 in
+                if Config.isDebridMode {
+                    if l1.isCached != l2.isCached {
+                        return l1.isCached && !l2.isCached
+                    }
+                    let rank1 = self.qualityRank(for: l1)
+                    let rank2 = self.qualityRank(for: l2)
+                    if rank1 != rank2 {
+                        return rank1 > rank2
+                    }
+                    let s1 = l1.seeds ?? 0
+                    let s2 = l2.seeds ?? 0
+                    if s1 != s2 { return s1 > s2 }
+                    return l1.score > l2.score
+                } else {
+                    let s1 = l1.seeds ?? 0
+                    let s2 = l2.seeds ?? 0
+                    let active1 = s1 > 0
+                    let active2 = s2 > 0
+                    if active1 != active2 {
+                        return active1 && !active2
+                    }
+                    let rank1 = self.qualityRank(for: l1)
+                    let rank2 = self.qualityRank(for: l2)
+                    if rank1 != rank2 {
+                        return rank1 > rank2
+                    }
+                    if s1 != s2 {
+                        return s1 > s2
+                    }
+                    return l1.score > l2.score
                 }
-                if s1 != s2 {
-                    return s1 > s2
-                }
-                return l1.score > l2.score
             }
         }
 
-        if !uniqueLinks.isEmpty {
-            uniqueLinks[0].isBestInCategory = true
+        var sortedClean = cleanLinks
+        sortPool(&sortedClean)
+
+        var sortedMismatched = mismatchedLinks
+        sortPool(&sortedMismatched)
+
+        var finalResult = sortedClean + sortedMismatched
+        if !finalResult.isEmpty {
+            finalResult[0].isBestInCategory = true
         }
 
-        return uniqueLinks
+        return finalResult
     }
 
     private func qualityRank(for link: AggregatedLink) -> Int {

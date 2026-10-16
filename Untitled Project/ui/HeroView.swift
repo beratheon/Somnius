@@ -4,6 +4,7 @@ import Combine
 struct HeroView: View {
     let items: [MediaItem]
     var onPlayTap: ((MediaItem) -> Void)?
+    var onDetailsTap: ((MediaItem) -> Void)? = nil
 
     @State private var currentIndex: Int = 0
     @State private var isHovering: Bool = false
@@ -34,9 +35,11 @@ struct HeroView: View {
                         .scaleEffect(isHovering ? 1.025 : 1.0)
                         .animation(.easeInOut(duration: 0.35), value: isHovering)
                 }
-                .frame(maxWidth: .infinity, maxHeight: 520)
+                .frame(maxWidth: .infinity)
+                .frame(height: 520)
                 .clipped()
             }
+
 
             // 2. Cinematic Progressive Gradients (Apple TV+ Style)
             // Bottom fade
@@ -121,34 +124,34 @@ struct HeroView: View {
                             .shadow(color: .black.opacity(0.7), radius: 4, x: 0, y: 2)
                     }
 
-                    // Action Buttons Row
+                    // Action Buttons Row (Details and Watchlist Only)
                     HStack(spacing: 14) {
-                        // Play / Continue Button
-                        let inWatchlist = currentItem != nil ? watchlistManager.isWatchlisted(id: currentItem!.id) : false
-                        let historyItem = currentItem != nil ? watchlistManager.history.first(where: { $0.mediaItem.id == currentItem!.id }) : nil
-                        let hasWatchedProgress = (historyItem != nil && historyItem!.progressSeconds > 10)
-                        let shouldShowContinue = inWatchlist && hasWatchedProgress
-
+                        // Details Button (High-Contrast White Pill with Subtle Rise & Shine)
                         Button(action: {
                             if let item = currentItem {
-                                onPlayTap?(item)
+                                if let onDetails = onDetailsTap {
+                                    onDetails(item)
+                                } else if let onPlay = onPlayTap {
+                                    onPlay(item)
+                                }
                             }
                         }) {
                             HStack(spacing: 8) {
-                                Image(systemName: shouldShowContinue ? "arrow.clockwise.circle.fill" : "play.fill")
+                                Image(systemName: "info.circle.fill")
                                     .font(.system(size: 14, weight: .bold))
-                                Text(shouldShowContinue ? "Continue" : "Play")
+                                Text("Details")
                                     .font(.system(size: 14, weight: .bold))
                             }
                             .foregroundColor(.black)
-                            .padding(.horizontal, 28)
+                            .padding(.horizontal, 26)
                             .padding(.vertical, 12)
                             .background(Color.white)
                             .clipShape(Capsule())
                         }
                         .buttonStyle(PlainButtonStyle())
+                        .modifier(ShiningRisingModifier(tintColor: .white, isWhitePlayButton: true))
 
-                        // Watchlist Button (Frosted Glass)
+                        // Watchlist Button (Frosted Glass Pill)
                         let isSaved = watchlistManager.isWatchlisted(id: item.id)
                         Button(action: {
                             withAnimation(.easeInOut(duration: 0.25)) {
@@ -169,6 +172,7 @@ struct HeroView: View {
                             .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 1))
                         }
                         .buttonStyle(PlainButtonStyle())
+                        .modifier(ShiningNavModifier())
 
 
                         Spacer()
@@ -286,7 +290,8 @@ struct HeroView: View {
                 id: item.id,
                 imdbID: item.imdbID,
                 type: item.type,
-                title: item.title
+                title: item.title,
+                year: item.releaseYear
             )
             await MainActor.run {
                 if currentItem?.id == item.id {

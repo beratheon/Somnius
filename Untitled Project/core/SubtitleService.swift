@@ -39,6 +39,9 @@ class SubtitleService {
                 let id: String?
                 let lang: String?
                 let url: String?
+                let subtitleFileName: String?
+                let movieReleaseName: String?
+                let releaseGroup: String?
             }
             struct RawSubResponse: Decodable {
                 let subtitles: [RawSubItem]?
@@ -47,15 +50,29 @@ class SubtitleService {
             let decoded = try JSONDecoder().decode(RawSubResponse.self, from: data)
             guard let rawSubs = decoded.subtitles else { return [] }
 
-            let tracks = rawSubs.compactMap { sub -> SubtitleTrack? in
+            var langCounter: [String: Int] = [:]
+            let tracks = rawSubs.enumerated().compactMap { idx, sub -> SubtitleTrack? in
                 guard let subURLStr = sub.url, let subURL = URL(string: subURLStr), let lang = sub.lang else {
                     return nil
                 }
                 let cleanLang = lang.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                let label = Self.languageName(for: cleanLang)
+                let baseLang = Self.languageName(for: cleanLang)
+                let count = (langCounter[baseLang] ?? 0) + 1
+                langCounter[baseLang] = count
+
+                var detailSuffix = "#\(count)"
+                if let group = sub.releaseGroup?.trimmingCharacters(in: .whitespacesAndNewlines), !group.isEmpty {
+                    detailSuffix = "\(group) (#\(count))"
+                } else if let file = sub.subtitleFileName?.trimmingCharacters(in: .whitespacesAndNewlines), !file.isEmpty {
+                    let cleanFile = file.replacingOccurrences(of: ".srt", with: "", options: .caseInsensitive)
+                    let shortFile = cleanFile.count > 28 ? String(cleanFile.prefix(28)) + "…" : cleanFile
+                    detailSuffix = "\(shortFile) (#\(count))"
+                }
+
+                let uniqueID = "opensub_\(sub.id ?? "\(idx)")_\(idx)"
                 return SubtitleTrack(
-                    id: sub.id ?? UUID().uuidString,
-                    displayName: label,
+                    id: uniqueID,
+                    displayName: "\(baseLang) • \(detailSuffix)",
                     option: nil,
                     externalURL: subURL
                 )
@@ -80,25 +97,39 @@ class SubtitleService {
 
     /// Downloads and parses SRT / VTT subtitle tracks into structured cues
     func loadCues(from url: URL) async -> [SubtitleCue] {
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 5.0
-        guard let (data, resp) = try? await URLSession.shared.data(for: request),
-              let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            return []
+        let data: Data
+        if url.isFileURL {
+            guard let fileData = try? Data(contentsOf: url) else { return [] }
+            data = fileData
+        } else {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 8.0
+            request.setValue("Stremio/4.4.168 (macOS; x86_64)", forHTTPHeaderField: "User-Agent")
+            guard let (fetchedData, resp) = try? await URLSession.shared.data(for: request),
+                  let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                return []
+            }
+            data = fetchedData
         }
 
-        // Try decoding as UTF-8, Windows-1252, or ISO Latin
+        // Try decoding as UTF-8, Turkish Windows-1254, Windows-1252, ISO Latin-1, or UTF-16
+        let cp1254 = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.windowsLatin5.rawValue)))
         let text = String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: cp1254)
             ?? String(data: data, encoding: .windowsCP1252)
             ?? String(data: data, encoding: .isoLatin1)
+            ?? String(data: data, encoding: .utf16)
             ?? ""
-        return parseSRTOrVTT(text)
+        let parsed = parseSRTOrVTT(text)
+        print("✅ [SubtitleService] Loaded \(parsed.count) subtitle cues from \(url.lastPathComponent)")
+        return parsed
     }
 
     /// Parses SRT or WebVTT string content into time-indexed SubtitleCues
     func parseSRTOrVTT(_ content: String) -> [SubtitleCue] {
         var cues: [SubtitleCue] = []
-        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        let cleanContent = content.replacingOccurrences(of: "\u{FEFF}", with: "")
+        let normalized = cleanContent.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         let blocks = normalized.components(separatedBy: "\n\n")
 
         var index = 0

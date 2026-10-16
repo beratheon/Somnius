@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 struct MediaDetailView: View {
     @State private var currentItem: MediaItem
@@ -20,12 +21,17 @@ struct MediaDetailView: View {
     @State private var similarItems: [MediaItem] = []
     @State private var isLoadingSimilar: Bool = false
 
+    @State private var recommendedItems: [MediaItem] = []
+    @State private var isLoadingRecommendations: Bool = false
+
     @State private var credits: MediaCredits? = nil
     @State private var isLoadingCredits: Bool = false
 
     @State private var logoURL: URL? = nil
     @State private var isLoadingLogo: Bool = true
     @State private var runtimeMinutes: Int? = nil
+    @State private var tagline: String? = nil
+    @State private var playingExtra: TMDBService.MediaExtra? = nil
 
     // State for viewing an Actor's / Director's filmography
     @State private var selectedPerson: (id: Int, name: String, role: String, photoURL: URL?, isDirectorSource: Bool)? = nil
@@ -41,12 +47,17 @@ struct MediaDetailView: View {
     @State private var tvDetailTab: ContentTab = .cast
     @State private var extras: [TMDBService.MediaExtra] = []
     @State private var isLoadingExtras: Bool = false
+    @State private var movieExtrasScrollIndex: Int = 0
+    @State private var movieExtrasScrollTarget: String? = nil
 
     @ObservedObject private var watchlistManager = WatchlistManager.shared
     @State private var showDownloadSourcesModal: Bool = false
     @State private var downloadSources: [AggregatedLink] = []
     @State private var isLoadingDownloadSources: Bool = false
     private let aggregatorService = AggregatorService()
+    #if os(macOS)
+    @State private var keyMonitor: Any? = nil
+    #endif
 
     private let tmdbService = TMDBService()
 
@@ -72,9 +83,12 @@ struct MediaDetailView: View {
 
             // Centered Apple TV+ Style Modal Card - 75% Larger Window (1400x900)
             VStack(spacing: 0) {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        // 1. Hero Backdrop Header (High-Resolution Art & Poster Banner)
+                ScrollViewReader { scrollProxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Color.clear.frame(height: 0).id("detailTopAnchor")
+
+                            // 1. Hero Backdrop Header (High-Resolution Art & Poster Banner)
                         ZStack(alignment: .bottomLeading) {
                             CachedImage(url: currentItem.backdropUrl ?? currentItem.posterUrl, maxPixel: 2800)
                                 .frame(maxWidth: .infinity)
@@ -102,6 +116,19 @@ struct MediaDetailView: View {
                                 endPoint: .trailing
                             )
                             .frame(width: 950)
+
+                            // Official Primary Tagline (Baskerville ALL CAPS) placed in header ABOVE shadows
+                            if let tag = tagline, !tag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text(tag.uppercased())
+                                    .font(.custom("Baskerville", size: 13.5))
+                                    .tracking(2.0)
+                                    .foregroundColor(.white)
+                                    .shadow(color: .black.opacity(0.95), radius: 6, x: 0, y: 2)
+                                    .padding(.leading, 28)
+                                    .padding(.top, 58)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                                    .zIndex(10)
+                            }
 
                             // Header Content: Original Title Logo Art & Actions over Cinematic Banner
                             VStack(alignment: .leading, spacing: 14) {
@@ -235,6 +262,7 @@ struct MediaDetailView: View {
                                             .clipShape(Capsule())
                                         }
                                         .buttonStyle(PlainButtonStyle())
+                                        .modifier(ShiningRisingModifier(tintColor: .white, isWhitePlayButton: true))
 
                                         // Watchlist Button
                                         let isSaved = watchlistManager.isWatchlisted(id: currentItem.id)
@@ -257,6 +285,8 @@ struct MediaDetailView: View {
                                             .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 1))
                                         }
                                         .buttonStyle(PlainButtonStyle())
+                                        .modifier(ShiningNavModifier())
+
                         // Download Button (Subtle Default, Shines on Click)
                         Button(action: {
                             withAnimation(.easeInOut(duration: 0.15)) {
@@ -279,23 +309,13 @@ struct MediaDetailView: View {
                         }
                         .buttonStyle(ShiningDownloadButtonStyle())
 
-
-                                        // Favorite Button
+                                        // Favorite Love Button (Proximity Radiant Glow on Hover)
                                         let isFav = watchlistManager.isFavorite(id: currentItem.id)
-                                        Button(action: {
+                                        ProximityLoveButton(isFavorite: isFav) {
                                             withAnimation(.easeInOut(duration: 0.2)) {
                                                 watchlistManager.toggleFavorite(currentItem)
                                             }
-                                        }) {
-                                            Image(systemName: isFav ? "heart.fill" : "heart")
-                                                .font(.system(size: 14, weight: .semibold))
-                                                .foregroundColor(isFav ? .red : .white)
-                                                .frame(width: 40, height: 40)
-                                                .background(.ultraThinMaterial)
-                                                .clipShape(Circle())
-                                                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
                                         }
-                                        .buttonStyle(PlainButtonStyle())
 
                                         // Mark as Watched Button (movies)
                                         if currentItem.type == .movie {
@@ -314,20 +334,28 @@ struct MediaDetailView: View {
                                                     .overlay(Circle().stroke(isMovieWatched ? Color.green.opacity(0.5) : Color.white.opacity(0.18), lineWidth: 1))
                                             }
                                             .buttonStyle(PlainButtonStyle())
+                                            .modifier(ShiningNavModifier())
                                             .help(isMovieWatched ? "Mark as unwatched" : "Mark as watched")
                                         }
                                     }
                                     .padding(.top, 4)
 
                                     // Plot Overview immediately under Play Button (No "About" header)
-                                    if let overview = currentItem.description, !overview.isEmpty {
+                                    if let overview = currentItem.description, !overview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                         Text(overview)
                                             .font(.system(size: 14, weight: .regular))
                                             .foregroundColor(.white.opacity(0.85))
                                             .lineSpacing(4.5)
                                             .lineLimit(4)
                                             .fixedSize(horizontal: false, vertical: true)
-                                            .padding(.top, 4)
+                                            .padding(.top, 10)
+                                            .frame(maxWidth: 880, alignment: .leading)
+                                    } else {
+                                        Text("A captivating cinematic experience streaming in high definition.")
+                                            .font(.system(size: 14, weight: .regular))
+                                            .foregroundColor(.white.opacity(0.6))
+                                            .italic()
+                                            .padding(.top, 10)
                                             .frame(maxWidth: 880, alignment: .leading)
                                     }
                                 }
@@ -337,9 +365,6 @@ struct MediaDetailView: View {
                         // Split Master-Detail Section: TV Seasons & Episodes OR Movie Cast & Extras
                         if currentItem.type == .series {
                             VStack(alignment: .leading, spacing: 20) {
-                                Divider()
-                                    .background(Color.white.opacity(0.1))
-                                    .padding(.bottom, 4)
 
                                 // Side-by-side: Season List on Left, Episodes on Right
                                 HStack(alignment: .top, spacing: 32) {
@@ -618,100 +643,105 @@ struct MediaDetailView: View {
                             .padding(.horizontal, 32)
                             .padding(.bottom, 32)
                         } else {
-                            // Split Master-Detail Section for Movies: Cast & Extras (matches TV seasons & episodes layout)
-                            VStack(alignment: .leading, spacing: 20) {
-                                Divider()
-                                    .background(Color.white.opacity(0.1))
-                                    .padding(.bottom, 4)
+                            // Split Master-Detail Section for Movies: Cast & Extras (Compact Apple TV+ style)
+                            VStack(alignment: .leading, spacing: 14) {
 
                                 // Side-by-side: Cast / Extras tabs on Left, Content on Right
-                                HStack(alignment: .top, spacing: 32) {
+                                HStack(alignment: .top, spacing: 28) {
                                     // LEFT COLUMN: "Cast & Crew" and "Extras & Recaps" tabs
-                                    ScrollView(.vertical, showsIndicators: false) {
-                                        VStack(alignment: .leading, spacing: 8) {
-                                            // Cast Tab Button
-                                            let isCastSelected = movieDetailTab == .cast
-                                            Button(action: {
-                                                withAnimation(.easeInOut(duration: 0.18)) {
-                                                    movieDetailTab = .cast
-                                                }
-                                            }) {
-                                                HStack(alignment: .center) {
-                                                    Text("Cast & Crew")
-                                                        .font(.system(size: 15, weight: isCastSelected ? .bold : .medium))
-                                                        .foregroundColor(isCastSelected ? .white : .white.opacity(0.55))
-
-                                                    Spacer(minLength: 8)
-
-                                                    if let castCount = credits?.cast.count, castCount > 0 {
-                                                        Text("\(castCount) actors")
-                                                            .font(.system(size: 12, weight: .regular))
-                                                            .foregroundColor(.white.opacity(0.75))
-                                                    }
-                                                }
-                                                .padding(.horizontal, 14)
-                                                .padding(.vertical, 10)
-                                                .background(
-                                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                        .fill(isCastSelected ? Color.white.opacity(0.08) : Color.clear)
-                                                )
-                                                .overlay(
-                                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                        .stroke(isCastSelected ? Color.white.opacity(0.85) : Color.clear, lineWidth: 1.5)
-                                                )
-                                                .contentShape(Rectangle())
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        // Cast Tab Button
+                                        let isCastSelected = movieDetailTab == .cast
+                                        Button(action: {
+                                            withAnimation(.easeInOut(duration: 0.18)) {
+                                                movieDetailTab = .cast
                                             }
-                                            .buttonStyle(PlainButtonStyle())
+                                        }) {
+                                            HStack(alignment: .center) {
+                                                Text("Cast & Crew")
+                                                    .font(.system(size: 14, weight: isCastSelected ? .bold : .medium))
+                                                    .foregroundColor(isCastSelected ? .white : .white.opacity(0.55))
 
-                                            // Extras & Recaps Tab Button
-                                            let isExtrasSelected = movieDetailTab == .extras
-                                            Button(action: {
-                                                withAnimation(.easeInOut(duration: 0.18)) {
-                                                    movieDetailTab = .extras
+                                                Spacer(minLength: 8)
+
+                                                if let castCount = credits?.cast.count, castCount > 0 {
+                                                    Text("\(castCount)")
+                                                        .font(.system(size: 11, weight: .semibold))
+                                                        .padding(.horizontal, 5)
+                                                        .padding(.vertical, 1.5)
+                                                        .background(isCastSelected ? Color.white.opacity(0.2) : Color.white.opacity(0.08))
+                                                        .foregroundColor(isCastSelected ? .white : .white.opacity(0.65))
+                                                        .clipShape(Capsule())
                                                 }
-                                            }) {
-                                                HStack(alignment: .center) {
-                                                    Text("Extras & Recaps")
-                                                        .font(.system(size: 15, weight: isExtrasSelected ? .bold : .medium))
-                                                        .foregroundColor(isExtrasSelected ? .white : .white.opacity(0.55))
-
-                                                    Spacer(minLength: 8)
-
-                                                    if !extras.isEmpty {
-                                                        Text("\(extras.count) videos")
-                                                            .font(.system(size: 12, weight: .regular))
-                                                            .foregroundColor(.white.opacity(0.75))
-                                                    }
-                                                }
-                                                .padding(.horizontal, 14)
-                                                .padding(.vertical, 10)
-                                                .background(
-                                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                        .fill(isExtrasSelected ? Color.white.opacity(0.08) : Color.clear)
-                                                )
-                                                .overlay(
-                                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                        .stroke(isExtrasSelected ? Color.white.opacity(0.85) : Color.clear, lineWidth: 1.5)
-                                                )
-                                                .contentShape(Rectangle())
                                             }
-                                            .buttonStyle(PlainButtonStyle())
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 9)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                    .fill(isCastSelected ? Color.white.opacity(0.08) : Color.clear)
+                                            )
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                    .stroke(isCastSelected ? Color.white.opacity(0.85) : Color.clear, lineWidth: 1.5)
+                                            )
+                                            .contentShape(Rectangle())
                                         }
+                                        .buttonStyle(PlainButtonStyle())
+
+                                        // Extras & Recaps Tab Button
+                                        let isExtrasSelected = movieDetailTab == .extras
+                                        Button(action: {
+                                            withAnimation(.easeInOut(duration: 0.18)) {
+                                                movieDetailTab = .extras
+                                            }
+                                        }) {
+                                            HStack(alignment: .center) {
+                                                Text("Extras & Recaps")
+                                                    .font(.system(size: 14, weight: isExtrasSelected ? .bold : .medium))
+                                                    .foregroundColor(isExtrasSelected ? .white : .white.opacity(0.55))
+
+                                                Spacer(minLength: 8)
+
+                                                if !extras.isEmpty {
+                                                    Text("\(extras.count)")
+                                                        .font(.system(size: 11, weight: .semibold))
+                                                        .padding(.horizontal, 5)
+                                                        .padding(.vertical, 1.5)
+                                                        .background(isExtrasSelected ? Color.white.opacity(0.2) : Color.white.opacity(0.08))
+                                                        .foregroundColor(isExtrasSelected ? .white : .white.opacity(0.65))
+                                                        .clipShape(Capsule())
+                                                }
+                                            }
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 9)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                    .fill(isExtrasSelected ? Color.white.opacity(0.08) : Color.clear)
+                                            )
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                    .stroke(isExtrasSelected ? Color.white.opacity(0.85) : Color.clear, lineWidth: 1.5)
+                                            )
+                                            .contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(PlainButtonStyle())
+
+                                        Spacer(minLength: 0)
                                     }
-                                    .frame(width: 220, height: 500)
+                                    .frame(width: 200, height: 180)
 
                                     // Vertical Separator
                                     Rectangle()
                                         .fill(Color.white.opacity(0.08))
-                                        .frame(width: 1, height: 500)
+                                        .frame(width: 1, height: 180)
 
-                                    // RIGHT COLUMN: Selected Movie Tab Content with 500pt height & Bottom Vignette
-                                    VStack(alignment: .leading, spacing: 14) {
+                                    // RIGHT COLUMN: Selected Movie Tab Content (Compact Height ~180pt)
+                                    VStack(alignment: .leading, spacing: 10) {
                                         if movieDetailTab == .cast {
                                             // Cast Header
-                                            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                            HStack(alignment: .firstTextBaseline, spacing: 10) {
                                                 Text("Top Cast & Crew")
-                                                    .font(.system(size: 18, weight: .bold))
+                                                    .font(.system(size: 17, weight: .bold))
                                                     .foregroundColor(.white)
 
                                                 if let castCount = credits?.cast.count {
@@ -738,11 +768,15 @@ struct MediaDetailView: View {
                                                         .padding(.leading, 8)
                                                     Spacer()
                                                 }
-                                                .frame(height: 450)
+                                                .frame(height: 144)
                                             } else if let castList = credits?.cast, !castList.isEmpty {
                                                 ZStack(alignment: .bottom) {
                                                     ScrollView(.vertical, showsIndicators: true) {
-                                                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 12) {
+                                                        LazyVGrid(columns: [
+                                                            GridItem(.flexible(), spacing: 12),
+                                                            GridItem(.flexible(), spacing: 12),
+                                                            GridItem(.flexible(), spacing: 12)
+                                                        ], spacing: 10) {
                                                             ForEach(castList) { actor in
                                                                 Button(action: {
                                                                     openPersonWorks(id: actor.id, name: actor.name, role: actor.character ?? "Actor", photoURL: actor.profileURL, isDirectorSource: false)
@@ -753,10 +787,10 @@ struct MediaDetailView: View {
                                                             }
                                                         }
                                                         .padding(.trailing, 8)
-                                                        .padding(.bottom, 50)
+                                                        .padding(.bottom, 12)
                                                     }
 
-                                                    // Vignette
+                                                    // Subtle Vignette
                                                     LinearGradient(
                                                         colors: [
                                                             Color.clear,
@@ -766,10 +800,10 @@ struct MediaDetailView: View {
                                                         startPoint: .top,
                                                         endPoint: .bottom
                                                     )
-                                                    .frame(height: 55)
+                                                    .frame(height: 24)
                                                     .allowsHitTesting(false)
                                                 }
-                                                .frame(height: 450)
+                                                .frame(height: 144)
                                             } else {
                                                 HStack {
                                                     Spacer()
@@ -778,13 +812,13 @@ struct MediaDetailView: View {
                                                         .foregroundColor(.gray)
                                                     Spacer()
                                                 }
-                                                .frame(height: 450)
+                                                .frame(height: 144)
                                             }
                                         } else {
-                                            // Extras Header
-                                            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                                                Text("Trailers, Behind the Scenes & Extras")
-                                                    .font(.system(size: 18, weight: .bold))
+                                            // Extras Header with navigation (< and >) buttons
+                                            HStack(alignment: .center, spacing: 10) {
+                                                Text("Trailers & Extras")
+                                                    .font(.system(size: 17, weight: .bold))
                                                     .foregroundColor(.white)
 
                                                 if !extras.isEmpty {
@@ -798,6 +832,48 @@ struct MediaDetailView: View {
                                                 }
 
                                                 Spacer()
+
+                                                if extras.count > 1 {
+                                                    HStack(spacing: 8) {
+                                                        Button(action: {
+                                                            withAnimation(.easeInOut(duration: 0.25)) {
+                                                                let newIdx = max(0, movieExtrasScrollIndex - 1)
+                                                                movieExtrasScrollIndex = newIdx
+                                                                if newIdx < extras.count {
+                                                                    movieExtrasScrollTarget = extras[newIdx].id
+                                                                }
+                                                            }
+                                                        }) {
+                                                            Image(systemName: "chevron.left")
+                                                                .font(.system(size: 11, weight: .bold))
+                                                                .foregroundColor(movieExtrasScrollIndex > 0 ? .white : .white.opacity(0.25))
+                                                                .frame(width: 26, height: 26)
+                                                                .background(Color.white.opacity(movieExtrasScrollIndex > 0 ? 0.12 : 0.04))
+                                                                .clipShape(Circle())
+                                                        }
+                                                        .buttonStyle(PlainButtonStyle())
+                                                        .disabled(movieExtrasScrollIndex == 0)
+
+                                                        Button(action: {
+                                                            withAnimation(.easeInOut(duration: 0.25)) {
+                                                                let newIdx = min(extras.count - 1, movieExtrasScrollIndex + 1)
+                                                                movieExtrasScrollIndex = newIdx
+                                                                if newIdx < extras.count {
+                                                                    movieExtrasScrollTarget = extras[newIdx].id
+                                                                }
+                                                            }
+                                                        }) {
+                                                            Image(systemName: "chevron.right")
+                                                                .font(.system(size: 11, weight: .bold))
+                                                                .foregroundColor(movieExtrasScrollIndex < extras.count - 1 ? .white : .white.opacity(0.25))
+                                                                .frame(width: 26, height: 26)
+                                                                .background(Color.white.opacity(movieExtrasScrollIndex < extras.count - 1 ? 0.12 : 0.04))
+                                                                .clipShape(Circle())
+                                                        }
+                                                        .buttonStyle(PlainButtonStyle())
+                                                        .disabled(movieExtrasScrollIndex >= extras.count - 1)
+                                                    }
+                                                }
                                             }
 
                                             if isLoadingExtras {
@@ -811,7 +887,7 @@ struct MediaDetailView: View {
                                                         .padding(.leading, 8)
                                                     Spacer()
                                                 }
-                                                .frame(height: 450)
+                                                .frame(height: 144)
                                             } else if extras.isEmpty {
                                                 HStack {
                                                     Spacer()
@@ -820,33 +896,31 @@ struct MediaDetailView: View {
                                                         .foregroundColor(.gray)
                                                     Spacer()
                                                 }
-                                                .frame(height: 450)
+                                                .frame(height: 144)
                                             } else {
-                                                ZStack(alignment: .bottom) {
-                                                    ScrollView(.vertical, showsIndicators: true) {
-                                                        VStack(spacing: 12) {
-                                                            ForEach(extras) { extra in
-                                                                ExtraRowCard(extra: extra)
+                                                ScrollViewReader { proxy in
+                                                    ScrollView(.horizontal, showsIndicators: false) {
+                                                        LazyHStack(spacing: 14) {
+                                                            ForEach(Array(extras.enumerated()), id: \.element.id) { index, extra in
+                                                                ExtraHorizontalCard(extra: extra, onPlay: {
+                                                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                                                        playingExtra = extra
+                                                                    }
+                                                                })
+                                                                .id(extra.id)
                                                             }
                                                         }
-                                                        .padding(.trailing, 8)
-                                                        .padding(.bottom, 50)
+                                                        .padding(.trailing, 16)
                                                     }
-
-                                                    // Vignette
-                                                    LinearGradient(
-                                                        colors: [
-                                                            Color.clear,
-                                                            Color(red: 0.08, green: 0.08, blue: 0.09).opacity(0.85),
-                                                            Color(red: 0.08, green: 0.08, blue: 0.09)
-                                                        ],
-                                                        startPoint: .top,
-                                                        endPoint: .bottom
-                                                    )
-                                                    .frame(height: 55)
-                                                    .allowsHitTesting(false)
+                                                    .onChange(of: movieExtrasScrollTarget) { _, target in
+                                                        if let target = target {
+                                                            withAnimation(.easeInOut(duration: 0.25)) {
+                                                                proxy.scrollTo(target, anchor: .leading)
+                                                            }
+                                                        }
+                                                    }
                                                 }
-                                                .frame(height: 450)
+                                                .frame(height: 144)
                                             }
                                         }
                                     }
@@ -854,7 +928,7 @@ struct MediaDetailView: View {
                                 }
                             }
                             .padding(.horizontal, 32)
-                            .padding(.bottom, 32)
+                            .padding(.bottom, 16)
                         }
 
                         // 4. TV Cast & Extras Toggle Section (Only for TV Series, as Movies have Cast & Extras right above)
@@ -956,7 +1030,11 @@ struct MediaDetailView: View {
                                         ScrollView(.horizontal, showsIndicators: false) {
                                             LazyHStack(spacing: 16) {
                                                 ForEach(extras) { extra in
-                                                    ExtraHorizontalCard(extra: extra)
+                                                    ExtraHorizontalCard(extra: extra, onPlay: {
+                                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                                            playingExtra = extra
+                                                        }
+                                                    })
                                                 }
                                             }
                                             .padding(.vertical, 4)
@@ -1002,10 +1080,9 @@ struct MediaDetailView: View {
                                 ScrollView(.horizontal, showsIndicators: false) {
                                     LazyHStack(spacing: 20) {
                                         ForEach(collection.items) { colItem in
-                                            MoviePosterCard(item: colItem)
-                                                .onTapGesture {
-                                                    switchMedia(to: colItem)
-                                                }
+                                            MoviePosterCard(item: colItem) {
+                                                switchMedia(to: colItem)
+                                            }
                                         }
                                     }
                                 }
@@ -1031,13 +1108,9 @@ struct MediaDetailView: View {
                             .padding(.bottom, 16)
                         }
 
-                        // 5. Similar Titles / Recommendations Section (Accurate TMDB / Cinemeta Metadata)
+                        // 5. Similar Titles Section
                         if !similarItems.isEmpty {
                             VStack(alignment: .leading, spacing: 14) {
-                                Divider()
-                                    .background(Color.white.opacity(0.1))
-                                    .padding(.bottom, 6)
-
                                 Text("More Like This")
                                     .font(.title2.weight(.bold))
                                     .foregroundColor(.white)
@@ -1045,10 +1118,30 @@ struct MediaDetailView: View {
                                 ScrollView(.horizontal, showsIndicators: false) {
                                     LazyHStack(spacing: 20) {
                                         ForEach(similarItems) { simItem in
-                                            MoviePosterCard(item: simItem)
-                                                .onTapGesture {
-                                                    switchMedia(to: simItem)
-                                                }
+                                            MoviePosterCard(item: simItem) {
+                                                switchMedia(to: simItem)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 32)
+                            .padding(.bottom, 24)
+                        }
+
+                        // 6. You Might Also Like Section (Personalized & Taste Recommendations)
+                        if !recommendedItems.isEmpty {
+                            VStack(alignment: .leading, spacing: 14) {
+                                Text("You Might Also Like")
+                                    .font(.title2.weight(.bold))
+                                    .foregroundColor(.white)
+
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    LazyHStack(spacing: 20) {
+                                        ForEach(recommendedItems) { recItem in
+                                            MoviePosterCard(item: recItem) {
+                                                switchMedia(to: recItem)
+                                            }
                                         }
                                     }
                                 }
@@ -1058,6 +1151,15 @@ struct MediaDetailView: View {
                         }
                     }
                 }
+                .onAppear {
+                    scrollProxy.scrollTo("detailTopAnchor", anchor: .top)
+                }
+                .onChange(of: currentItem.id) { _, _ in
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        scrollProxy.scrollTo("detailTopAnchor", anchor: .top)
+                    }
+                }
+            }
             }
             .frame(maxWidth: 1400, maxHeight: 900)
             .padding(.horizontal, 36)
@@ -1083,11 +1185,73 @@ struct MediaDetailView: View {
                     .padding(.vertical, 8)
                     .background(.ultraThinMaterial)
                     .clipShape(Capsule())
-                    .overlay(Capsule().stroke(Color.white.opacity(0.25), lineWidth: 0.8))
+                    .modifier(ShiningNavModifier())
                     .shadow(color: .black.opacity(0.4), radius: 6, x: 0, y: 2)
                 }
                 .buttonStyle(PlainButtonStyle())
                 .padding(22)
+            }
+            .overlay {
+                // In-App Pop-and-Go Extras & Trailer Player Window
+                if let extra = playingExtra {
+                    ZStack {
+                        Color.black.opacity(0.82)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    playingExtra = nil
+                                }
+                            }
+
+                        VStack(spacing: 0) {
+                            HStack {
+                                Text(extra.name)
+                                    .font(.system(size: 14.5, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .lineLimit(1)
+
+                                Text(extra.type.uppercased())
+                                    .font(.system(size: 10, weight: .black, design: .rounded))
+                                    .foregroundColor(.white.opacity(0.8))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background(Color.white.opacity(0.12))
+                                    .clipShape(Capsule())
+
+                                Spacer()
+
+                                Button(action: {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        playingExtra = nil
+                                    }
+                                }) {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundColor(.white.opacity(0.85))
+                                        .frame(width: 28, height: 28)
+                                        .background(Color.white.opacity(0.1))
+                                        .clipShape(Circle())
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 12)
+                            .background(Color(red: 0.12, green: 0.12, blue: 0.14))
+
+                            YouTubeEmbeddedPlayer(videoKey: extra.key)
+                                .frame(width: 760, height: 428)
+                                .background(Color.black)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.85), radius: 24, x: 0, y: 12)
+                    }
+                    .zIndex(400)
+                    .transition(.opacity)
+                }
             }
             .overlay {
                 if showDownloadSourcesModal {
@@ -1127,6 +1291,38 @@ struct MediaDetailView: View {
         }
         .onAppear {
             loadMetadata()
+            #if os(macOS)
+            if keyMonitor == nil {
+                keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    if let responder = NSApp.keyWindow?.firstResponder {
+                        if responder is NSText || responder is NSTextView || responder is NSTextField {
+                            return event
+                        }
+                    }
+                    if event.keyCode == 53 { // Esc
+                        if self.playingExtra != nil {
+                            withAnimation { self.playingExtra = nil }
+                            return nil
+                        }
+                        if self.selectedPerson != nil {
+                            withAnimation { self.selectedPerson = nil }
+                            return nil
+                        }
+                        self.handleBackAction()
+                        return nil
+                    }
+                    return event
+                }
+            }
+            #endif
+        }
+        .onDisappear {
+            #if os(macOS)
+            if let km = keyMonitor {
+                NSEvent.removeMonitor(km)
+                keyMonitor = nil
+            }
+            #endif
         }
     }
 
@@ -1138,7 +1334,7 @@ struct MediaDetailView: View {
                     foundIMDb = try? await tmdbService.fetchIMDbID(tmdbID: num, type: currentItem.type)
                 }
                 if foundIMDb == nil && !currentItem.title.isEmpty {
-                    foundIMDb = await tmdbService.resolveIMDbIDByTitle(title: currentItem.title, type: currentItem.type)
+                    foundIMDb = await tmdbService.resolveIMDbIDByTitle(title: currentItem.title, type: currentItem.type, year: currentItem.releaseYear)
                 }
                 if let resolved = foundIMDb {
                     await MainActor.run {
@@ -1172,6 +1368,7 @@ struct MediaDetailView: View {
         fetchCredits()
         fetchExtras()
         fetchSimilar()
+        fetchRecommendationsList()
     }
 
     private func handleBackAction() {
@@ -1192,6 +1389,11 @@ struct MediaDetailView: View {
                 self.isLoadingLogo = (prevLogo == nil)
                 self.runtimeMinutes = nil
                 self.similarItems = []
+                self.recommendedItems = []
+                self.tagline = nil
+                self.playingExtra = nil
+                self.movieExtrasScrollIndex = 0
+                self.movieExtrasScrollTarget = nil
             }
             loadMetadata()
         } else {
@@ -1217,6 +1419,11 @@ struct MediaDetailView: View {
             self.isLoadingLogo = (newLogo == nil)
             self.runtimeMinutes = nil
             self.similarItems = []
+            self.recommendedItems = []
+            self.tagline = nil
+            self.playingExtra = nil
+            self.movieExtrasScrollIndex = 0
+            self.movieExtrasScrollTarget = nil
         }
         loadMetadata()
     }
@@ -1224,7 +1431,7 @@ struct MediaDetailView: View {
     private func fetchExtras() {
         isLoadingExtras = true
         Task {
-            let res = await tmdbService.fetchMediaExtras(id: currentItem.id, imdbID: currentItem.imdbID, type: currentItem.type, title: currentItem.title)
+            let res = await tmdbService.fetchMediaExtras(id: currentItem.id, imdbID: currentItem.imdbID, type: currentItem.type, title: currentItem.title, year: currentItem.releaseYear)
             await MainActor.run {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     self.extras = res
@@ -1236,7 +1443,7 @@ struct MediaDetailView: View {
 
     private func fetchLogoAndDetails() {
         Task {
-            let details = await tmdbService.fetchMediaLogoAndDetails(id: currentItem.id, imdbID: currentItem.imdbID, type: currentItem.type, title: currentItem.title)
+            let details = await tmdbService.fetchMediaLogoAndDetails(id: currentItem.id, imdbID: currentItem.imdbID, type: currentItem.type, title: currentItem.title, year: currentItem.releaseYear)
             await MainActor.run {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     if let foundLogo = details.logoURL {
@@ -1244,7 +1451,102 @@ struct MediaDetailView: View {
                     }
                     self.isLoadingLogo = false
                     self.runtimeMinutes = details.runtimeMinutes
+                    self.tagline = details.tagline
+                    if let lang = details.originalLanguage {
+                        self.currentItem.originalLanguage = lang
+                    }
                 }
+            }
+        }
+    }
+
+    private func fetchRecommendationsList() {
+        isLoadingRecommendations = true
+        Task {
+            // 1. Fetch recommendations for the current title
+            let currentRecs = await tmdbService.fetchRecommendations(
+                id: currentItem.id,
+                imdbID: currentItem.imdbID,
+                type: currentItem.type,
+                title: currentItem.title,
+                year: currentItem.releaseYear
+            )
+
+            // 2. Extract recent history items (excluding current title)
+            let historyTitles = watchlistManager.history
+                .map { $0.mediaItem }
+                .filter { $0.id != currentItem.id }
+            
+            var historyRecs: [MediaItem] = []
+            if let firstHistory = historyTitles.first {
+                let recs = await tmdbService.fetchRecommendations(
+                    id: firstHistory.id,
+                    imdbID: firstHistory.imdbID,
+                    type: firstHistory.type,
+                    title: firstHistory.title,
+                    year: firstHistory.releaseYear
+                )
+                historyRecs.append(contentsOf: recs)
+            }
+            if historyTitles.count > 1 {
+                let secondHistory = historyTitles[1]
+                let recs = await tmdbService.fetchRecommendations(
+                    id: secondHistory.id,
+                    imdbID: secondHistory.imdbID,
+                    type: secondHistory.type,
+                    title: secondHistory.title,
+                    year: secondHistory.releaseYear
+                )
+                historyRecs.append(contentsOf: recs)
+            }
+
+            // 3. Fallback recommendations from Watchlist if available
+            var watchlistRecs: [MediaItem] = []
+            if let saved = watchlistManager.watchlist.first(where: { $0.id != currentItem.id && $0.id != historyTitles.first?.id }) {
+                let recs = await tmdbService.fetchRecommendations(
+                    id: saved.id,
+                    imdbID: saved.imdbID,
+                    type: saved.type,
+                    title: saved.title,
+                    year: saved.releaseYear
+                )
+                watchlistRecs.append(contentsOf: recs)
+            }
+
+            // 4. Interleave & Deduplicate: Exclude current item and any item already in similarItems
+            let existingSimilarIDs = Set(similarItems.map { $0.id })
+            var seenIDs: Set<String> = [currentItem.id]
+            seenIDs.formUnion(existingSimilarIDs)
+
+            var blended: [MediaItem] = []
+            let maxCount = max(currentRecs.count, max(historyRecs.count, watchlistRecs.count))
+            for i in 0..<maxCount {
+                if i < currentRecs.count {
+                    let item = currentRecs[i]
+                    if !seenIDs.contains(item.id) {
+                        seenIDs.insert(item.id)
+                        blended.append(item)
+                    }
+                }
+                if i < historyRecs.count {
+                    let item = historyRecs[i]
+                    if !seenIDs.contains(item.id) {
+                        seenIDs.insert(item.id)
+                        blended.append(item)
+                    }
+                }
+                if i < watchlistRecs.count {
+                    let item = watchlistRecs[i]
+                    if !seenIDs.contains(item.id) {
+                        seenIDs.insert(item.id)
+                        blended.append(item)
+                    }
+                }
+            }
+
+            await MainActor.run {
+                self.recommendedItems = blended
+                self.isLoadingRecommendations = false
             }
         }
     }
@@ -1252,7 +1554,7 @@ struct MediaDetailView: View {
     private func fetchCredits() {
         isLoadingCredits = true
         Task {
-            let res = await tmdbService.fetchMediaCredits(id: currentItem.id, imdbID: currentItem.imdbID, type: currentItem.type, title: currentItem.title)
+            let res = await tmdbService.fetchMediaCredits(id: currentItem.id, imdbID: currentItem.imdbID, type: currentItem.type, title: currentItem.title, year: currentItem.releaseYear)
             await MainActor.run {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     self.credits = res
@@ -1282,7 +1584,7 @@ struct MediaDetailView: View {
 
     private func fetchSeriesSeasons() {
         Task {
-            let seasons = await tmdbService.fetchTVSeasons(tvID: currentItem.id, imdbID: currentItem.imdbID, title: currentItem.title)
+            let seasons = await tmdbService.fetchTVSeasons(tvID: currentItem.id, imdbID: currentItem.imdbID, title: currentItem.title, year: currentItem.releaseYear)
             await MainActor.run {
                 self.seasonsInfo = seasons
                 self.totalSeasons = seasons.map { $0.seasonNumber }.max() ?? 1
@@ -1296,7 +1598,7 @@ struct MediaDetailView: View {
     private func loadEpisodes(seasonNumber: Int) {
         isLoadingEpisodes = true
         Task {
-            let eps = await tmdbService.fetchSeasonEpisodes(tvID: currentItem.id, imdbID: currentItem.imdbID, seasonNumber: seasonNumber, title: currentItem.title)
+            let eps = await tmdbService.fetchSeasonEpisodes(tvID: currentItem.id, imdbID: currentItem.imdbID, seasonNumber: seasonNumber, title: currentItem.title, year: currentItem.releaseYear)
             await MainActor.run {
                 self.episodes = eps
                 self.isLoadingEpisodes = false
@@ -1307,7 +1609,7 @@ struct MediaDetailView: View {
     private func fetchCollection() {
         isLoadingCollection = true
         Task {
-            let col = await tmdbService.fetchMovieCollection(movieID: currentItem.id, imdbID: currentItem.imdbID, title: currentItem.title)
+            let col = await tmdbService.fetchMovieCollection(movieID: currentItem.id, imdbID: currentItem.imdbID, title: currentItem.title, year: currentItem.releaseYear)
             await MainActor.run {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     self.collectionResult = col
@@ -1320,7 +1622,7 @@ struct MediaDetailView: View {
     private func fetchSimilar() {
         isLoadingSimilar = true
         Task {
-            let sim = await tmdbService.fetchSimilarMedia(id: currentItem.id, imdbID: currentItem.imdbID, type: currentItem.type, title: currentItem.title)
+            let sim = await tmdbService.fetchSimilarMedia(id: currentItem.id, imdbID: currentItem.imdbID, type: currentItem.type, title: currentItem.title, year: currentItem.releaseYear)
             await MainActor.run {
                 self.similarItems = sim
                 self.isLoadingSimilar = false
@@ -1368,6 +1670,7 @@ struct MediaDetailView: View {
                     imdbID: currentItem.resolvedIMDbID ?? currentItem.imdbID,
                     type: currentItem.type,
                     title: currentItem.title,
+                    year: currentItem.releaseYear,
                     season: currentItem.type == .series ? selectedSeason : nil,
                     episode: currentItem.type == .series ? 1 : nil,
                     onBatch: { partialLinks in
@@ -1850,10 +2153,9 @@ struct PersonWorksOverlay: View {
                             // 10% smaller grid columns: 194 width instead of 216
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 162, maximum: 194), spacing: 18)], spacing: 22) {
                                 ForEach(activeWorks) { work in
-                                    MoviePosterCard(item: work, posterWidth: 194, posterHeight: 291)
-                                        .onTapGesture {
-                                            onSelectWork(work)
-                                        }
+                                    MoviePosterCard(item: work, posterWidth: 194, posterHeight: 291) {
+                                        onSelectWork(work)
+                                    }
                                 }
                             }
                             .padding(.horizontal, 28)
@@ -1955,11 +2257,14 @@ struct MovieCastRowCard: View {
 // MARK: - Extra Row Card (Used in Movie Split Right Column)
 struct ExtraRowCard: View {
     let extra: TMDBService.MediaExtra
+    var onPlay: (() -> Void)? = nil
     @State private var isHovered: Bool = false
 
     var body: some View {
         Button(action: {
-            if let url = extra.youtubeURL {
+            if let onPlay = onPlay {
+                onPlay()
+            } else if let url = extra.youtubeURL {
                 #if os(macOS)
                 NSWorkspace.shared.open(url)
                 #endif
@@ -2063,24 +2368,27 @@ struct ExtraRowCard: View {
     }
 }
 
-// MARK: - Extra Horizontal Card (Used in TV Show Extras Row)
+// MARK: - Extra Horizontal Card (Used in Movie and TV Extras Rows)
 struct ExtraHorizontalCard: View {
     let extra: TMDBService.MediaExtra
+    var onPlay: (() -> Void)? = nil
     @State private var isHovered: Bool = false
 
     var body: some View {
         Button(action: {
-            if let url = extra.youtubeURL {
+            if let onPlay = onPlay {
+                onPlay()
+            } else if let url = extra.youtubeURL {
                 #if os(macOS)
                 NSWorkspace.shared.open(url)
                 #endif
             }
         }) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 ZStack(alignment: .bottomLeading) {
                     CachedImage(url: extra.thumbnailURL, maxPixel: 400)
                         .aspectRatio(16/9, contentMode: .fill)
-                        .frame(width: 220, height: 124)
+                        .frame(width: 190, height: 107)
                         .clipped()
                         .background(Color.white.opacity(0.04))
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -2090,10 +2398,10 @@ struct ExtraHorizontalCard: View {
                         )
 
                     Text(extra.type.uppercased())
-                        .font(.system(size: 9, weight: .black, design: .rounded))
+                        .font(.system(size: 8.5, weight: .black, design: .rounded))
                         .foregroundColor(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2.5)
+                        .padding(.horizontal, 5.5)
+                        .padding(.vertical, 2)
                         .background(Color.black.opacity(0.8))
                         .clipShape(RoundedRectangle(cornerRadius: 3.5, style: .continuous))
                         .padding(6)
@@ -2101,27 +2409,27 @@ struct ExtraHorizontalCard: View {
                     if isHovered {
                         Circle()
                             .fill(Color.black.opacity(0.65))
-                            .frame(width: 36, height: 36)
+                            .frame(width: 32, height: 32)
                             .overlay(
                                 Image(systemName: "play.fill")
-                                    .font(.system(size: 14, weight: .bold))
+                                    .font(.system(size: 13, weight: .bold))
                                     .foregroundColor(.white)
                                     .offset(x: 1)
                             )
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                     }
                 }
-                .frame(width: 220, height: 124)
+                .frame(width: 190, height: 107)
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(extra.name)
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 11.5, weight: .bold))
                         .foregroundColor(isHovered ? .white : .white.opacity(0.9))
-                        .lineLimit(2)
-                        .frame(width: 220, alignment: .leading)
+                        .lineLimit(1)
+                        .frame(width: 190, alignment: .leading)
 
                     Text(extra.type)
-                        .font(.system(size: 11, weight: .regular))
+                        .font(.system(size: 10.5, weight: .regular))
                         .foregroundColor(.white.opacity(0.5))
                 }
             }
@@ -2149,3 +2457,23 @@ struct ShiningDownloadButtonStyle: ButtonStyle {
             .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
     }
 }
+
+// MARK: - In-App Pop-and-Go YouTube Player
+#if os(macOS)
+struct YouTubeEmbeddedPlayer: NSViewRepresentable {
+    let videoKey: String
+
+    func makeNSView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.allowsAirPlayForMediaPlayback = true
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.setValue(false, forKey: "drawsBackground")
+        if let url = URL(string: "https://www.youtube-nocookie.com/embed/\(videoKey)?autoplay=1&playsinline=1&rel=0") {
+            webView.load(URLRequest(url: url))
+        }
+        return webView
+    }
+
+    func updateNSView(_ nsView: WKWebView, context: Context) {}
+}
+#endif

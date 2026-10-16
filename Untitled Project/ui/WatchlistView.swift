@@ -3,6 +3,7 @@ import SwiftUI
 struct WatchlistView: View {
     @ObservedObject private var watchlistManager = WatchlistManager.shared
     var onMediaSelected: (MediaItem) -> Void
+    var onPlayContinueWatching: ((WatchHistoryItem) -> Void)? = nil
 
     @State private var selectedTab: WatchlistSubTab = .all
     @State private var showClearConfirm: Bool = false
@@ -125,7 +126,13 @@ struct WatchlistView: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 18) {
                                 ForEach(watchlistManager.history) { historyItem in
-                                    continueWatchingCard(item: historyItem)
+                                    ContinueWatchingCard(item: historyItem) {
+                                        if let playHandler = onPlayContinueWatching {
+                                            playHandler(historyItem)
+                                        } else {
+                                            onMediaSelected(historyItem.mediaItem)
+                                        }
+                                    }
                                 }
                             }
                             .padding(.horizontal, 36)
@@ -147,11 +154,13 @@ struct WatchlistView: View {
                             emptyStateView
                         } else {
                             LazyVGrid(
-                                columns: [GridItem(.adaptive(minimum: 160, maximum: 190), spacing: 20)],
-                                spacing: 24
+                                columns: [GridItem(.adaptive(minimum: 180, maximum: 215), spacing: 22)],
+                                spacing: 26
                             ) {
                                 ForEach(filteredWatchlist) { item in
-                                    savedItemCard(item: item)
+                                    MoviePosterCard(item: item, posterWidth: 185, posterHeight: 278) {
+                                        onMediaSelected(item)
+                                    }
                                 }
                             }
                             .padding(.horizontal, 36)
@@ -172,138 +181,6 @@ struct WatchlistView: View {
         }, message: {
             Text("Are you sure you want to remove all saved items from your watchlist?")
         })
-    }
-
-    // MARK: - Continue Watching Card with Progress & Remove
-    private func continueWatchingCard(item: WatchHistoryItem) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ZStack(alignment: .bottomLeading) {
-                // Backdrop / Poster
-                if let backdrop = item.mediaItem.backdropUrl ?? item.mediaItem.posterUrl {
-                    AsyncImage(url: backdrop) { img in
-                        img.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        Rectangle().fill(Color.white.opacity(0.06))
-                    }
-                    .frame(width: 250, height: 140)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                } else {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.white.opacity(0.06))
-                        .frame(width: 250, height: 140)
-                }
-
-                // Overlay gradient
-                LinearGradient(
-                    colors: [Color.clear, Color.black.opacity(0.8)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                // Play icon
-                Image(systemName: "play.circle.fill")
-                    .font(.system(size: 38))
-                    .foregroundColor(.white.opacity(0.9))
-                    .shadow(radius: 6)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                // Remove button in top-right
-                Button(action: {
-                    withAnimation {
-                        watchlistManager.removeHistory(id: item.mediaItem.id)
-                    }
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.white)
-                        .padding(6)
-                        .background(Color.black.opacity(0.6))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(PlainButtonStyle())
-                .padding(8)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-
-                // Progress Bar
-                VStack(spacing: 0) {
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Rectangle()
-                                .fill(Color.white.opacity(0.3))
-                                .frame(height: 3)
-                            Rectangle()
-                                .fill(Color.red)
-                                .frame(width: geo.size.width * CGFloat(item.progressFraction), height: 3)
-                        }
-                    }
-                    .frame(height: 3)
-                }
-            }
-            .frame(width: 250, height: 140)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                onMediaSelected(item.mediaItem)
-            }
-
-            // Title & Season/Episode
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.mediaItem.title)
-                    .font(.subheadline.bold())
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-
-                if let s = item.seasonNumber, let e = item.episodeNumber {
-                    Text("Season \(s), Ep \(e)")
-                        .font(.caption2)
-                        .foregroundColor(.white.opacity(0.6))
-                }
-            }
-            .frame(width: 250, alignment: .leading)
-        }
-    }
-
-    // MARK: - Saved Item Poster Card with Quick Remove
-    private func savedItemCard(item: MediaItem) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ZStack(alignment: .topTrailing) {
-                // Poster
-                if let poster = item.posterUrl {
-                    AsyncImage(url: poster) { img in
-                        img.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        Rectangle().fill(Color.white.opacity(0.08))
-                    }
-                    .frame(height: 250)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
-                } else {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.white.opacity(0.08))
-                        .frame(height: 250)
-                }
-
-                // Remove from Watchlist Pill
-                Button(action: {
-                    withAnimation {
-                        watchlistManager.removeFromWatchlist(id: item.id)
-                    }
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.white)
-                        .padding(7)
-                        .background(Color.black.opacity(0.65))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(PlainButtonStyle())
-                .padding(8)
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                onMediaSelected(item)
-            }
-        }
     }
 
     private var emptyStateView: some View {

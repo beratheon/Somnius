@@ -9,9 +9,11 @@ public final class DisplaySleepManager: @unchecked Sendable {
     public static let shared = DisplaySleepManager()
 
     #if os(macOS)
-    private var assertionID: IOPMAssertionID = 0
+    private var displayAssertionID: IOPMAssertionID = 0
+    private var systemAssertionID: IOPMAssertionID = 0
     private var isPreventingSleep: Bool = false
     private var processActivity: NSObjectProtocol?
+    private var heartbeatTimer: Timer?
     private let lock = NSLock()
     #endif
 
@@ -29,24 +31,45 @@ public final class DisplaySleepManager: @unchecked Sendable {
         // 1. ProcessInfo Activity: informs App Nap / WindowServer of active user-initiated playback
         if processActivity == nil {
             processActivity = ProcessInfo.processInfo.beginActivity(
-                options: [.idleDisplaySleepDisabled, .userInitiated],
+                options: [.idleDisplaySleepDisabled, .idleSystemSleepDisabled, .userInitiated],
                 reason: reason
             )
         }
 
-        // 2. IOKit Power Management Display Sleep Assertion: strictly blocks screensaver & display sleep
-        let result = IOPMAssertionCreateWithName(
+        // 2. IOKit Display Sleep Assertion: blocks screensaver & display sleep
+        let resDisplay = IOPMAssertionCreateWithName(
             kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
             IOPMAssertionLevel(kIOPMAssertionLevelOn),
             reason as CFString,
-            &assertionID
+            &displayAssertionID
         )
 
-        if result == kIOReturnSuccess {
+        // 3. IOKit System Sleep Assertion: prevents system idle sleep
+        let resSystem = IOPMAssertionCreateWithName(
+            kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            reason as CFString,
+            &systemAssertionID
+        )
+
+        if resDisplay == kIOReturnSuccess || resSystem == kIOReturnSuccess {
             isPreventingSleep = true
-            print("🛡️ [DisplaySleepManager] Display sleep & screensaver disabled (assertion ID: \(assertionID))")
+            print("🛡️ [DisplaySleepManager] Display sleep & screensaver disabled (displayID: \(displayAssertionID), systemID: \(systemAssertionID))")
         } else {
-            print("⚠️ [DisplaySleepManager] Failed to create display sleep assertion: \(result)")
+            print("⚠️ [DisplaySleepManager] Failed to create power assertions: display=\(resDisplay), system=\(resSystem)")
+        }
+
+        // 4. Recurring 30s heartbeat: declares user activity to macOS WindowServer so screensaver timer never elapses
+        DispatchQueue.main.async { [weak self] in
+            self?.heartbeatTimer?.invalidate()
+            self?.heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { _ in
+                var activityAssertion: IOPMAssertionID = 0
+                IOPMAssertionDeclareUserActivity(
+                    "Somnius Active Playback Keepalive" as CFString,
+                    kIOPMUserActiveLocal,
+                    &activityAssertion
+                )
+            }
         }
         #endif
     }
@@ -58,16 +81,27 @@ public final class DisplaySleepManager: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
+        DispatchQueue.main.async { [weak self] in
+            self?.heartbeatTimer?.invalidate()
+            self?.heartbeatTimer = nil
+        }
+
         if let activity = processActivity {
             ProcessInfo.processInfo.endActivity(activity)
             processActivity = nil
         }
 
         if isPreventingSleep {
-            let result = IOPMAssertionRelease(assertionID)
-            assertionID = 0
+            if displayAssertionID != 0 {
+                _ = IOPMAssertionRelease(displayAssertionID)
+                displayAssertionID = 0
+            }
+            if systemAssertionID != 0 {
+                _ = IOPMAssertionRelease(systemAssertionID)
+                systemAssertionID = 0
+            }
             isPreventingSleep = false
-            print("💤 [DisplaySleepManager] Display sleep & screensaver re-enabled (release result: \(result))")
+            print("💤 [DisplaySleepManager] Display sleep & screensaver re-enabled cleanly")
         }
         #endif
     }

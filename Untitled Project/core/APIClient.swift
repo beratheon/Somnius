@@ -69,6 +69,22 @@ struct Config {
         set { UserDefaults.standard.set(newValue, forKey: "Auto_Play_Skip_Short_Clips") }
     }
 
+    private static let autoPlayDirectlyKey = "Auto_Play_Directly_Without_Picker"
+    static var autoPlayDirectly: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: autoPlayDirectlyKey) == nil { return true }
+            return UserDefaults.standard.bool(forKey: autoPlayDirectlyKey)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: autoPlayDirectlyKey) }
+    }
+
+    private static let skipIntroModeKey = "TheIntroDB_Skip_Intro_Mode"
+    static var skipIntroMode: String {
+        get { UserDefaults.standard.string(forKey: skipIntroModeKey) ?? "button" }
+        set { UserDefaults.standard.set(newValue, forKey: skipIntroModeKey) }
+    }
+
+
     static var realDebridApiKey: String {
         get { UserDefaults.standard.string(forKey: apiKeyKey) ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: apiKeyKey) }
@@ -141,6 +157,24 @@ struct Config {
             return v > 10 ? CGFloat(v) : 22.0
         }
         set { UserDefaults.standard.set(Double(newValue), forKey: subtitleSizeKey) }
+    }
+
+    private static let subtitleVerticalPosKey = "Subtitle_Vertical_Offset_Pt"
+    static var subtitleVerticalPosition: Double {
+        get {
+            if UserDefaults.standard.object(forKey: subtitleVerticalPosKey) == nil { return 55.0 }
+            return UserDefaults.standard.double(forKey: subtitleVerticalPosKey)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: subtitleVerticalPosKey) }
+    }
+
+    private static let subtitleHorizontalPosKey = "Subtitle_Horizontal_Offset_Pct"
+    static var subtitleHorizontalPosition: Double {
+        get {
+            if UserDefaults.standard.object(forKey: subtitleHorizontalPosKey) == nil { return 0.0 }
+            return UserDefaults.standard.double(forKey: subtitleHorizontalPosKey)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: subtitleHorizontalPosKey) }
     }
 
     static var showOnlyCachedResults: Bool {
@@ -608,6 +642,50 @@ private struct FailableDecodable<T: Decodable>: Decodable {
     }
 }
 
+// MARK: - Title Disambiguation & Year Extraction Helper
+struct TitleDisambiguationHelper {
+    static func parseTitleAndYear(_ raw: String) -> (cleanTitle: String, year: Int?, subtitle: String?) {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return ("", nil, nil) }
+
+        var extractedYear: Int? = nil
+
+        // 1. Bracketed or parenthesized year: e.g. "Dexter (2006)" or "Dexter [2006]"
+        let bracketRegex = try? NSRegularExpression(pattern: #"[\(\[]\s*([12]\d{3})\s*[\)\]]"#)
+        if let match = bracketRegex?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+           let range = Range(match.range(at: 1), in: text),
+           let y = Int(text[range]), y >= 1900 && y <= 2099 {
+            extractedYear = y
+            if let fullRange = Range(match.range(at: 0), in: text) {
+                text.removeSubrange(fullRange)
+            }
+        } else {
+            // 2. Trailing year: e.g. "Dexter 2006" or "Dexter - 2006"
+            let trailingRegex = try? NSRegularExpression(pattern: #"(?:^|\s|-)\s*([12]\d{3})\s*$"#)
+            if let match = trailingRegex?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+               let range = Range(match.range(at: 1), in: text),
+               let y = Int(text[range]), y >= 1900 && y <= 2099 {
+                extractedYear = y
+                if let fullRange = Range(match.range(at: 0), in: text) {
+                    text.removeSubrange(fullRange)
+                }
+            }
+        }
+
+        let clean = text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "-:")))
+
+        var sub: String? = nil
+        if let colonIdx = clean.firstIndex(of: ":") {
+            let after = clean[clean.index(after: colonIdx)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !after.isEmpty {
+                sub = after
+            }
+        }
+
+        return (clean, extractedYear, sub)
+    }
+}
+
 // MARK: - TheTVDB (TVDB) Service API Client
 class TVDBService {
     static let shared = TVDBService()
@@ -704,10 +782,10 @@ class TVDBService {
         return (data, httpResponse)
     }
 
-    // Resolves TVDB Series ID using IMDb ID, TMDB numeric ID, or title search
-    func resolveTVDBSeriesID(id: String, imdbID: String? = nil, title: String? = nil) async -> Int? {
+    // Resolves TVDB Series ID using IMDb ID, TMDB numeric ID, or title search with strict disambiguation
+    func resolveTVDBSeriesID(id: String, imdbID: String? = nil, title: String? = nil, year: Int? = nil) async -> Int? {
         if id.hasPrefix("tvdb-") { return Int(id.replacingOccurrences(of: "tvdb-", with: "")) }
-        let lookupKey = "\(id)_\(imdbID ?? "")_\(title ?? "")"
+        let lookupKey = "\(id)_\(imdbID ?? "")_\(title ?? "")_\(year ?? 0)"
         lock.lock()
         if let cached = seriesIDCache[lookupKey] {
             lock.unlock()
@@ -737,9 +815,9 @@ class TVDBService {
             }
         }
 
-        // 3. Try search by title
+        // 3. Try search by title with cautious matching
         if let t = title, !t.isEmpty {
-            if let found = await searchByTitle(t) {
+            if let found = await searchByTitle(t, year: year) {
                 cacheSeriesID(key: lookupKey, id: found)
                 return found
             }
@@ -781,12 +859,17 @@ class TVDBService {
         return nil
     }
 
-    private func searchByTitle(_ title: String) async -> Int? {
+    private func searchByTitle(_ title: String, year: Int? = nil) async -> Int? {
+        let (cleanTitle, parsedYear, _) = TitleDisambiguationHelper.parseTitleAndYear(title)
+        let effectiveYear = year ?? parsedYear
+        let targetTitle = cleanTitle.isEmpty ? title.trimmingCharacters(in: .whitespacesAndNewlines) : cleanTitle
+        guard !targetTitle.isEmpty else { return nil }
+
         do {
             let (data, response) = try await executeRequest(
                 endpoint: "/search",
                 queryItems: [
-                    URLQueryItem(name: "query", value: title),
+                    URLQueryItem(name: "query", value: targetTitle),
                     URLQueryItem(name: "type", value: "series")
                 ]
             )
@@ -795,15 +878,53 @@ class TVDBService {
                 struct SearchItem: Decodable {
                     let tvdb_id: String?
                     let id: String?
+                    let name: String?
+                    let year: String?
                 }
                 let data: [SearchItem]?
             }
-            if let decoded = try? JSONDecoder().decode(SearchResponse.self, from: data),
-               let items = decoded.data, let first = items.first {
-                if let tidStr = first.tvdb_id, let tid = Int(tidStr) {
+            guard let decoded = try? JSONDecoder().decode(SearchResponse.self, from: data),
+                  let items = decoded.data, !items.isEmpty else { return nil }
+
+            let cleanLower = targetTitle.lowercased()
+            let cleanHasColon = cleanLower.contains(":")
+
+            let scored = items.compactMap { item -> (SearchResponse.SearchItem, Double)? in
+                let itemName = (item.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !itemName.isEmpty else { return nil }
+                let itemLower = itemName.lowercased()
+
+                var score: Double = 0.0
+
+                if itemLower == cleanLower {
+                    score += 10000.0
+                } else if !cleanHasColon && itemLower.contains(":") {
+                    score -= 50000.0
+                } else if itemLower.hasPrefix(cleanLower) {
+                    score += 500.0
+                } else {
+                    score -= 10000.0
+                }
+
+                if let ey = effectiveYear, let iyStr = item.year, let iy = Int(iyStr) {
+                    if iy == ey {
+                        score += 15000.0
+                    } else if abs(iy - ey) == 1 {
+                        score += 3000.0
+                    } else if abs(iy - ey) >= 3 {
+                        score -= 20000.0
+                    }
+                }
+
+                return (item, score)
+            }.sorted { $0.1 > $1.1 }
+
+            if let best = scored.first, best.1 > 0 {
+                let item = best.0
+                if let tidStr = item.tvdb_id, let tid = Int(tidStr) {
                     return tid
                 }
-                if let rawID = first.id {
+                if let rawID = item.id {
                     let stripped = rawID.replacingOccurrences(of: "series-", with: "")
                     if let sid = Int(stripped) {
                         return sid
@@ -814,9 +935,10 @@ class TVDBService {
         return nil
     }
 
-    // Comprehensive TV Series & Docuseries search using TVDB API
+    // Comprehensive TV Series & Docuseries search using TVDB API with strict disambiguation
     func searchSeries(query: String) async -> [MediaItem] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let (cleanQuery, queryYear, _) = TitleDisambiguationHelper.parseTitleAndYear(query)
+        let trimmed = cleanQuery.isEmpty ? query.trimmingCharacters(in: .whitespacesAndNewlines) : cleanQuery
         guard !trimmed.isEmpty else { return [] }
         do {
             let (data, response) = try await executeRequest(
@@ -848,10 +970,42 @@ class TVDBService {
             guard let decoded = try? JSONDecoder().decode(TVDBSearchResponse.self, from: data),
                   let items = decoded.data else { return [] }
 
+            let cleanLower = trimmed.lowercased()
+            let cleanHasColon = cleanLower.contains(":")
+
+            let sortedItems = items.sorted { a, b in
+                let aName = (a.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let bName = (b.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+                var aScore: Double = 0
+                var bScore: Double = 0
+
+                if aName == cleanLower { aScore += 10000 }
+                else if !cleanHasColon && aName.contains(":") { aScore -= 50000 }
+                else if aName.hasPrefix(cleanLower) { aScore += 500 }
+
+                if bName == cleanLower { bScore += 10000 }
+                else if !cleanHasColon && bName.contains(":") { bScore -= 50000 }
+                else if bName.hasPrefix(cleanLower) { bScore += 500 }
+
+                if let qy = queryYear {
+                    if let ayStr = a.year, let ay = Int(ayStr) {
+                        if ay == qy { aScore += 15000 }
+                        else if abs(ay - qy) >= 3 { aScore -= 20000 }
+                    }
+                    if let byStr = b.year, let by = Int(byStr) {
+                        if by == qy { bScore += 15000 }
+                        else if abs(by - qy) >= 3 { bScore -= 20000 }
+                    }
+                }
+
+                return aScore > bScore
+            }
+
             let df = DateFormatter()
             df.dateFormat = "yyyy"
 
-            return items.prefix(20).compactMap { item in
+            return sortedItems.prefix(20).compactMap { item in
                 guard let name = item.name, !name.isEmpty else { return nil }
 
                 var imdbID: String? = nil
@@ -1317,14 +1471,16 @@ class TMDBService {
     }
 
     func searchSingleMedia(title: String, year: Int? = nil, type: MediaItem.MediaType = .movie) async -> MediaItem? {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        let (cleanTitle, parsedYear, _) = TitleDisambiguationHelper.parseTitleAndYear(title)
+        let effectiveYear = year ?? parsedYear
+        let targetTitle = cleanTitle.isEmpty ? title.trimmingCharacters(in: .whitespacesAndNewlines) : cleanTitle
+        guard !targetTitle.isEmpty else { return nil }
         let endpoint = (type == .series) ? "/search/tv" : "/search/movie"
         var queryItems = [
-            URLQueryItem(name: "query", value: trimmed),
+            URLQueryItem(name: "query", value: targetTitle),
             URLQueryItem(name: "include_adult", value: "false")
         ]
-        if let y = year {
+        if let y = effectiveYear {
             if type == .movie {
                 queryItems.append(URLQueryItem(name: "year", value: "\(y)"))
             } else {
@@ -1335,12 +1491,47 @@ class TMDBService {
         do {
             let (data, _) = try await executeRequest(endpoint: endpoint, queryItems: queryItems)
             let items = parseMediaItems(data: data, type: type)
-            if let first = items.first {
+            let cleanLower = targetTitle.lowercased()
+            let cleanHasColon = cleanLower.contains(":")
+
+            let sortedItems = items.sorted { a, b in
+                let aTitle = a.title.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                let bTitle = b.title.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+
+                var aScore: Double = 0
+                var bScore: Double = 0
+
+                if aTitle == cleanLower { aScore += 10000 }
+                else if !cleanHasColon && aTitle.contains(":") { aScore -= 50000 }
+                else if aTitle.hasPrefix(cleanLower) { aScore += 500 }
+
+                if bTitle == cleanLower { bScore += 10000 }
+                else if !cleanHasColon && bTitle.contains(":") { bScore -= 50000 }
+                else if bTitle.hasPrefix(cleanLower) { bScore += 500 }
+
+                if let ey = effectiveYear {
+                    if let ay = a.releaseYear {
+                        if ay == ey { aScore += 15000 }
+                        else if abs(ay - ey) >= 3 { aScore -= 20000 }
+                    }
+                    if let by = b.releaseYear {
+                        if by == ey { bScore += 15000 }
+                        else if abs(by - ey) >= 3 { bScore -= 20000 }
+                    }
+                }
+
+                aScore += (a.rating ?? 0) * 10
+                bScore += (b.rating ?? 0) * 10
+
+                return aScore > bScore
+            }
+
+            if let first = sortedItems.first {
                 return first
             }
             // Fallback without year if year was too restrictive
-            if year != nil {
-                return await searchSingleMedia(title: title, year: nil, type: type)
+            if effectiveYear != nil {
+                return await searchSingleMedia(title: targetTitle, year: nil, type: type)
             }
             return nil
         } catch {
@@ -1353,9 +1544,11 @@ class TMDBService {
     }
 
     func searchMedia(query: String) async -> [MediaItem] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let (cleanQuery, queryYear, _) = TitleDisambiguationHelper.parseTitleAndYear(query)
+        let trimmed = cleanQuery.isEmpty ? query.trimmingCharacters(in: .whitespacesAndNewlines) : cleanQuery
         guard !trimmed.isEmpty else { return [] }
         let lowerQuery = trimmed.lowercased()
+        let queryHasColon = lowerQuery.contains(":")
 
         // 1. Standard Search: Query Movies & TV first
         do {
@@ -1382,6 +1575,7 @@ class TMDBService {
                 let release_date: String?
                 let first_air_date: String?
                 let adult: Bool?
+                let original_language: String?
             }
 
             let decoded = try JSONDecoder().decode(TMDBMultiResponse.self, from: data)
@@ -1395,15 +1589,43 @@ class TMDBService {
             .sorted { a, b in
                 let aTitle = (a.title ?? a.name ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
                 let bTitle = (b.title ?? b.name ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                let aExact = (aTitle == lowerQuery)
-                let bExact = (bTitle == lowerQuery)
-                if aExact != bExact { return aExact }
 
-                let aPrefix = aTitle.hasPrefix(lowerQuery)
-                let bPrefix = bTitle.hasPrefix(lowerQuery)
-                if aPrefix != bPrefix { return aPrefix }
+                var aScore: Double = 0
+                var bScore: Double = 0
 
-                return (a.vote_count ?? 0) > (b.vote_count ?? 0)
+                if aTitle == lowerQuery {
+                    aScore += 10000
+                } else if !queryHasColon && aTitle.contains(":") {
+                    aScore -= 50000
+                } else if aTitle.hasPrefix(lowerQuery) {
+                    aScore += 500
+                }
+
+                if bTitle == lowerQuery {
+                    bScore += 10000
+                } else if !queryHasColon && bTitle.contains(":") {
+                    bScore -= 50000
+                } else if bTitle.hasPrefix(lowerQuery) {
+                    bScore += 500
+                }
+
+                if let qy = queryYear {
+                    let aDate = a.release_date ?? a.first_air_date
+                    let bDate = b.release_date ?? b.first_air_date
+                    if let ad = aDate, ad.count >= 4, let ay = Int(ad.prefix(4)) {
+                        if ay == qy { aScore += 15000 }
+                        else if abs(ay - qy) >= 3 { aScore -= 20000 }
+                    }
+                    if let bd = bDate, bd.count >= 4, let by = Int(bd.prefix(4)) {
+                        if by == qy { bScore += 15000 }
+                        else if abs(by - qy) >= 3 { bScore -= 20000 }
+                    }
+                }
+
+                aScore += Double(a.vote_count ?? 0) / 10.0
+                bScore += Double(b.vote_count ?? 0) / 10.0
+
+                return aScore > bScore
             }
 
             let df = DateFormatter()
@@ -1444,7 +1666,8 @@ class TMDBService {
                         imdbID: imdb,
                         posterURL: pURL,
                         backdropURL: bURL,
-                        voteCount: res.vote_count
+                        voteCount: res.vote_count,
+                        originalLanguage: res.original_language
                     )
                 }
             }
@@ -1602,7 +1825,7 @@ class TMDBService {
         var id: Int { seasonNumber }
     }
 
-    func fetchTVSeasons(tvID: String, imdbID: String? = nil, title: String? = nil) async -> [TVSeasonInfo] {
+    func fetchTVSeasons(tvID: String, imdbID: String? = nil, title: String? = nil, year: Int? = nil) async -> [TVSeasonInfo] {
         var tmdbNumericID: String? = cleanNumericTMDBID(tvID)
         if tmdbNumericID == nil, let imdb = imdbID, let num = cleanNumericTMDBID(imdb) {
             tmdbNumericID = num
@@ -1611,7 +1834,7 @@ class TMDBService {
             let lookup = imdbID ?? tvID
             if let found = await resolveTMDBID(imdbID: lookup, type: .series) {
                 tmdbNumericID = found
-            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: .series) {
+            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: .series, year: year) {
                 tmdbNumericID = found
             }
         }
@@ -1642,7 +1865,7 @@ class TMDBService {
         }
 
         // 2. Try TheTVDB (TVDB) for complete TV seasons
-        if let tvdbID = await tvdb.resolveTVDBSeriesID(id: tvID, imdbID: imdbID, title: title) {
+        if let tvdbID = await tvdb.resolveTVDBSeriesID(id: tvID, imdbID: imdbID, title: title, year: year) {
             let tvdbSeasons = await tvdb.fetchTVSeasons(tvdbID: tvdbID)
             if !tvdbSeasons.isEmpty {
                 return tvdbSeasons
@@ -1666,12 +1889,12 @@ class TMDBService {
         return [TVSeasonInfo(seasonNumber: 1, name: "Season 1", episodeCount: nil)]
     }
 
-    func fetchTVSeasonsCount(tvID: String, imdbID: String? = nil, title: String? = nil) async -> Int {
-        let seasons = await fetchTVSeasons(tvID: tvID, imdbID: imdbID, title: title)
+    func fetchTVSeasonsCount(tvID: String, imdbID: String? = nil, title: String? = nil, year: Int? = nil) async -> Int {
+        let seasons = await fetchTVSeasons(tvID: tvID, imdbID: imdbID, title: title, year: year)
         return seasons.map { $0.seasonNumber }.max() ?? 1
     }
 
-    func fetchSeasonEpisodes(tvID: String, imdbID: String? = nil, seasonNumber: Int, title: String? = nil) async -> [TVEpisodeItem] {
+    func fetchSeasonEpisodes(tvID: String, imdbID: String? = nil, seasonNumber: Int, title: String? = nil, year: Int? = nil) async -> [TVEpisodeItem] {
         // 1. First try TMDB directly for high-resolution 16:9 still pictures, precise runtimes, and clean synopsis
         var tmdbNumericID: String? = cleanNumericTMDBID(tvID)
         if tmdbNumericID == nil, let imdb = imdbID, let num = cleanNumericTMDBID(imdb) {
@@ -1681,7 +1904,7 @@ class TMDBService {
             let lookup = imdbID ?? tvID
             if let found = await resolveTMDBID(imdbID: lookup, type: .series) {
                 tmdbNumericID = found
-            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: .series) {
+            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: .series, year: year) {
                 tmdbNumericID = found
             }
         }
@@ -1753,7 +1976,7 @@ class TMDBService {
         }
 
         // 2. If TMDB failed or returned empty: Try TheTVDB (TVDB) directly
-        if let tvdbID = await tvdb.resolveTVDBSeriesID(id: tvID, imdbID: imdbID, title: title) {
+        if let tvdbID = await tvdb.resolveTVDBSeriesID(id: tvID, imdbID: imdbID, title: title, year: year) {
             let tvdbEps = await tvdb.fetchSeasonEpisodes(tvdbID: tvdbID, seasonNumber: seasonNumber)
             if !tvdbEps.isEmpty {
                 return tvdbEps
@@ -1766,7 +1989,7 @@ class TMDBService {
             resolvedIMDb = try? await fetchIMDbID(tmdbID: num, type: .series)
         }
         if resolvedIMDb == nil, let t = title {
-            resolvedIMDb = await resolveIMDbIDByTitle(title: t, type: .series)
+            resolvedIMDb = await resolveIMDbIDByTitle(title: t, type: .series, year: year)
         }
 
         if let imdb = resolvedIMDb {
@@ -1809,6 +2032,7 @@ class TMDBService {
             let release_date: String?
             let first_air_date: String?
             let adult: Bool?
+            let original_language: String?
         }
 
         guard let decoded = try? JSONDecoder().decode(TMDBPageResponse.self, from: data),
@@ -1833,7 +2057,8 @@ class TMDBService {
                 backdropUrl: bURL,
                 releaseDate: date,
                 rating: res.vote_average,
-                type: type
+                type: type,
+                originalLanguage: res.original_language
             )
         }
     }
@@ -1844,7 +2069,7 @@ class TMDBService {
         let items: [MediaItem]
     }
 
-    func fetchMovieCollection(movieID: String, imdbID: String? = nil, title: String? = nil) async -> MovieCollectionResult? {
+    func fetchMovieCollection(movieID: String, imdbID: String? = nil, title: String? = nil, year: Int? = nil) async -> MovieCollectionResult? {
         var targetID: String? = cleanNumericTMDBID(movieID)
         if targetID == nil, let imdb = imdbID, let num = cleanNumericTMDBID(imdb) {
             targetID = num
@@ -1853,7 +2078,7 @@ class TMDBService {
             let lookup = imdbID ?? movieID
             if let found = await resolveTMDBID(imdbID: lookup, type: .movie) {
                 targetID = found
-            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: .movie) {
+            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: .movie, year: year) {
                 targetID = found
             }
         }
@@ -1940,7 +2165,7 @@ class TMDBService {
         }
     }
 
-    func fetchSimilarMedia(id: String, imdbID: String? = nil, type: MediaItem.MediaType, title: String? = nil) async -> [MediaItem] {
+    func fetchSimilarMedia(id: String, imdbID: String? = nil, type: MediaItem.MediaType, title: String? = nil, year: Int? = nil) async -> [MediaItem] {
         var targetID: String? = cleanNumericTMDBID(id)
         if targetID == nil, let imdb = imdbID, let num = cleanNumericTMDBID(imdb) {
             targetID = num
@@ -1949,7 +2174,7 @@ class TMDBService {
             let lookup = imdbID ?? id
             if let found = await resolveTMDBID(imdbID: lookup, type: type) {
                 targetID = found
-            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: type) {
+            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: type, year: year) {
                 targetID = found
             }
         }
@@ -1957,13 +2182,13 @@ class TMDBService {
 
         let prefix = (type == .series) ? "/tv" : "/movie"
         var rawItems: [MediaItem] = []
-        if let (recData, _) = try? await executeRequest(endpoint: "\(prefix)/\(validTargetID)/recommendations") {
-            let items = parseMediaItems(data: recData, type: type)
+        if let (simData, _) = try? await executeRequest(endpoint: "\(prefix)/\(validTargetID)/similar") {
+            let items = parseMediaItems(data: simData, type: type)
             if !items.isEmpty { rawItems = items }
         }
 
-        if rawItems.isEmpty, let (simData, _) = try? await executeRequest(endpoint: "\(prefix)/\(validTargetID)/similar") {
-            let items = parseMediaItems(data: simData, type: type)
+        if rawItems.isEmpty, let (recData, _) = try? await executeRequest(endpoint: "\(prefix)/\(validTargetID)/recommendations") {
+            let items = parseMediaItems(data: recData, type: type)
             if !items.isEmpty { rawItems = items }
         }
 
@@ -2005,13 +2230,7 @@ class TMDBService {
         }
     }
 
-    // MARK: - Title Logo & Extended Details
-    struct MediaExtendedDetails {
-        let logoURL: URL?
-        let runtimeMinutes: Int?
-    }
-
-    func fetchMediaLogoAndDetails(id: String, imdbID: String? = nil, type: MediaItem.MediaType, title: String? = nil) async -> MediaExtendedDetails {
+    func fetchRecommendations(id: String, imdbID: String? = nil, type: MediaItem.MediaType, title: String? = nil, year: Int? = nil) async -> [MediaItem] {
         var targetID: String? = cleanNumericTMDBID(id)
         if targetID == nil, let imdb = imdbID, let num = cleanNumericTMDBID(imdb) {
             targetID = num
@@ -2020,7 +2239,98 @@ class TMDBService {
             let lookup = imdbID ?? id
             if let found = await resolveTMDBID(imdbID: lookup, type: type) {
                 targetID = found
-            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: type) {
+            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: type, year: year) {
+                targetID = found
+            }
+        }
+        guard let validTargetID = targetID else { return [] }
+
+        let prefix = (type == .series) ? "/tv" : "/movie"
+        var rawItems: [MediaItem] = []
+        if let (recData, _) = try? await executeRequest(endpoint: "\(prefix)/\(validTargetID)/recommendations") {
+            let items = parseMediaItems(data: recData, type: type)
+            if !items.isEmpty { rawItems = items }
+        }
+
+        if rawItems.isEmpty { return [] }
+
+        var imdbMap: [String: String] = [:]
+        await withTaskGroup(of: (String, String?).self) { group in
+            for item in rawItems.prefix(20) {
+                if let tmdbInt = Int(item.id) {
+                    group.addTask {
+                        let imdb = await self.resolveIMDbID(tmdbID: tmdbInt, type: type)
+                        return (item.id, imdb)
+                    }
+                }
+            }
+            for await (itemId, resolvedImdb) in group {
+                if let resolvedImdb = resolvedImdb {
+                    imdbMap[itemId] = resolvedImdb
+                }
+            }
+        }
+
+        return rawItems.map { item in
+            let resolvedImdb = imdbMap[item.id] ?? item.imdbID
+            return MediaItem(
+                id: resolvedImdb ?? item.id,
+                title: item.title,
+                description: item.description,
+                posterUrl: item.posterURL,
+                backdropUrl: item.backdropURL,
+                releaseDate: item.releaseDate,
+                rating: item.rating,
+                type: item.type,
+                imdbID: resolvedImdb,
+                posterURL: item.posterURL,
+                backdropURL: item.backdropURL
+            )
+        }
+    }
+
+    // MARK: - Title Logo & Extended Details
+    struct MediaExtendedDetails {
+        let logoURL: URL?
+        let runtimeMinutes: Int?
+        let tagline: String?
+        let originalLanguage: String?
+        let imdbID: String?
+        let overview: String?
+        let year: String?
+        let rating: Double?
+
+        init(
+            logoURL: URL?,
+            runtimeMinutes: Int?,
+            tagline: String? = nil,
+            originalLanguage: String? = nil,
+            imdbID: String? = nil,
+            overview: String? = nil,
+            year: String? = nil,
+            rating: Double? = nil
+        ) {
+            self.logoURL = logoURL
+            self.runtimeMinutes = runtimeMinutes
+            self.tagline = tagline
+            self.originalLanguage = originalLanguage
+            self.imdbID = imdbID
+            self.overview = overview
+            self.year = year
+            self.rating = rating
+        }
+    }
+
+    func fetchMediaLogoAndDetails(id: String, imdbID: String? = nil, type: MediaItem.MediaType, title: String? = nil, year: Int? = nil) async -> MediaExtendedDetails {
+        var targetID: String? = cleanNumericTMDBID(id)
+        if targetID == nil, let imdb = imdbID, let num = cleanNumericTMDBID(imdb) {
+            targetID = num
+        }
+        if targetID == nil {
+            let lookup = imdbID ?? id
+            if let found = await resolveTMDBID(imdbID: lookup, type: type) {
+                targetID = found
+            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: type, year: year) {
                 targetID = found
             }
         }
@@ -2030,7 +2340,7 @@ class TMDBService {
             actualIMDbID = try? await fetchIMDbID(tmdbID: num, type: type)
         }
         if actualIMDbID == nil, let t = title {
-            actualIMDbID = await resolveIMDbIDByTitle(title: t, type: type)
+            actualIMDbID = await resolveIMDbIDByTitle(title: t, type: type, year: year)
         }
 
         // 1. Check Stremio Metahub official transparent title logo
@@ -2039,29 +2349,87 @@ class TMDBService {
             resolvedLogoURL = URL(string: "https://images.metahub.space/logo/medium/\(imdb)/img.png")
         }
 
+        var runtimeMins: Int? = nil
+        var resolvedTagline: String? = nil
+        var resolvedOriginalLang: String? = nil
+        var resolvedOverview: String? = nil
+        var resolvedYear: String? = nil
+        var resolvedRating: Double? = nil
+
         guard let validTargetID = targetID, let tmdbNumericID = Int(validTargetID) else {
             // Check TVDB logo if Metahub is not available for series
             if resolvedLogoURL == nil && type == .series {
-                if let tvdbID = await tvdb.resolveTVDBSeriesID(id: id, imdbID: imdbID, title: title) {
+                if let tvdbID = await tvdb.resolveTVDBSeriesID(id: id, imdbID: imdbID, title: title, year: year) {
                     if let logo = await tvdb.fetchTVDBLogo(tvdbID: tvdbID) {
                         resolvedLogoURL = logo
                     }
                 }
             }
-            return MediaExtendedDetails(logoURL: resolvedLogoURL, runtimeMinutes: nil)
+            // Fallback overview from Cinemeta if no TMDB ID was found
+            if let imdb = actualIMDbID, !imdb.isEmpty {
+                let cinemetaType = (type == .series) ? "series" : "movie"
+                if let cineURL = URL(string: "https://v3-cinemeta.strem.io/meta/\(cinemetaType)/\(imdb).json"),
+                   let (cData, cResp) = try? await URLSession.shared.data(from: cineURL),
+                   (cResp as? HTTPURLResponse)?.statusCode == 200 {
+                    struct CineMetaWrapper: Decodable {
+                        struct CineMetaInner: Decodable {
+                            let description: String?
+                            let overview: String?
+                            let year: String?
+                            let imdbRating: String?
+                        }
+                        let meta: CineMetaInner?
+                    }
+                    if let cineDecoded = try? JSONDecoder().decode(CineMetaWrapper.self, from: cData), let meta = cineDecoded.meta {
+                        resolvedOverview = meta.description ?? meta.overview
+                        resolvedYear = meta.year
+                        if let rStr = meta.imdbRating, let rDbl = Double(rStr) {
+                            resolvedRating = rDbl
+                        }
+                    }
+                }
+            }
+            return MediaExtendedDetails(
+                logoURL: resolvedLogoURL,
+                runtimeMinutes: nil,
+                tagline: nil,
+                originalLanguage: nil,
+                imdbID: actualIMDbID,
+                overview: resolvedOverview,
+                year: resolvedYear,
+                rating: resolvedRating
+            )
         }
 
         let prefix = (type == .series) ? "/tv/\(tmdbNumericID)" : "/movie/\(tmdbNumericID)"
 
-        // 2. Fetch runtime from details endpoint
-        var runtimeMins: Int? = nil
+        // 2. Fetch runtime, tagline, overview, rating, release year from details endpoint
         if let (detailsData, _) = try? await executeRequest(endpoint: prefix) {
             struct RawDetails: Decodable {
                 let runtime: Int?
                 let episode_run_time: [Int]?
+                let tagline: String?
+                let original_language: String?
+                let overview: String?
+                let vote_average: Double?
+                let release_date: String?
+                let first_air_date: String?
             }
             if let decoded = try? JSONDecoder().decode(RawDetails.self, from: detailsData) {
                 runtimeMins = decoded.runtime ?? decoded.episode_run_time?.first
+                if let tag = decoded.tagline, !tag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    resolvedTagline = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                resolvedOriginalLang = decoded.original_language
+                if let ov = decoded.overview, !ov.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    resolvedOverview = ov.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                if let va = decoded.vote_average, va > 0 {
+                    resolvedRating = va
+                }
+                if let rel = decoded.release_date ?? decoded.first_air_date, rel.count >= 4 {
+                    resolvedYear = String(rel.prefix(4))
+                }
             }
         }
 
@@ -2084,14 +2452,52 @@ class TMDBService {
 
         // 4. TVDB ClearLogo fallback for TV series if still nil
         if resolvedLogoURL == nil && type == .series {
-            if let tvdbID = await tvdb.resolveTVDBSeriesID(id: id, imdbID: imdbID, title: title) {
+            if let tvdbID = await tvdb.resolveTVDBSeriesID(id: id, imdbID: imdbID, title: title, year: year) {
                 if let logo = await tvdb.fetchTVDBLogo(tvdbID: tvdbID) {
                     resolvedLogoURL = logo
                 }
             }
         }
 
-        return MediaExtendedDetails(logoURL: resolvedLogoURL, runtimeMinutes: runtimeMins)
+        return MediaExtendedDetails(
+            logoURL: resolvedLogoURL,
+            runtimeMinutes: runtimeMins,
+            tagline: resolvedTagline,
+            originalLanguage: resolvedOriginalLang,
+            imdbID: actualIMDbID,
+            overview: resolvedOverview,
+            year: resolvedYear,
+            rating: resolvedRating
+        )
+    }
+
+    // MARK: - Scene Images & Timeline Backdrops
+    func fetchSceneImages(id: String, imdbID: String? = nil, type: MediaItem.MediaType, title: String? = nil, year: Int? = nil) async -> [URL] {
+        var tmdbNumericID: String? = cleanNumericTMDBID(id)
+        if tmdbNumericID == nil, let imdb = imdbID, !imdb.isEmpty {
+            tmdbNumericID = await resolveTMDBID(imdbID: imdb, type: type)
+        }
+        if tmdbNumericID == nil, let t = title, !t.isEmpty {
+            tmdbNumericID = await resolveTMDBIDByTitle(title: t, type: type, year: year)
+        }
+        guard let numID = tmdbNumericID else { return [] }
+        let prefix = (type == .series) ? "/tv/\(numID)" : "/movie/\(numID)"
+        guard let (imgData, _) = try? await executeRequest(endpoint: "\(prefix)/images", queryItems: [URLQueryItem(name: "include_image_language", value: "en,null")]) else {
+            return []
+        }
+        struct RawBackdropsResponse: Decodable {
+            struct BackdropItem: Decodable {
+                let file_path: String?
+            }
+            let backdrops: [BackdropItem]?
+        }
+        guard let decoded = try? JSONDecoder().decode(RawBackdropsResponse.self, from: imgData), let backdrops = decoded.backdrops else {
+            return []
+        }
+        return backdrops.compactMap { item in
+            guard let path = item.file_path, !path.isEmpty else { return nil }
+            return URL(string: "https://image.tmdb.org/t/p/w780\(path)")
+        }
     }
 
     // MARK: - Videos, Trailers & Extras
@@ -2119,7 +2525,7 @@ class TMDBService {
         }
     }
 
-    func fetchMediaExtras(id: String, imdbID: String? = nil, type: MediaItem.MediaType, title: String? = nil) async -> [MediaExtra] {
+    func fetchMediaExtras(id: String, imdbID: String? = nil, type: MediaItem.MediaType, title: String? = nil, year: Int? = nil) async -> [MediaExtra] {
         var targetID: String? = cleanNumericTMDBID(id)
         if targetID == nil, let imdb = imdbID, let num = cleanNumericTMDBID(imdb) {
             targetID = num
@@ -2128,7 +2534,7 @@ class TMDBService {
             let lookup = imdbID ?? id
             if let found = await resolveTMDBID(imdbID: lookup, type: type) {
                 targetID = found
-            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: type) {
+            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: type, year: year) {
                 targetID = found
             }
         }
@@ -2185,7 +2591,7 @@ class TMDBService {
     }
 
     // MARK: - Cast, Crew & Person Works
-    func fetchMediaCredits(id: String, imdbID: String? = nil, type: MediaItem.MediaType, title: String? = nil) async -> MediaCredits? {
+    func fetchMediaCredits(id: String, imdbID: String? = nil, type: MediaItem.MediaType, title: String? = nil, year: Int? = nil) async -> MediaCredits? {
         var targetID: String? = cleanNumericTMDBID(id)
         if targetID == nil, let imdb = imdbID, let num = cleanNumericTMDBID(imdb) {
             targetID = num
@@ -2194,7 +2600,7 @@ class TMDBService {
             let lookup = imdbID ?? id
             if let found = await resolveTMDBID(imdbID: lookup, type: type) {
                 targetID = found
-            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: type) {
+            } else if let t = title, let found = await resolveTMDBIDByTitle(title: t, type: type, year: year) {
                 targetID = found
             }
         }
@@ -2459,33 +2865,115 @@ class TMDBService {
         return (try? JSONDecoder().decode(ExtResponse.self, from: data))?.imdb_id
     }
 
+    static func parseTitleAndYear(_ raw: String) -> (cleanTitle: String, year: Int?, subtitle: String?) {
+        return TitleDisambiguationHelper.parseTitleAndYear(raw)
+    }
+
     func resolveTMDBIDByTitle(title: String, type: MediaItem.MediaType, year: Int? = nil) async -> String? {
-        let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return nil }
-        var queryItems = [
-            URLQueryItem(name: "query", value: clean),
-            URLQueryItem(name: "include_adult", value: "false")
-        ]
-        if let y = year {
-            if type == .series {
-                queryItems.append(URLQueryItem(name: "first_air_date_year", value: "\(y)"))
-            } else {
-                queryItems.append(URLQueryItem(name: "primary_release_year", value: "\(y)"))
+        let (clean, parsedYear, _) = TitleDisambiguationHelper.parseTitleAndYear(title)
+        let effectiveYear = year ?? parsedYear
+        let targetTitle = clean.isEmpty ? title.trimmingCharacters(in: .whitespacesAndNewlines) : clean
+        guard !targetTitle.isEmpty else { return nil }
+
+        func queryAndRank(withYear: Int?) async -> String? {
+            var queryItems = [
+                URLQueryItem(name: "query", value: targetTitle),
+                URLQueryItem(name: "include_adult", value: "false")
+            ]
+            if let y = withYear {
+                if type == .series {
+                    queryItems.append(URLQueryItem(name: "first_air_date_year", value: "\(y)"))
+                } else {
+                    queryItems.append(URLQueryItem(name: "primary_release_year", value: "\(y)"))
+                }
             }
-        }
-        let endpoint = (type == .series) ? "/search/tv" : "/search/movie"
-        guard let (data, _) = try? await executeRequest(endpoint: endpoint, queryItems: queryItems) else { return nil }
-        struct SearchResp: Decodable {
-            struct Item: Decodable { let id: Int }
-            let results: [Item]?
-        }
-        guard let results = (try? JSONDecoder().decode(SearchResp.self, from: data))?.results, let first = results.first else {
-            if year != nil {
-                return await resolveTMDBIDByTitle(title: clean, type: type, year: nil)
+            let endpoint = (type == .series) ? "/search/tv" : "/search/movie"
+            guard let (data, _) = try? await executeRequest(endpoint: endpoint, queryItems: queryItems) else { return nil }
+
+            struct Candidate: Decodable {
+                let id: Int
+                let name: String?
+                let title: String?
+                let original_name: String?
+                let original_title: String?
+                let first_air_date: String?
+                let release_date: String?
+                let vote_count: Int?
+                let popularity: Double?
+            }
+            struct SearchResp: Decodable {
+                let results: [Candidate]?
+            }
+            guard let candidates = (try? JSONDecoder().decode(SearchResp.self, from: data))?.results, !candidates.isEmpty else {
+                return nil
+            }
+
+            let cleanLower = targetTitle.lowercased()
+            let cleanHasColon = cleanLower.contains(":")
+
+            let scored = candidates.compactMap { cand -> (Candidate, Double)? in
+                let candTitle = (cand.name ?? cand.title ?? cand.original_name ?? cand.original_title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !candTitle.isEmpty else { return nil }
+                let candLower = candTitle.lowercased()
+
+                var score: Double = 0.0
+
+                let spinOffWords = ["resurrection", "resurrected", "original sin", "new blood", "origins", "origin", "reboot", "remake"]
+                let hasExtraSpinoff = spinOffWords.contains { kw in candLower.contains(kw) && !cleanLower.contains(kw) }
+
+                // 1. Exact Title Equality
+                if candLower == cleanLower {
+                    score += 10000.0
+                } else if (!cleanHasColon && candLower.contains(":")) || hasExtraSpinoff {
+                    // Queried base title (e.g. "Dexter") but candidate is a spin-off/subtitle (e.g. "Dexter: Resurrection", "Dexter Original Sin")
+                    score -= 50000.0
+                } else if candLower.hasPrefix(cleanLower) {
+                    score += 500.0
+                } else {
+                    score -= 5000.0
+                }
+
+                // 2. Year Matching
+                let rawDate = cand.first_air_date ?? cand.release_date
+                var candYear: Int? = nil
+                if let rd = rawDate, rd.count >= 4, let y = Int(rd.prefix(4)) {
+                    candYear = y
+                }
+
+                if let ey = effectiveYear, let cy = candYear {
+                    if cy == ey {
+                        score += 20000.0
+                    } else if abs(cy - ey) == 1 {
+                        score += 3000.0
+                    } else if abs(cy - ey) >= 2 {
+                        score -= 50000.0
+                    }
+                }
+
+                // 3. Vote count & Popularity
+                let vc = cand.vote_count ?? 0
+                score += min(Double(vc) / 5.0, 500.0)
+                let pop = cand.popularity ?? 0.0
+                score += min(pop, 100.0)
+
+                return (cand, score)
+            }.sorted { $0.1 > $1.1 }
+
+            if let best = scored.first, best.1 > 0 {
+                return "\(best.0.id)"
             }
             return nil
         }
-        return "\(first.id)"
+
+        // First attempt with year (if specified)
+        if let y = effectiveYear {
+            if let found = await queryAndRank(withYear: y) {
+                return found
+            }
+        }
+
+        // Fallback without year query parameter, but still applying cautious scoring
+        return await queryAndRank(withYear: nil)
     }
 
     func resolveIMDbIDByTitle(title: String, type: MediaItem.MediaType, year: Int? = nil) async -> String? {

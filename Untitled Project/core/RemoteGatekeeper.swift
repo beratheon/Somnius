@@ -3,61 +3,74 @@ import SwiftUI
 import AppKit
 import Combine
 
-// MARK: - Remote Gatekeeper & Beta Kill-Switch Service
+// MARK: - Somnius Non-Blocking Update Notifier
 @MainActor
 public final class RemoteGatekeeper: ObservableObject {
     public static let shared = RemoteGatekeeper()
 
-    @Published public var isLocked: Bool = false
-    @Published public var lockTitle: String = "Beta Access Concluded"
-    @Published public var lockMessage: String = "This preview build is no longer supported or active. Please download the latest release to continue using Somnius."
+    @Published public var isLocked: Bool = false // Never lock the app
+    @Published public var hasUpdateAvailable: Bool = false
+    @Published public var updateVersion: String = ""
+    @Published public var updateReleaseNotes: String = "A new version of Somnius is ready to install."
     @Published public var downloadURL: URL = URL(string: "https://github.com/beratheon/Somnius/releases/latest")!
-    @Published public var isChecking: Bool = false
-
-    private let localLockKey = "Somnius_RemoteGatekeeper_IsLocked"
-    private let localTitleKey = "Somnius_RemoteGatekeeper_LockTitle"
-    private let localMessageKey = "Somnius_RemoteGatekeeper_LockMessage"
-    private let localURLKey = "Somnius_RemoteGatekeeper_LockURL"
-
-    // Hard local failsafe: 90 days from Oct 10, 2026 (Jan 8, 2027)
-    // Ensures that even if users completely sever network connections, expired beta builds terminate cleanly
-    private let hardLocalExpiryDate: Date = {
-        var comps = DateComponents()
-        comps.year = 2027
-        comps.month = 1
-        comps.day = 8
-        return Calendar.current.date(from: comps) ?? Date.distantFuture
-    }()
-
-    private var pollTimer: Timer?
+    @Published public var showUpdateModal: Bool = false
+    
+    private var hasDismissedForThisSession: Bool = false
 
     private init() {
-        unlockApp()
+        self.isLocked = false
     }
 
     public func checkStatus() async {
-        isChecking = false
-        unlockApp()
+        guard !hasDismissedForThisSession else { return }
+        
+        // Query GitHub releases API for latest release version
+        let repo = Config.updateRepository.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !repo.isEmpty, let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else {
+            return
+        }
+        
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 5.0
+        req.setValue("application/vnd.github.v3+json", forHTTPHeaderField: "Accept")
+        req.setValue("Somnius-App", forHTTPHeaderField: "User-Agent")
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
+            
+            struct GHRelease: Decodable {
+                let tag_name: String
+                let name: String?
+                let body: String?
+                let html_url: String?
+            }
+            
+            let release = try JSONDecoder().decode(GHRelease.self, from: data)
+            let latestTag = release.tag_name.replacingOccurrences(of: "v", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let currentVer = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0").trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            if isVersion(currentVer, olderThan: latestTag) {
+                self.hasUpdateAvailable = true
+                self.updateVersion = release.tag_name
+                if let body = release.body, !body.isEmpty {
+                    self.updateReleaseNotes = body
+                }
+                if let html = release.html_url, let dUrl = URL(string: html) {
+                    self.downloadURL = dUrl
+                }
+                if !self.hasDismissedForThisSession {
+                    self.showUpdateModal = true
+                }
+            }
+        } catch {
+            // Quiet fallback, no disruptive errors
+        }
     }
 
-    private func lockApp(title: String, message: String, url: URL) {
-        self.isLocked = true
-        self.lockTitle = title
-        self.lockMessage = message
-        self.downloadURL = url
-
-        UserDefaults.standard.set(true, forKey: localLockKey)
-        UserDefaults.standard.set(title, forKey: localTitleKey)
-        UserDefaults.standard.set(message, forKey: localMessageKey)
-        UserDefaults.standard.set(url.absoluteString, forKey: localURLKey)
-    }
-
-    private func unlockApp() {
-        self.isLocked = false
-        UserDefaults.standard.removeObject(forKey: localLockKey)
-        UserDefaults.standard.removeObject(forKey: localTitleKey)
-        UserDefaults.standard.removeObject(forKey: localMessageKey)
-        UserDefaults.standard.removeObject(forKey: localURLKey)
+    public func dismissUntilNextLaunch() {
+        self.hasDismissedForThisSession = true
+        self.showUpdateModal = false
     }
 
     private func isVersion(_ v1: String, olderThan v2: String) -> Bool {
@@ -65,104 +78,101 @@ public final class RemoteGatekeeper: ObservableObject {
     }
 }
 
-// MARK: - Native Lockout Full-Screen Overlay View
+// MARK: - Somnius Sleek Non-Blocking Update Dialog
 public struct RemoteGatekeeperLockView: View {
     @ObservedObject var gatekeeper: RemoteGatekeeper = .shared
 
     public init() {}
 
     public var body: some View {
-        ZStack {
-            Color(red: 0.05, green: 0.05, blue: 0.07)
-                .ignoresSafeArea()
+        if gatekeeper.showUpdateModal {
+            ZStack {
+                Color.black.opacity(0.55)
+                    .background(.ultraThinMaterial.opacity(0.4))
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        gatekeeper.dismissUntilNextLaunch()
+                    }
 
-            // Subtle dark radial gradient
-            RadialGradient(
-                colors: [
-                    Color(red: 0.75, green: 0.15, blue: 0.15).opacity(0.18),
-                    Color.clear
-                ],
-                center: .center,
-                startRadius: 20,
-                endRadius: 400
-            )
-            .ignoresSafeArea()
+                VStack(spacing: 20) {
+                    // Header Icon
+                    ZStack {
+                        Circle()
+                            .fill(Color.white.opacity(0.08))
+                            .frame(width: 64, height: 64)
+                            .overlay(
+                                Circle().stroke(Color.white.opacity(0.18), lineWidth: 1)
+                            )
 
-            VStack(spacing: 24) {
-                ZStack {
-                    Circle()
-                        .fill(Color(red: 0.9, green: 0.2, blue: 0.2).opacity(0.12))
-                        .frame(width: 88, height: 88)
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 26, weight: .semibold))
+                            .foregroundColor(.white)
+                    }
+
+                    VStack(spacing: 8) {
+                        Text("Somnius Update Available")
+                            .font(.custom("Baskerville", size: 24))
+                            .foregroundColor(.white)
+
+                        Text("A new release (\(gatekeeper.updateVersion)) is ready. Enjoy new player controls, refined subtitles, and improved stability.")
+                            .font(.system(size: 13))
+                            .foregroundColor(.white.opacity(0.7))
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(3)
+                            .frame(maxWidth: 380)
+                    }
+
+                    HStack(spacing: 14) {
+                        // Install Now
+                        Button(action: {
+                            AppUpdater.shared.checkForUpdates()
+                            gatekeeper.showUpdateModal = false
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.down.circle.fill")
+                                Text("Install Now")
+                            }
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 10)
+                            .background(Color.white)
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+
+                        // Remind Me Later
+                        Button(action: {
+                            gatekeeper.dismissUntilNextLaunch()
+                        }) {
+                            Text("Remind Me Later")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.white.opacity(0.75))
+                                .padding(.horizontal, 18)
+                                .padding(.vertical, 10)
+                                .background(Color.white.opacity(0.08))
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule().stroke(Color.white.opacity(0.14), lineWidth: 0.8)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.top, 6)
+                }
+                .padding(32)
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color(red: 0.10, green: 0.10, blue: 0.12).opacity(0.96))
                         .overlay(
-                            Circle().stroke(Color(red: 0.9, green: 0.2, blue: 0.2).opacity(0.35), lineWidth: 1.5)
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
                         )
-
-                    Image(systemName: "lock.shield.fill")
-                        .font(.system(size: 40))
-                        .foregroundColor(Color(red: 1.0, green: 0.35, blue: 0.35))
-                }
-
-                VStack(spacing: 10) {
-                    Text(gatekeeper.lockTitle)
-                        .font(.custom("Baskerville", size: 28).weight(.bold))
-                        .foregroundColor(.white)
-
-                    Text(gatekeeper.lockMessage)
-                        .font(.system(size: 14))
-                        .foregroundColor(.white.opacity(0.7))
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 460)
-                        .lineSpacing(4)
-                }
-
-                HStack(spacing: 14) {
-                    Button(action: {
-                        NSWorkspace.shared.open(gatekeeper.downloadURL)
-                    }) {
-                        HStack(spacing: 7) {
-                            Image(systemName: "arrow.down.circle.fill")
-                            Text("Download Latest Version")
-                        }
-                        .font(.system(size: 13, weight: .bold))
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.white)
-                        .foregroundColor(.black)
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button(action: {
-                        NSApplication.shared.terminate(nil)
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "xmark.circle")
-                            Text("Quit Somnius")
-                        }
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 10)
-                        .background(Color.white.opacity(0.1))
-                        .foregroundColor(.white.opacity(0.85))
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.top, 10)
+                )
+                .shadow(color: .black.opacity(0.6), radius: 30, x: 0, y: 12)
             }
-            .padding(40)
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color(red: 0.10, green: 0.10, blue: 0.12).opacity(0.92))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                    )
-            )
-            .shadow(color: Color.black.opacity(0.6), radius: 30, x: 0, y: 15)
+            .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            .zIndex(9999)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .transition(.opacity)
-        .zIndex(9999)
     }
 }

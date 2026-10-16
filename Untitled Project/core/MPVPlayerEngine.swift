@@ -134,13 +134,39 @@ public struct MPVTrackInfo: Identifiable, Hashable {
     public let id: Int32
     public let name: String
     public let language: String?
+    public let codec: String?
+    public let isExternal: Bool
+    public let isHearingImpaired: Bool
+    public let isForced: Bool
+    public let channels: String?
     public let isEnabled: Bool
+    public let isDefault: Bool
+    public let isOriginal: Bool
 
-    public init(id: Int32, name: String, language: String?, isEnabled: Bool) {
+    public init(
+        id: Int32,
+        name: String,
+        language: String?,
+        codec: String? = nil,
+        isExternal: Bool = false,
+        isHearingImpaired: Bool = false,
+        isForced: Bool = false,
+        channels: String? = nil,
+        isEnabled: Bool,
+        isDefault: Bool = false,
+        isOriginal: Bool = false
+    ) {
         self.id = id
         self.name = name
         self.language = language
+        self.codec = codec
+        self.isExternal = isExternal
+        self.isHearingImpaired = isHearingImpaired
+        self.isForced = isForced
+        self.channels = channels
         self.isEnabled = isEnabled
+        self.isDefault = isDefault
+        self.isOriginal = isOriginal
     }
 }
 
@@ -193,12 +219,16 @@ public class MPVPlayerEngine: ObservableObject {
     @Published public var currentEmbeddedSubtitleImage: NSImage? = nil
 
     @Published public var audioDelay: Double = 0.0
+    @Published public var subtitleDelay: Double = 0.0
     @Published public var palSpeedupEnabled: Bool = false
     @Published public var isExternalAudioInjected: Bool = false
     @Published public var activeIMDbID: String? = nil
 
     @Published public var hdrAvailable: Bool = false
     @Published public var edrRange: Double = 1.0
+    @Published public var hasRenderedFirstFrame: Bool = false
+    @Published public var chapterIntroRange: (start: Double, end: Double)? = nil
+    @Published public var chapterCreditsStart: Double? = nil
 
     private var mpv: OpaquePointer? = nil
     public let videoView = MPVVideoView()
@@ -248,8 +278,8 @@ public class MPVPlayerEngine: ObservableObject {
         mpv_set_option_string(handle, "target-peak", "auto")
 
         // Subtitles & Audio
-        mpv_set_option_string(handle, "subs-match-os-language", "yes")
-        mpv_set_option_string(handle, "subs-fallback", "yes")
+        mpv_set_option_string(handle, "subs-match-os-language", "no")
+        mpv_set_option_string(handle, "subs-fallback", "no")
         mpv_set_option_string(handle, "sub-auto", "fuzzy")
         mpv_set_option_string(handle, "sub-font", "SF Pro Text")
         mpv_set_option_string(handle, "sub-font-size", "48")
@@ -350,7 +380,14 @@ public class MPVPlayerEngine: ObservableObject {
                 case MPV_EVENT_FILE_LOADED:
                     print("✅ [MPVPlayerEngine] MPV_EVENT_FILE_LOADED")
                     self.pendingURL = nil
-                    self.play()
+                    if self.selectedSubtitleTrackId == nil {
+                        mpv_set_property_string(handle, "sid", "no")
+                        mpv_set_property_string(handle, "secondary-sid", "no")
+                        mpv_set_property_string(handle, "sub-visibility", "no")
+                    }
+                    var unpauseFlag: Int32 = 0
+                    mpv_set_property(handle, "pause", MPV_FORMAT_FLAG, &unpauseFlag)
+                    self.refreshChapters()
                     DispatchQueue.main.async {
                         self.isBuffering = false
                         self.isPlaying = true
@@ -364,9 +401,13 @@ public class MPVPlayerEngine: ObservableObject {
                 case MPV_EVENT_PLAYBACK_RESTART:
                     print("▶️ [MPVPlayerEngine] MPV_EVENT_PLAYBACK_RESTART")
                     self.pendingURL = nil
+                    var pausedFlag: Int32 = 0
+                    mpv_get_property(handle, "pause", MPV_FORMAT_FLAG, &pausedFlag)
+                    let isCurrentlyPaused = (pausedFlag != 0)
                     DispatchQueue.main.async {
+                        self.hasRenderedFirstFrame = true
                         self.isBuffering = false
-                        self.isPlaying = true
+                        self.isPlaying = !isCurrentlyPaused
                     }
 
                 case MPV_EVENT_END_FILE:
@@ -427,8 +468,10 @@ public class MPVPlayerEngine: ObservableObject {
                 self.lastObservedTime = time
                 DispatchQueue.main.async {
                     self.currentTime = time
+                    if time > 0 {
+                        self.hasRenderedFirstFrame = true
+                    }
                     self.isBuffering = false
-                    self.isPlaying = true
                     if self.duration > 0 {
                         self.bufferedFraction = min(1.0, max(0.0, (time + self.bufferedTime) / self.duration))
                     }
@@ -476,7 +519,11 @@ public class MPVPlayerEngine: ObservableObject {
             if let cstr = data.assumingMemoryBound(to: UnsafePointer<CChar>?.self).pointee {
                 let text = String(cString: cstr).trimmingCharacters(in: .whitespacesAndNewlines)
                 DispatchQueue.main.async {
-                    self.currentEmbeddedSubtitleText = text.isEmpty ? nil : text
+                    if self.selectedSubtitleTrackId != nil {
+                        self.currentEmbeddedSubtitleText = text.isEmpty ? nil : text
+                    } else {
+                        self.currentEmbeddedSubtitleText = nil
+                    }
                 }
             } else {
                 DispatchQueue.main.async {
@@ -496,11 +543,27 @@ public class MPVPlayerEngine: ObservableObject {
 
     // MARK: - Playback Control
     public func loadStream(url: URL, startTime: Double = 0, imdbID: String? = nil, isExternalAudio: Bool = false) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async {
+                self.loadStream(url: url, startTime: startTime, imdbID: imdbID, isExternalAudio: isExternalAudio)
+            }
+            return
+        }
         print("🎬 [MPVPlayerEngine] loadStream requested for: \(url.absoluteString), startTime: \(startTime)")
         self.currentURL = url
         self.playbackError = nil
         self.isBuffering = true
-        self.currentTime = startTime
+        self.hasRenderedFirstFrame = false
+        self.currentTime = 0
+        self.duration = 0
+        self.bufferedTime = 0
+        self.bufferedFraction = 0
+        self.lastObservedTime = 0
+        self.selectedSubtitleTrackId = nil
+        self.currentEmbeddedSubtitleText = nil
+        self.currentEmbeddedSubtitleImage = nil
+        self.chapterIntroRange = nil
+        self.chapterCreditsStart = nil
         self.pendingURL = url
         self.pendingStartTime = startTime > 0 ? startTime : nil
         self.activeIMDbID = imdbID
@@ -540,7 +603,11 @@ public class MPVPlayerEngine: ObservableObject {
     }
 
     public func play() {
-        isPlaying = true
+        if Thread.isMainThread {
+            isPlaying = true
+        } else {
+            DispatchQueue.main.async { self.isPlaying = true }
+        }
         eventQueue.async { [weak self] in
             guard let handle = self?.mpv else { return }
             var flag: Int32 = 0
@@ -549,7 +616,11 @@ public class MPVPlayerEngine: ObservableObject {
     }
 
     public func pause() {
-        isPlaying = false
+        if Thread.isMainThread {
+            isPlaying = false
+        } else {
+            DispatchQueue.main.async { self.isPlaying = false }
+        }
         eventQueue.async { [weak self] in
             guard let handle = self?.mpv else { return }
             var flag: Int32 = 1
@@ -567,7 +638,11 @@ public class MPVPlayerEngine: ObservableObject {
 
     public func seek(to seconds: Double) {
         let target = max(0, min(duration > 0 ? duration : Double.greatestFiniteMagnitude, seconds))
-        currentTime = target
+        if Thread.isMainThread {
+            currentTime = target
+        } else {
+            DispatchQueue.main.async { self.currentTime = target }
+        }
         executeCommandAsync(["seek", "\(target)", "absolute"])
     }
 
@@ -608,8 +683,15 @@ public class MPVPlayerEngine: ObservableObject {
     }
 
     public func setScaleMode(_ mode: VideoScaleMode) {
-        currentScaleMode = mode
-        isAspectFill = (mode == .fill || mode == .stretch)
+        if Thread.isMainThread {
+            currentScaleMode = mode
+            isAspectFill = (mode == .fill || mode == .stretch)
+        } else {
+            DispatchQueue.main.async {
+                self.currentScaleMode = mode
+                self.isAspectFill = (mode == .fill || mode == .stretch)
+            }
+        }
         eventQueue.async { [weak self] in
             guard let handle = self?.mpv else { return }
             switch mode {
@@ -691,14 +773,70 @@ public class MPVPlayerEngine: ObservableObject {
                 mpv_set_property_string(handle, "sub-visibility", "yes")
             } else {
                 mpv_set_property_string(handle, "sid", "no")
+                mpv_set_property_string(handle, "secondary-sid", "no")
                 mpv_set_property_string(handle, "sub-visibility", "no")
             }
             self?.refreshTracks()
         }
     }
 
+    public func refreshChapters() {
+        guard let handle = mpv else { return }
+        eventQueue.async { [weak self] in
+            guard let self = self else { return }
+            var count: Int64 = 0
+            guard mpv_get_property(handle, "chapter-list/count", MPV_FORMAT_INT64, &count) >= 0, count > 0 else { return }
+
+            var chapters: [(title: String, time: Double)] = []
+            for i in 0..<count {
+                var time: Double = 0
+                mpv_get_property(handle, "chapter-list/\(i)/time", MPV_FORMAT_DOUBLE, &time)
+                var title = ""
+                if let titleC = mpv_get_property_string(handle, "chapter-list/\(i)/title") {
+                    title = String(cString: titleC)
+                    mpv_free(titleC)
+                }
+                chapters.append((title: title, time: time))
+            }
+
+            var detectedIntro: (start: Double, end: Double)? = nil
+            var detectedCredits: Double? = nil
+
+            for (idx, chap) in chapters.enumerated() {
+                let lower = chap.title.lowercased()
+                let nextTime: Double? = (idx + 1 < chapters.count) ? chapters[idx + 1].time : nil
+
+                if detectedIntro == nil && (lower.contains("intro") || lower.contains("opening") || lower == "op" || lower.contains("theme") || lower.contains("main titles") || lower.contains("recap")) {
+                    if let end = nextTime, end > chap.time, (end - chap.time) <= 300 {
+                        detectedIntro = (start: chap.time, end: end)
+                    } else if chap.time < 600 {
+                        detectedIntro = (start: chap.time, end: chap.time + 85.0)
+                    }
+                }
+
+                if lower.contains("credit") || lower.contains("outro") || lower.contains("ending") || lower == "ed" || lower.contains("end titles") {
+                    if chap.time > 300 {
+                        detectedCredits = chap.time
+                    }
+                }
+            }
+
+            DispatchQueue.main.async {
+                if let intro = detectedIntro {
+                    print("📖 [MPVPlayerEngine] Chapter Intro detected: \(Int(intro.start))s -> \(Int(intro.end))s")
+                    self.chapterIntroRange = intro
+                }
+                if let credits = detectedCredits {
+                    print("📖 [MPVPlayerEngine] Chapter Credits detected at \(Int(credits))s")
+                    self.chapterCreditsStart = credits
+                }
+            }
+        }
+    }
+
     public func refreshTracks() {
         guard let handle = mpv else { return }
+        let desiredSubId = self.selectedSubtitleTrackId
         eventQueue.async { [weak self] in
             guard let self = self else { return }
             var count: Int64 = 0
@@ -739,13 +877,79 @@ public class MPVPlayerEngine: ObservableObject {
                     mpv_free(langC)
                 }
 
-                let track = MPVTrackInfo(id: id32, name: label, language: langStr, isEnabled: isEnabled)
+                var codecStr: String? = nil
+                if let codecC = mpv_get_property_string(handle, "track-list/\(i)/codec") {
+                    let c = String(cString: codecC)
+                    if !c.isEmpty { codecStr = c }
+                    mpv_free(codecC)
+                }
+
+                var isExt: Int32 = 0
+                mpv_get_property(handle, "track-list/\(i)/external", MPV_FORMAT_FLAG, &isExt)
+                let isExternal = isExt != 0
+
+                var isHi: Int32 = 0
+                mpv_get_property(handle, "track-list/\(i)/hearing-impaired", MPV_FORMAT_FLAG, &isHi)
+                let isHearingImpaired = isHi != 0
+
+                var isFrc: Int32 = 0
+                mpv_get_property(handle, "track-list/\(i)/forced", MPV_FORMAT_FLAG, &isFrc)
+                let isForced = isFrc != 0
+
+                var isDef: Int32 = 0
+                mpv_get_property(handle, "track-list/\(i)/default", MPV_FORMAT_FLAG, &isDef)
+                let isDefault = isDef != 0
+
+                var isOrig: Int32 = 0
+                mpv_get_property(handle, "track-list/\(i)/original", MPV_FORMAT_FLAG, &isOrig)
+                let isOriginal = isOrig != 0
+
+                var channelsStr: String? = nil
+                var chanCount: Int64 = 0
+                if mpv_get_property(handle, "track-list/\(i)/demux-channel-count", MPV_FORMAT_INT64, &chanCount) >= 0 && chanCount > 0 {
+                    if chanCount == 1 { channelsStr = "Mono (1.0)" }
+                    else if chanCount == 2 { channelsStr = "Stereo (2.0)" }
+                    else if chanCount == 6 { channelsStr = "5.1 Surround" }
+                    else if chanCount == 8 { channelsStr = "7.1 Surround" }
+                    else { channelsStr = "\(chanCount) Ch" }
+                } else if let chanC = mpv_get_property_string(handle, "track-list/\(i)/audio-channels") {
+                    channelsStr = String(cString: chanC)
+                    mpv_free(chanC)
+                }
+
+                let track = MPVTrackInfo(
+                    id: id32,
+                    name: label,
+                    language: langStr,
+                    codec: codecStr,
+                    isExternal: isExternal,
+                    isHearingImpaired: isHearingImpaired,
+                    isForced: isForced,
+                    channels: channelsStr,
+                    isEnabled: isEnabled && (type == "audio" || desiredSubId == id32),
+                    isDefault: isDefault,
+                    isOriginal: isOriginal
+                )
+
                 if type == "audio" {
                     audio.append(track)
                     if isEnabled { activeAudio = id32 }
                 } else if type == "sub" {
-                    subs.append(track)
-                    if isEnabled { activeSub = id32 }
+                    // Exclude bitmap subtitle codecs (PGS, VOBSUB, DVD, DVB) that cannot emit text cues
+                    let lowerCodec = (codecStr ?? "").lowercased()
+                    let isBitmap = lowerCodec.contains("pgs") || lowerCodec.contains("dvd") || lowerCodec.contains("dvb") || lowerCodec.contains("vob") || lowerCodec.contains("xsub") || lowerCodec.contains("teletext")
+                    if !isBitmap {
+                        subs.append(track)
+                    }
+                    if isEnabled {
+                        if desiredSubId == id32 && !isBitmap {
+                            activeSub = id32
+                        } else {
+                            // Container auto-selected an embedded/bitmap track; immediately suppress it!
+                            mpv_set_property_string(handle, "sid", "no")
+                            mpv_set_property_string(handle, "sub-visibility", "no")
+                        }
+                    }
                 }
             }
 
@@ -753,8 +957,53 @@ public class MPVPlayerEngine: ObservableObject {
                 self.availableAudioTracks = audio
                 self.selectedAudioTrackId = activeAudio
                 self.availableSubtitleTracks = subs
-                self.selectedSubtitleTrackId = activeSub
+                self.selectedSubtitleTrackId = desiredSubId != nil ? activeSub : nil
+                if desiredSubId == nil {
+                    self.currentEmbeddedSubtitleText = nil
+                }
             }
+        }
+    }
+
+    // MARK: - Subtitle Customization
+    public func setSubtitleDelay(_ delay: Double) {
+        let clamped = max(-10.0, min(10.0, (round(delay * 20.0) / 20.0)))
+        self.subtitleDelay = clamped
+        eventQueue.async { [weak self] in
+            guard let handle = self?.mpv else { return }
+            var d = clamped
+            mpv_set_property(handle, "sub-delay", MPV_FORMAT_DOUBLE, &d)
+        }
+    }
+
+    public func setSubtitleFont(_ fontName: String) {
+        // Rendered via SwiftUI overlay in PlayerView
+    }
+
+    public func setSubtitleFontSize(_ size: Double) {
+        // Rendered via SwiftUI overlay in PlayerView
+    }
+
+    public func setSubtitleBold(_ bold: Bool) {
+        // Rendered via SwiftUI overlay in PlayerView
+    }
+
+    public func setSubtitleColor(_ hexColor: String) {
+        // Rendered via SwiftUI overlay in PlayerView
+    }
+
+    public func setSubtitleFPS(_ fps: Double) {
+        eventQueue.async { [weak self] in
+            guard let handle = self?.mpv else { return }
+            var f = fps
+            mpv_set_property(handle, "sub-fps", MPV_FORMAT_DOUBLE, &f)
+        }
+    }
+
+    public func loadExternalSubtitle(fileURL: URL) {
+        executeCommandAsync(["sub-add", fileURL.path, "select"])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.refreshTracks()
         }
     }
 
@@ -822,14 +1071,24 @@ public class MPVPlayerEngine: ObservableObject {
         return 0
     }
 
+    public func captureSnapshot(toPath path: String) {
+        executeCommandAsync(["screenshot-to-file", path, "video"])
+    }
+
     // MARK: - Shutdown & Teardown
     public func reset() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { self.reset() }
+            return
+        }
         executeCommandAsync(["stop"])
         eventQueue.async { [weak self] in
             guard let handle = self?.mpv else { return }
             var flag: Int32 = 0
             mpv_set_property(handle, "pause", MPV_FORMAT_FLAG, &flag)
+            mpv_set_property_string(handle, "sid", "no")
         }
+        hasRenderedFirstFrame = false
         currentURL = nil
         pendingURL = nil
         pendingStartTime = nil
@@ -839,24 +1098,53 @@ public class MPVPlayerEngine: ObservableObject {
         duration = 0
         bufferedTime = 0
         bufferedFraction = 0
+        lastObservedTime = 0
         isPlaying = false
         isBuffering = false
         playbackError = nil
         availableAudioTracks.removeAll()
         availableSubtitleTracks.removeAll()
+        selectedAudioTrackId = nil
+        selectedSubtitleTrackId = nil
         currentEmbeddedSubtitleText = nil
         currentEmbeddedSubtitleImage = nil
+        chapterIntroRange = nil
+        chapterCreditsStart = nil
+    }
+
+    public func stop() {
+        if Thread.isMainThread {
+            isPlaying = false
+        } else {
+            DispatchQueue.main.async { self.isPlaying = false }
+        }
+        guard let handle = self.mpv else { return }
+        var pauseFlag: Int32 = 1
+        mpv_set_property(handle, "pause", MPV_FORMAT_FLAG, &pauseFlag)
+        var muteFlag: Int32 = 1
+        mpv_set_property(handle, "mute", MPV_FORMAT_FLAG, &muteFlag)
+        mpv_command_string(handle, "stop")
     }
 
     public func shutdown() {
         DisplaySleepManager.shared.enableDisplaySleep()
-        guard let handle = self.mpv else { return }
+        hasRenderedFirstFrame = false
+        guard let handle = self.mpv else {
+            reset()
+            return
+        }
         self.mpv = nil
         reset()
 
+        // Immediately and synchronously halt audio output and playback pipeline
+        var pauseFlag: Int32 = 1
+        mpv_set_property(handle, "pause", MPV_FORMAT_FLAG, &pauseFlag)
+        var muteFlag: Int32 = 1
+        mpv_set_property(handle, "mute", MPV_FORMAT_FLAG, &muteFlag)
+        mpv_command_string(handle, "stop")
         mpv_set_wakeup_callback(handle, nil, nil)
+
         eventQueue.async {
-            mpv_command_string(handle, "stop")
             mpv_terminate_destroy(handle)
             print("🛑 [MPVPlayerEngine] mpv context cleanly terminated and destroyed")
         }
