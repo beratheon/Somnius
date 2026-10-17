@@ -145,7 +145,8 @@ class AggregatorService {
             }
         } else if Config.showOnlyCachedResults {
             let cachedLinks = uniqueLinks.filter { $0.isCached }
-            if !cachedLinks.isEmpty {
+            // Only strictly restrict if we have a healthy set of cached results across qualities
+            if cachedLinks.count >= 4 {
                 uniqueLinks = cachedLinks
             }
         }
@@ -272,8 +273,11 @@ class AggregatorService {
 
         // 2. Real-Debrid instant cloud resolution (if configured)
         if !key.isEmpty {
-            // Only try cached torrents for instant playback (or starting link)
-            let debridCandidates = candidates.filter { $0.isCached || $0.id == startingLink.id }
+            let otherCandidates = candidates.filter { $0.id != startingLink.id }
+            let cachedOthers = otherCandidates.filter { $0.isCached }
+            let uncachedOthers = otherCandidates.filter { !$0.isCached }
+            let debridCandidates = [startingLink] + cachedOthers + Array(uncachedOthers.prefix(12))
+
             for candidate in debridCandidates {
                 // If candidate has a direct HTTP/HTTPS url that redirects to CDN
                 if let directURL = candidate.url,
@@ -291,7 +295,7 @@ class AggregatorService {
 
                 if let infoHash = hashToResolve, !infoHash.isEmpty {
                     do {
-                        let resolvedURL = try await rdService.addMagnetAndGetLink(infoHash: infoHash)
+                        let resolvedURL = try await rdService.addMagnetAndGetLink(infoHash: infoHash, fileIdx: candidate.fileIdx)
                         if isPlayableDirectURL(resolvedURL) {
                             return (resolvedURL, candidate)
                         }

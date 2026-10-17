@@ -439,7 +439,7 @@ struct CatalogStudioView: View {
                     TextField("e.g. time loop, cyberpunk, heist, space, revenge...", text: $mixerKeyword)
                         .textFieldStyle(.plain)
                         .font(.subheadline)
-                        .onChange(of: mixerKeyword) { _, _ in updateSuggestedTitle() }
+                        .onChange(of: mixerKeyword) { _ in updateSuggestedTitle() }
                     if !mixerKeyword.isEmpty {
                         Button(action: {
                             mixerKeyword = ""
@@ -494,7 +494,7 @@ struct CatalogStudioView: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .onChange(of: selectedDecadeId) { _, _ in updateSuggestedTitle() }
+                    .onChange(of: selectedDecadeId) { _ in updateSuggestedTitle() }
                 }
 
                 // Media Type Picker

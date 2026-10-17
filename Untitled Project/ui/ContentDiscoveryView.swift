@@ -388,7 +388,7 @@ struct ContentDiscoveryView: View {
     .onAppear {
         selectedCatalogCategory = filterCategory
     }
-    .onChange(of: filterCategory) { _, newCat in
+    .onChange(of: filterCategory) { newCat in
         selectedCatalogCategory = newCat
     }
 }
@@ -514,7 +514,7 @@ struct ContentSection: View {
                     }
                     .padding(.horizontal, 28)
                 }
-                .onChange(of: scrollIndex) { _, newIdx in
+                .onChange(of: scrollIndex) { newIdx in
                     withAnimation(.easeInOut(duration: 0.3)) {
                         proxy.scrollTo(newIdx, anchor: .leading)
                     }
@@ -619,18 +619,18 @@ struct MoviePosterCard: View {
                     .onAppear {
                         cardGlobalFrame = geo.frame(in: .global)
                     }
-                    .onChange(of: geo.frame(in: .global)) { _, newFrame in
+                    .onChange(of: geo.frame(in: .global)) { newFrame in
                         cardGlobalFrame = newFrame
                         if hoverCoordinator.activeHoveredID == item.id || isHovered {
                             hoverCoordinator.activePosterWindowFrame = newFrame
                         }
                     }
-                    .onChange(of: hoverCoordinator.activeHoveredID) { _, activeID in
+                    .onChange(of: hoverCoordinator.activeHoveredID) { activeID in
                         if activeID == item.id {
                             hoverCoordinator.activePosterWindowFrame = geo.frame(in: .global)
                         }
                     }
-                    .onChange(of: isHovered) { _, hovered in
+                    .onChange(of: isHovered) { hovered in
                         if hovered {
                             hoverCoordinator.activePosterWindowFrame = geo.frame(in: .global)
                         }

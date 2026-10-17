@@ -769,7 +769,7 @@ struct UserProfileView: View {
                 Spacer()
                 Toggle("", isOn: $autoPlayDirectly)
                     .toggleStyle(.switch)
-                    .onChange(of: autoPlayDirectly) { _, val in
+                    .onChange(of: autoPlayDirectly) { val in
                         Config.autoPlayDirectly = val
                     }
             }
@@ -795,7 +795,7 @@ struct UserProfileView: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 250)
-                .onChange(of: skipIntroMode) { _, val in
+                .onChange(of: skipIntroMode) { val in
                     Config.skipIntroMode = val
                 }
             }
@@ -816,7 +816,7 @@ struct UserProfileView: View {
                 Spacer()
                 Toggle("", isOn: $fastStartBuffering)
                     .toggleStyle(.switch)
-                    .onChange(of: fastStartBuffering) { _, val in
+                    .onChange(of: fastStartBuffering) { val in
                         Config.fastStartBuffering = val
                     }
             }
@@ -836,7 +836,7 @@ struct UserProfileView: View {
                         .foregroundColor(SoftTone.mist.color)
                 }
                 Slider(value: $bufferSeconds, in: 10...120, step: 5)
-                    .onChange(of: bufferSeconds) { _, val in
+                    .onChange(of: bufferSeconds) { val in
                         Config.bufferAheadSeconds = val
                     }
                 Text("Higher buffer ahead guarantees smooth playback on massive 4K Remux streams.")
@@ -891,7 +891,7 @@ struct UserProfileView: View {
                 Spacer()
                 Toggle("", isOn: $staticSubtitles)
                     .toggleStyle(.switch)
-                    .onChange(of: staticSubtitles) { _, val in
+                    .onChange(of: staticSubtitles) { val in
                         Config.staticSubtitles = val
                     }
             }
@@ -920,7 +920,7 @@ struct UserProfileView: View {
                 }
                 .pickerStyle(.menu)
                 .frame(width: 140)
-                .onChange(of: preferredSubLang) { _, val in
+                .onChange(of: preferredSubLang) { val in
                     Config.preferredSubtitleLanguage = val
                 }
             }
@@ -940,7 +940,7 @@ struct UserProfileView: View {
                         .foregroundColor(SoftTone.mist.color)
                 }
                 Slider(value: $subtitleFontSize, in: 16...48, step: 2)
-                    .onChange(of: subtitleFontSize) { _, val in
+                    .onChange(of: subtitleFontSize) { val in
                         Config.subtitleFontSizePreference = CGFloat(val)
                     }
 
@@ -958,7 +958,7 @@ struct UserProfileView: View {
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 260)
-                    .onChange(of: subtitleColor) { _, val in
+                    .onChange(of: subtitleColor) { val in
                         Config.subtitleColorPreference = val
                     }
                 }
@@ -982,7 +982,7 @@ struct UserProfileView: View {
                 }
                 Slider(value: $subtitleVerticalPos, in: 15...320, step: 2)
                     .tint(SoftTone.mist.color)
-                    .onChange(of: subtitleVerticalPos) { _, val in
+                    .onChange(of: subtitleVerticalPos) { val in
                         Config.subtitleVerticalPosition = val
                     }
 
@@ -1005,7 +1005,7 @@ struct UserProfileView: View {
                 }
                 Slider(value: $subtitleHorizontalPos, in: -45...45, step: 1)
                     .tint(SoftTone.sand.color)
-                    .onChange(of: subtitleHorizontalPos) { _, val in
+                    .onChange(of: subtitleHorizontalPos) { val in
                         Config.subtitleHorizontalPosition = val
                     }
 
@@ -1110,7 +1110,7 @@ struct UserProfileView: View {
                     Text("720p HD").tag("720p")
                 }
                 .pickerStyle(.segmented)
-                .onChange(of: preferredQuality) { _, val in
+                .onChange(of: preferredQuality) { val in
                     Config.preferredStreamQuality = val
                 }
             }
@@ -1131,7 +1131,7 @@ struct UserProfileView: View {
                 Spacer()
                 Toggle("", isOn: $showOnlyCached)
                     .toggleStyle(.switch)
-                    .onChange(of: showOnlyCached) { _, val in
+                    .onChange(of: showOnlyCached) { val in
                         Config.showOnlyCachedResults = val
                     }
             }
@@ -1152,7 +1152,7 @@ struct UserProfileView: View {
                 Spacer()
                 Toggle("", isOn: $autoPlayNext)
                     .toggleStyle(.switch)
-                    .onChange(of: autoPlayNext) { _, val in
+                    .onChange(of: autoPlayNext) { val in
                         Config.autoPlayNextEpisode = val
                     }
             }
@@ -1194,7 +1194,7 @@ struct UserProfileView: View {
                         Text("Unlimited").tag(0.0)
                     }
                     .pickerStyle(.segmented)
-                    .onChange(of: autoPlayMaxSize) { _, val in
+                    .onChange(of: autoPlayMaxSize) { val in
                         Config.autoPlayMaxGbSize = val
                     }
                 }
@@ -1212,7 +1212,7 @@ struct UserProfileView: View {
                         Text("720p HD").tag("720p")
                     }
                     .pickerStyle(.segmented)
-                    .onChange(of: autoPlayQuality) { _, val in
+                    .onChange(of: autoPlayQuality) { val in
                         Config.autoPlayPreferredQuality = val
                     }
                 }
@@ -1222,32 +1222,32 @@ struct UserProfileView: View {
                 // Attributes & Filters
                 Toggle("Prefer Dolby Vision Releases (Liquid Retina XDR)", isOn: $autoPlayPreferDV)
                     .toggleStyle(.switch)
-                    .onChange(of: autoPlayPreferDV) { _, val in
+                    .onChange(of: autoPlayPreferDV) { val in
                         Config.autoPlayPreferDolbyVision = val
                     }
 
                 Toggle("Prefer HDR10 / EDR High Dynamic Range", isOn: $autoPlayPreferHDR)
                     .toggleStyle(.switch)
-                    .onChange(of: autoPlayPreferHDR) { _, val in
+                    .onChange(of: autoPlayPreferHDR) { val in
                         Config.autoPlayPreferHDR = val
                     }
 
                 Toggle("Prefer 5.1 / 7.1 / Dolby Atmos Surround Audio", isOn: $autoPlayPreferSurround)
                     .toggleStyle(.switch)
-                    .onChange(of: autoPlayPreferSurround) { _, val in
+                    .onChange(of: autoPlayPreferSurround) { val in
                         Config.autoPlayPreferSurround = val
                     }
 
                 Toggle("Auto-Skip Hoster Notice Clips (< 90s Videos)", isOn: $autoPlaySkipShortClips)
                     .toggleStyle(.switch)
-                    .onChange(of: autoPlaySkipShortClips) { _, val in
+                    .onChange(of: autoPlaySkipShortClips) { val in
                         Config.autoPlaySkipShortClips = val
                     }
 
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Instant Cached Streams Only", isOn: $autoPlayCachedOnly)
                         .toggleStyle(.switch)
-                        .onChange(of: autoPlayCachedOnly) { _, val in
+                        .onChange(of: autoPlayCachedOnly) { val in
                             Config.autoPlayCachedOnly = val
                         }
                     Text("Auto-play strictly selects pre-cached, zero-buffer streams to ensure immediate, crash-free playback. Alternative sources remain accessible anytime in the player.")

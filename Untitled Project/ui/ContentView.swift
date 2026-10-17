@@ -296,7 +296,7 @@ struct ContentView: View {
             }
             .frame(minWidth: 880, idealWidth: 940, minHeight: 650, idealHeight: 720)
         }
-        .onChange(of: accountManager.activeAccount?.id) { _, newId in
+        .onChange(of: accountManager.activeAccount?.id) { newId in
             if newId != nil {
                 WatchlistManager.shared.reloadForCurrentProfile()
                 viewModel.fetchContent()
@@ -825,7 +825,7 @@ struct StreamSelectionSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             VStack(spacing: 0) {
                 if links.isEmpty && (isLoading || !hasFinished) {
                     VStack(spacing: 16) {

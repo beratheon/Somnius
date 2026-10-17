@@ -515,9 +515,19 @@ struct StreamParser {
         // 6. Extract File Size if present
         let sizeString = extractSizeString(from: rawTitle)
 
+        // Extract 40-char infoHash from URL if infoHash was not explicitly provided
+        var resolvedHash = infoHash
+        if (resolvedHash == nil || resolvedHash!.isEmpty), let uStr = url?.absoluteString {
+            if let regex = try? NSRegularExpression(pattern: #"\b([a-fA-F0-9]{40})\b"#),
+               let match = regex.firstMatch(in: uStr, range: NSRange(uStr.startIndex..., in: uStr)),
+               let range = Range(match.range(at: 1), in: uStr) {
+                resolvedHash = String(uStr[range]).lowercased()
+            }
+        }
+
         // Construct magnet URL if URL is nil and infoHash is present
         var finalURL = url
-        if finalURL == nil, let hash = infoHash, !hash.isEmpty {
+        if finalURL == nil, let hash = resolvedHash, !hash.isEmpty {
             let encodedTitle = rawTitle.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
             finalURL = URL(string: "magnet:?xt=urn:btih:\(hash)&dn=\(encodedTitle)")
         }
@@ -542,7 +552,7 @@ struct StreamParser {
             rawTitle: rawTitle,
             fileName: cleanFile,
             url: finalURL,
-            infoHash: infoHash,
+            infoHash: resolvedHash,
             quality: quality,
             resolutionBadge: resBadge,
             hdrTag: hdrTag,
@@ -595,7 +605,7 @@ struct StreamParser {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
-        let providerKeywords = ["torrentio", "comet", "knightcrawler", "mediafusion", "zilean", "cyberflix", "piratebay", "stremio", "elfhosted", "strem.fun"]
+        let providerKeywords = ["torrentio", "torrentsdb", "peerflix", "comet", "knightcrawler", "mediafusion", "zilean", "cyberflix", "piratebay", "stremio", "elfhosted", "strem.fun"]
         let releaseKeywords = ["2160p", "1080p", "720p", "480p", "remux", "bluray", "bdrip", "web-dl", "webdl", "webrip", "hevc", "x265", "x264", "h.264", "h.265", "dvdrip"]
 
         // 1. Look for line with video file extension (.mkv, .mp4, .avi, .ts)
@@ -636,10 +646,10 @@ struct StreamParser {
     private static func cleanRawLine(_ line: String) -> String {
         var str = line
         let prefixesToRemove = [
-            "[RD+] Torrentio", "[RD+] Comet", "[RD+] Knightcrawler", "[RD+] Cyberflix", "[RD+] MediaFusion",
+            "[RD+] Torrentio", "[RD+] TorrentsDB", "[RD download] TorrentsDB", "[RD+] Comet", "[RD+] Knightcrawler", "[RD+] Cyberflix", "[RD+] MediaFusion",
             "[RD☁️] Meteor", "[RD🌩️] Meteor", "[P2P☁️] Meteor", "[P2P🌩️] Meteor",
-            "[Torrentio]", "[Comet]", "[Knightcrawler]", "[Cyberflix]", "[MediaFusion]", "[Meteor]", "[Knaben]", "[Storz]", "[StremThru]",
-            "Torrentio", "Comet", "Knightcrawler", "Cyberflix", "MediaFusion", "Meteor", "Knaben", "Storz", "StremThru", "PirateBay",
+            "[Torrentio]", "[TorrentsDB]", "[Peerflix]", "[Comet]", "[Knightcrawler]", "[Cyberflix]", "[MediaFusion]", "[Meteor]", "[Knaben]", "[Storz]", "[StremThru]",
+            "Torrentio", "TorrentsDB", "Peerflix", "Comet", "Knightcrawler", "Cyberflix", "MediaFusion", "Meteor", "Knaben", "Storz", "StremThru", "PirateBay",
             "[Torrent]", "Torrent:", "Torrent", "[P2P]", "P2P:", "P2P"
         ]
         for p in prefixesToRemove {

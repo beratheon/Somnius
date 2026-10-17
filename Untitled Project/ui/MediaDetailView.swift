@@ -912,7 +912,7 @@ struct MediaDetailView: View {
                                                         }
                                                         .padding(.trailing, 16)
                                                     }
-                                                    .onChange(of: movieExtrasScrollTarget) { _, target in
+                                                    .onChange(of: movieExtrasScrollTarget) { target in
                                                         if let target = target {
                                                             withAnimation(.easeInOut(duration: 0.25)) {
                                                                 proxy.scrollTo(target, anchor: .leading)
@@ -1154,7 +1154,7 @@ struct MediaDetailView: View {
                 .onAppear {
                     scrollProxy.scrollTo("detailTopAnchor", anchor: .top)
                 }
-                .onChange(of: currentItem.id) { _, _ in
+                .onChange(of: currentItem.id) { _ in
                     withAnimation(.easeInOut(duration: 0.25)) {
                         scrollProxy.scrollTo("detailTopAnchor", anchor: .top)
                     }

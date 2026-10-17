@@ -527,8 +527,21 @@ class RealDebridService {
         throw NSError(domain: "RealDebrid", code: 0, userInfo: [NSLocalizedDescriptionKey: "Failed to parse download URL from RealDebrid response."])
     }
 
-    func addMagnetAndGetLink(infoHash: String) async throws -> URL {
-        let magnetURI = "magnet:?xt=urn:btih:\(infoHash)"
+    private func deleteTorrentQuietly(id: String) {
+        guard let delURL = URL(string: "\(baseURL)/torrents/delete/\(id)") else { return }
+        let key = apiKey
+        Task.detached {
+            var req = URLRequest(url: delURL)
+            req.httpMethod = "DELETE"
+            req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+            req.timeoutInterval = 4.0
+            _ = try? await URLSession.shared.data(for: req)
+        }
+    }
+
+    func addMagnetAndGetLink(infoHash: String, fileIdx: Int? = nil) async throws -> URL {
+        let cleanHash = infoHash.trimmingCharacters(in: .whitespacesAndNewlines)
+        let magnetURI = "magnet:?xt=urn:btih:\(cleanHash)"
         guard let addURL = URL(string: "\(baseURL)/torrents/addMagnet") else {
             throw NSError(domain: "RealDebrid", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid API URL"])
         }
@@ -538,6 +551,7 @@ class RealDebridService {
 
         var addRequest = URLRequest(url: addURL)
         addRequest.httpMethod = "POST"
+        addRequest.timeoutInterval = 6.0
         addRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         addRequest.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
         addRequest.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -569,13 +583,14 @@ class RealDebridService {
 
         var selectRequest = URLRequest(url: selectURL)
         selectRequest.httpMethod = "POST"
+        selectRequest.timeoutInterval = 6.0
         selectRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         selectRequest.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         selectRequest.httpBody = "files=all".data(using: .utf8)
 
         _ = try await URLSession.shared.data(for: selectRequest)
 
-        // Poll torrent status for links with video file matching
+        // Poll torrent status for links with video file matching (check immediately on attempt 0!)
         struct TorrentFileItem: Decodable {
             let id: Int
             let path: String
@@ -594,17 +609,22 @@ class RealDebridService {
 
         let videoExtensions = [".mkv", ".mp4", ".m4v", ".avi", ".mov", ".ts", ".m2ts", ".webm", ".flv"]
 
-        for _ in 0..<4 {
-            try await Task.sleep(nanoseconds: 600_000_000)
+        for attempt in 0..<3 {
+            if attempt > 0 {
+                try await Task.sleep(nanoseconds: 350_000_000)
+            }
 
             var infoRequest = URLRequest(url: infoURL)
+            infoRequest.timeoutInterval = 5.0
             infoRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
             if let (infoData, infoResp) = try? await URLSession.shared.data(for: infoRequest),
                let infoHTTP = infoResp as? HTTPURLResponse, (200...299).contains(infoHTTP.statusCode),
                let info = try? JSONDecoder().decode(TorrentInfoResponse.self, from: infoData) {
 
-                if info.status == "downloading" || info.status == "queued" {
+                let st = info.status.lowercased()
+                if st == "downloading" || st == "queued" || st == "magnet_conversion" || st == "error" || st == "dead" || st == "virus" || st == "magnet_error" {
+                    deleteTorrentQuietly(id: torrentID)
                     throw NSError(domain: "RealDebrid", code: 409, userInfo: [NSLocalizedDescriptionKey: "Torrent is not cached in cloud (status: \(info.status))"])
                 }
 
@@ -616,19 +636,26 @@ class RealDebridService {
                             let lowerPath = file.path.lowercased()
                             return videoExtensions.contains(where: { lowerPath.hasSuffix($0) })
                         }
-                        
-                        let bestFile = videoFiles.max(by: { $0.bytes < $1.bytes }) ?? selectedFiles.max(by: { $0.bytes < $1.bytes })
-                        
-                        if let best = bestFile, let index = selectedFiles.firstIndex(where: { $0.id == best.id }), index < links.count {
+
+                        var chosenFile: TorrentFileItem? = nil
+                        if let reqIdx = fileIdx {
+                            chosenFile = videoFiles.first(where: { $0.id == reqIdx + 1 || $0.id == reqIdx })
+                        }
+                        if chosenFile == nil {
+                            chosenFile = videoFiles.max(by: { $0.bytes < $1.bytes }) ?? selectedFiles.max(by: { $0.bytes < $1.bytes })
+                        }
+
+                        if let best = chosenFile, let index = selectedFiles.firstIndex(where: { $0.id == best.id }), index < links.count {
                             targetLink = links[index]
                         }
                     }
-                    
+
                     return try await unrestrict(urlString: targetLink)
                 }
             }
         }
 
+        deleteTorrentQuietly(id: torrentID)
         throw NSError(domain: "RealDebrid", code: 0, userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for RealDebrid torrent processing"])
     }
 }

@@ -6,6 +6,34 @@ import Combine
 import AppKit
 #endif
 
+// MARK: - Backward-compatible Hover Modifier for Timeline
+private struct TimelineHoverModifier: ViewModifier {
+    let width: CGFloat
+    let onHoverChange: (Bool, Double) -> Void
+
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        if #available(macOS 14.0, *) {
+            content.onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    let frac = max(0.0, min(1.0, Double(location.x / width)))
+                    onHoverChange(true, frac)
+                case .ended:
+                    onHoverChange(false, 0.0)
+                }
+            }
+        } else {
+            content.onHover { isOver in
+                onHoverChange(isOver, 0.5)
+            }
+        }
+        #else
+        content
+        #endif
+    }
+}
+
 // MARK: - Streaming Scrubber Bar with Hover Tooltip & Buffer Indicator
 struct StreamingScrubberBar: View {
     @Binding var currentTime: Double
@@ -171,16 +199,13 @@ struct StreamingScrubberBar: View {
                     }
             )
             #if os(macOS)
-            .onContinuousHover { phase in
-                switch phase {
-                case .active(let location):
-                    isHovering = true
-                    hoverFraction = max(0.0, min(1.0, location.x / width))
+            .modifier(TimelineHoverModifier(width: width) { hovering, frac in
+                isHovering = hovering
+                if hovering {
+                    hoverFraction = frac
                     onHovering?()
-                case .ended:
-                    isHovering = false
                 }
-            }
+            })
             #endif
         }
         .frame(height: 18)
