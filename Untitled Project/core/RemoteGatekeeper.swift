@@ -19,6 +19,9 @@ public final class RemoteGatekeeper: ObservableObject {
 
     private init() {
         self.isLocked = false
+        Task { [weak self] in
+            await self?.checkStatus()
+        }
     }
 
     public func checkStatus() async {
@@ -125,6 +128,9 @@ public struct RemoteGatekeeperLockView: View {
                     HStack(spacing: 14) {
                         // Install Now
                         Button(action: {
+                            #if os(macOS)
+                            NSWorkspace.shared.open(gatekeeper.downloadURL)
+                            #endif
                             AppUpdater.shared.checkForUpdates()
                             gatekeeper.showUpdateModal = false
                         }) {

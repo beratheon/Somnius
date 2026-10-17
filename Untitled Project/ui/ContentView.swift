@@ -234,8 +234,8 @@ struct ContentView: View {
                 .zIndex(500)
             }
 
-            // 13. Remote Gatekeeper & Beta Expiry Lockout Overlay
-            if remoteGatekeeper.isLocked {
+            // 13. Remote Gatekeeper & Update Notification Dialog Overlay
+            if remoteGatekeeper.isLocked || remoteGatekeeper.showUpdateModal {
                 RemoteGatekeeperLockView()
             }
         }
@@ -365,6 +365,9 @@ struct ContentView: View {
         }
         .onAppear {
             viewModel.fetchContent()
+            Task {
+                await remoteGatekeeper.checkStatus()
+            }
             #if os(macOS)
             if keyMonitor == nil {
                 keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
