@@ -8,7 +8,7 @@ Then you will use your apitoken to access debrid sources
 
 What's New:
 
-Dual Video Engines: Native KSPlayer + AVPlayer with fast audio & subtitle track switching.
+Dual Video Engines: Native libmpv player with fast audio & subtitle track switching.
 Unified Metadata Engine: TMDB & TVDB API integration 
 Universal Auto-Play: Smart source selection, file size bandwidth limiter, and automatic hoster notice-clip skipping.
 Decentralized Streaming Add-ons: Built-in support for Stremio Community Add-ons
