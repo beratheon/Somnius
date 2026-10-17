@@ -14,6 +14,25 @@ ARCHIVE_PATH="$BUILD_DIR/$APP_NAME.xcarchive"
 APP_PATH="$BUILD_DIR/$APP_NAME.app"
 DMG_PATH="$BUILD_DIR/$APP_NAME-$VERSION.dmg"
 
+# ==============================================================================
+# MANDATORY PRE-FLIGHT: Auto-Update System Integrity Check
+# Never allow a build or release to proceed without the update system intact!
+# ==============================================================================
+echo "🔍 Verifying Auto-Update system integrity..."
+if ! grep -q "remoteGatekeeper.showUpdateModal" "Untitled Project/ui/ContentView.swift"; then
+    echo "❌ FATAL: Auto-update modal overlay missing from ContentView.swift!"
+    exit 1
+fi
+if ! grep -q "remoteGatekeeper.checkStatus" "Untitled Project/ui/ContentView.swift"; then
+    echo "❌ FATAL: Auto-update checkStatus call missing from ContentView.swift onAppear!"
+    exit 1
+fi
+if ! grep -q "checkStatus" "Untitled Project/core/RemoteGatekeeper.swift"; then
+    echo "❌ FATAL: checkStatus missing from RemoteGatekeeper.swift!"
+    exit 1
+fi
+echo "✅ Auto-Update system verified intact."
+
 echo "🚀 Building $APP_NAME version $VERSION..."
 mkdir -p "$BUILD_DIR"
 

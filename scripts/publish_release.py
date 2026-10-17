@@ -46,6 +46,18 @@ def main():
         "X-GitHub-Api-Version": "2022-11-28"
     }
 
+    # 0. Enforce Auto-Update System & appcast.xml Integrity
+    print("🔍 Validating Auto-Update System & appcast.xml...")
+    with open("appcast.xml", "r") as f:
+        appcast_content = f.read()
+    if TAG.replace("v", "") not in appcast_content:
+        print(f"❌ FATAL: appcast.xml is missing release entry for {TAG}!")
+        sys.exit(1)
+    if f"<!-- <item>" in appcast_content or "<!--\n    <item>" in appcast_content:
+        print("❌ FATAL: appcast.xml item is commented out!")
+        sys.exit(1)
+    print("✅ Auto-Update feeds and appcast.xml validated!")
+
     # 1. Push code to main branch (including appcast.xml, project updates)
     print("🚀 Pushing repository (code, appcast.xml) to GitHub main...")
     remote_url = f"https://x-access-token:{token}@github.com/{REPO}.git"
